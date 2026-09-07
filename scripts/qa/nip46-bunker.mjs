@@ -1,9 +1,98 @@
-const path=require('path');const {createRequire}=require('module');const deps=createRequire(path.resolve(__dirname,'../../../bindws/node_modules/'));const {WebSocketServer,WebSocket}=deps('ws'); global.WebSocket=WebSocket;
-const {generateSecretKey,getPublicKey,finalizeEvent}=deps('nostr-tools'); const nip44=require(path.join(path.dirname(deps.resolve('nostr-tools')),'nip44.js'));
-const wss=new WebSocketServer({port:8789}); const clients=new Map(),events=[]; const bunkerSK=generateSecretKey(), bunkerPK=getPublicKey(bunkerSK), userSK=generateSecretKey(), userPK=getPublicKey(userSK);
-function match(ev,f){if(f.kinds&&!f.kinds.includes(ev.kind))return false;if(f.authors&&!f.authors.includes(ev.pubkey))return false;for(const [k,vals] of Object.entries(f))if(k[0]==='#'&&!ev.tags.some(t=>t[0]===k.slice(1)&&vals.includes(t[1])))return false;return true}
-wss.on('connection',ws=>{const subs=new Map();clients.set(ws,subs);ws.on('message',raw=>{let m;try{m=JSON.parse(raw)}catch{return}if(m[0]==='REQ'){const [id,...fs]=m.slice(1);subs.set(id,fs);for(const ev of events)if(fs.some(f=>match(ev,f)))ws.send(JSON.stringify(['EVENT',id,ev]));ws.send(JSON.stringify(['EOSE',id]));}else if(m[0]==='EVENT'){const ev=m[1];events.push(ev);for(const [peer,ps] of clients)for(const [id,fs] of ps)if(fs.some(f=>match(ev,f)))peer.send(JSON.stringify(['EVENT',id,ev]));ws.send(JSON.stringify(['OK',ev.id,true,'']))}});ws.on('close',()=>clients.delete(ws));});
-function publish(obj,clientPK){const conv=nip44.getConversationKey(bunkerSK,clientPK);const ev=finalizeEvent({kind:24133,tags:[['p',clientPK]],content:nip44.encrypt(JSON.stringify(obj),conv),created_at:Math.floor(Date.now()/1000)},bunkerSK);events.push(ev);for(const [peer,ps] of clients)for(const [id,fs] of ps)if(fs.some(f=>match(ev,f)))peer.send(JSON.stringify(['EVENT',id,ev]));}
-setInterval(()=>{for(const ev of events){if(ev.kind!==24133||ev.pubkey===bunkerPK||ev._handled)continue;ev._handled=true;try{const clientPK=ev.pubkey,conv=nip44.getConversationKey(bunkerSK,clientPK),req=JSON.parse(nip44.decrypt(ev.content,conv));let result='';if(req.method==='connect')result='ack';else if(req.method==='ping')result='pong';else if(req.method==='get_public_key')result=userPK;else if(req.method==='sign_event'){const x=JSON.parse(req.params[0]);result=JSON.stringify(finalizeEvent(x,userSK));}publish({id:req.id,result},clientPK);}catch(e){console.error('handler',e.message)}}},50);
-console.log(`bunker://?relay=ws%3A%2F%2F127.0.0.1%3A8789&pubkey=${bunkerPK}`); // UI parser expects pubkey in host; print corrected below
-console.log(`bunker://${bunkerPK}?relay=ws%3A%2F%2F127.0.0.1%3A8789`);
+#!/usr/bin/env node
+// A throwaway NIP-46 bunker for trying the Bunker URL sign-in flow locally.
+// It runs a minimal in-memory relay on 127.0.0.1:8789, answers connect,
+// ping, get_public_key and sign_event requests for a fresh user key, and
+// prints the bunker URL to paste into the sign-in page.
+import { WebSocketServer, WebSocket } from "ws";
+import { finalizeEvent, generateSecretKey, getPublicKey } from "nostr-tools/pure";
+import * as nip44 from "nostr-tools/nip44";
+
+globalThis.WebSocket = WebSocket;
+
+const port = Number(process.env.BUNKER_PORT ?? 8789);
+const bunkerSecret = generateSecretKey();
+const bunkerPubkey = getPublicKey(bunkerSecret);
+const userSecret = generateSecretKey();
+const userPubkey = getPublicKey(userSecret);
+const clients = new Map();
+const events = [];
+
+const matches = (event, filter) => {
+  if (filter.kinds && !filter.kinds.includes(event.kind)) return false;
+  if (filter.authors && !filter.authors.includes(event.pubkey)) return false;
+  for (const [key, values] of Object.entries(filter)) {
+    if (key[0] === "#" && !event.tags.some(tag => tag[0] === key.slice(1) && values.includes(tag[1]))) return false;
+  }
+  return true;
+};
+
+const broadcast = event => {
+  events.push(event);
+  for (const [peer, subscriptions] of clients) {
+    for (const [id, filters] of subscriptions) {
+      if (filters.some(filter => matches(event, filter))) peer.send(JSON.stringify(["EVENT", id, event]));
+    }
+  }
+};
+
+const server = new WebSocketServer({ host: "127.0.0.1", port });
+server.on("connection", socket => {
+  const subscriptions = new Map();
+  clients.set(socket, subscriptions);
+  socket.on("message", raw => {
+    let message;
+    try { message = JSON.parse(raw); } catch { return; }
+    if (message[0] === "REQ") {
+      const [id, ...filters] = message.slice(1);
+      subscriptions.set(id, filters);
+      for (const event of events) {
+        if (filters.some(filter => matches(event, filter))) socket.send(JSON.stringify(["EVENT", id, event]));
+      }
+      socket.send(JSON.stringify(["EOSE", id]));
+    } else if (message[0] === "EVENT") {
+      broadcast(message[1]);
+      socket.send(JSON.stringify(["OK", message[1].id, true, ""]));
+    } else if (message[0] === "CLOSE") {
+      subscriptions.delete(message[1]);
+    }
+  });
+  socket.on("close", () => clients.delete(socket));
+});
+
+const reply = (clientPubkey, payload) => {
+  const conversation = nip44.getConversationKey(bunkerSecret, clientPubkey);
+  broadcast(finalizeEvent({
+    kind: 24133,
+    tags: [["p", clientPubkey]],
+    content: nip44.encrypt(JSON.stringify(payload), conversation),
+    created_at: Math.floor(Date.now() / 1000)
+  }, bunkerSecret));
+};
+
+const answer = request => {
+  switch (request.method) {
+    case "connect": return "ack";
+    case "ping": return "pong";
+    case "get_public_key": return userPubkey;
+    case "sign_event": return JSON.stringify(finalizeEvent(JSON.parse(request.params[0]), userSecret));
+    default: throw Error("unsupported method " + request.method);
+  }
+};
+
+const handled = new WeakSet();
+setInterval(() => {
+  for (const event of events) {
+    if (event.kind !== 24133 || event.pubkey === bunkerPubkey || handled.has(event)) continue;
+    handled.add(event);
+    try {
+      const conversation = nip44.getConversationKey(bunkerSecret, event.pubkey);
+      const request = JSON.parse(nip44.decrypt(event.content, conversation));
+      reply(event.pubkey, { id: request.id, result: answer(request) });
+    } catch (err) {
+      console.error("bunker request failed:", err.message);
+    }
+  }
+}, 50);
+
+console.log("user pubkey: " + userPubkey);
+console.log(`bunker://${bunkerPubkey}?relay=${encodeURIComponent("ws://127.0.0.1:" + port)}`);
