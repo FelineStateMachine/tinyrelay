@@ -43,7 +43,7 @@ python3 scripts/observe-git-benchmark.py --out artifacts/git/baseline \
   -- ./scripts/git-performance.mjs
 ```
 
-The conformance harness runs the copied bindws-compatible cases against a running local daemon and preserves stdout, stderr, status, and environment artifacts. Start the daemon, then run `node scripts/conformance/run.mjs`; the NIP-11 compatibility assertion reflects the quota-free self-hosted contract.
+The [conformance suite](../scripts/conformance/README.md) runs black-box NIP and GRASP cases against a running local daemon and preserves stdout, stderr, status, and environment artifacts. Start the daemon, then run `node scripts/conformance/run.mjs`. To try the Bunker URL sign-in without a phone, run `node scripts/qa/nip46-bunker.mjs` and paste the printed URL into the sign-in page.
 
 ## Real Git repositories
 

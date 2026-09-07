@@ -1,19 +1,13 @@
-# Conformance harness
+# Conformance suite
 
-Start `tiny` on a local URL, then run:
+Black-box NIP and GRASP tests that speak plain websocket and HTTP to a running relay. Start `tiny` on a local URL, then run:
 
 ```sh
 RELAY_URL=ws://127.0.0.1:7447 node scripts/conformance/run.mjs
 ```
 
-The harness executes the original bindws black-box files from `../bindws`
-without modifying that checkout. By default setup provisions a permanent
-tenant with `tiny tenant create --name NAME --owner PUBKEY --template default`.
-Set `TINY_BIN`, `TINY_TENANT`, or `TINY_TEMPLATE` to adapt the command. The
-owner key is deterministic unless `CLAIM_SK` is supplied.
+Setup provisions a tenant with `tiny tenant create --name NAME --owner PUBKEY --template default` before the tests start. Set `TINY_BIN`, `TINY_TENANT`, `TINY_TEMPLATE`, or `TINY_DATA_DIR` to adapt that command, or `TINY_PREPROVISIONED=1` to skip it. The owner key is deterministic unless `CLAIM_SK` is supplied.
 
-For comparison only, `LEGACY_CLAIM=1` invokes bindws's old NIP-86 `claim`
-setup. This compatibility path is not a tiny requirement and does not skip or
-alter test assertions.
+Each run preserves `environment.txt`, `stdout.log`, `stderr.log`, and `status` under `artifacts/conformance/<UTC-stamp>/`. Set `CONFORMANCE_ARTIFACTS` to choose another destination. Pass extra vitest arguments after the script name to select files, for example `node scripts/conformance/run.mjs nip01`.
 
-Each run preserves `environment.txt`, `stdout.log`, `stderr.log`, and `status` under `artifacts/conformance/<UTC-stamp>/`. Set `CONFORMANCE_ARTIFACTS` to choose another destination. The source conformance files remain unchanged. The hosted NIP-11 file is replaced in this harness by `nip11.compat.test.ts`, which preserves every assertion except the numeric `limitation.max_limit` requirement because self-hosted relays have no hosted quota. Other self-hosting differences belong in separately named compatibility tests.
+The NIP-11 test does not require a numeric `limitation.max_limit` because self-hosted relays have no hosted quota.
