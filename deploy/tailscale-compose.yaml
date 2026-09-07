@@ -1,0 +1,89 @@
+name: tiny
+
+services:
+  tailscale:
+    # Local 1.102.3 build with the typed PortlistServices subscription fix.
+    image: tiny-tailscale:dogfood
+    container_name: tiny-tailscale
+    hostname: tiny
+    environment:
+      TS_HOSTNAME: tiny
+      TS_STATE_DIR: /var/lib/tailscale
+      TS_AUTH_ONCE: "true"
+      TS_USERSPACE: "false"
+      TS_ACCEPT_DNS: "false"
+      TS_EXTRA_ARGS: --shields-up=false
+      TS_ENABLE_HEALTH_CHECK: "true"
+      TS_ENABLE_METRICS: "true"
+      TS_LOCAL_ADDR_PORT: 127.0.0.1:9002
+    volumes:
+      - type: bind
+        source: /srv/tiny/tailscale
+        target: /var/lib/tailscale
+        bind:
+          create_host_path: false
+    devices:
+      - /dev/net/tun:/dev/net/tun
+    cap_add: [NET_ADMIN]
+    healthcheck:
+      test: [CMD, wget, -q, -O, /dev/null, http://127.0.0.1:9002/healthz]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    restart: unless-stopped
+
+  relay:
+    image: tiny:dogfood
+    container_name: tiny
+    network_mode: service:tailscale
+    pid: service:tailscale
+    depends_on: [tailscale]
+    command:
+      - serve
+      - --listen=127.0.0.1:7447
+      - --public-url=https://tiny.tailbe516a.ts.net
+      - --default-tenant=tiny
+      - --provision-owner=c01503e8035f5a98eb2004721dc4eeddda498c7871927ae7edb4525ab6ccf2d7
+      - --allow-private-relays
+      - --diagnostics=127.0.0.1:9091
+    env_file: /srv/tiny/deploy/tiny.env
+    volumes:
+      - type: bind
+        source: /srv/tiny/data
+        target: /data
+        bind:
+          create_host_path: false
+    restart: unless-stopped
+    stop_grace_period: 30s
+
+  https:
+    image: caddy@sha256:5f5c8640aae01df9654968d946d8f1a56c497f1dd5c5cda4cf95ab7c14d58648
+    container_name: tiny-https
+    network_mode: service:tailscale
+    pid: service:tailscale
+    depends_on: [tailscale, relay]
+    volumes:
+      - type: bind
+        source: /srv/tiny/deploy/Caddyfile
+        target: /etc/caddy/Caddyfile
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: /srv/tiny/certs
+        target: /certs
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: /srv/tiny/logs
+        target: /logs
+        bind:
+          create_host_path: false
+    tmpfs: [/data, /config]
+    healthcheck:
+      test: [CMD, wget, -q, -O, /dev/null, http://127.0.0.1:7447/readyz]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    restart: unless-stopped

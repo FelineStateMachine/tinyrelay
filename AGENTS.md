@@ -1,0 +1,2 @@
+- The middle dot character (U+00B7) is disallowed in project text and interfaces.
+- Write all documentation in AP style, with clear, concise organization. Documentation is a user-facing surface; omit incidental implementation notes.

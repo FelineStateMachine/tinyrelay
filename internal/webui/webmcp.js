@@ -1,0 +1,141 @@
+(function () {
+  "use strict";
+
+  const context = document.modelContext || navigator.modelContext;
+  const state = window.tinyWebMCP = {
+    supported: typeof context?.registerTool === "function",
+    registered: [], errors: [], lastOperation: "", ready: Promise.resolve()
+  };
+  const announce = () => window.dispatchEvent(new CustomEvent("tiny:webmcp", {detail: state}));
+  if (!state.supported) { announce(); return; }
+
+  const root = (location.pathname.match(/^\/r\/[^/]+/) || [""])[0];
+  const local = path => root + path;
+  const output = value => ({
+    content: [{type: "text", text: JSON.stringify(value)}],
+    structuredContent: {result: value}
+  });
+  const object = (properties = {}, required = []) => ({type: "object", properties, required, additionalProperties: false});
+  const text = {type: "string"};
+  const pubkey = {type: "string", pattern: "^[0-9a-f]{64}$"};
+  const hash = {type: "string", pattern: "^[0-9a-f]{64}$"};
+  const id = {type: "string", minLength: 1};
+  const limit = {type: "integer", minimum: 1, maximum: 100};
+  const view = {type: "string", enum: ["tree", "file", "history", "commit", "activity"]};
+  const repository = {owner: pubkey, repo: id, ref: text, path: text, view};
+  const reads = {readOnlyHint: true, untrustedContentHint: true};
+  const changes = {consequentialHint: true, untrustedContentHint: true};
+  const pending = [];
+
+  async function responseJSON(response) {
+    const body = await response.text();
+    let value;
+    try { value = JSON.parse(body); }
+    catch { throw new Error(response.ok ? "The relay returned an invalid response." : body || `Request failed (${response.status}).`); }
+    if (!response.ok || value?.error) throw new Error(value?.error || `Request failed (${response.status}).`);
+    return value;
+  }
+
+  async function query(method, input, signal) {
+    const params = new URLSearchParams({method, params: JSON.stringify([input])});
+    const response = await fetch(local("/webmcp/query") + "?" + params, {
+      method: "GET", credentials: "same-origin", signal
+    });
+    return responseJSON(response);
+  }
+
+  async function manage(method, params, signal) {
+    if (!window.tinySignedFetch) throw new Error("The signer is still loading. Try again.");
+    const response = await window.tinySignedFetch(local("/manage/rpc"), "POST",
+      JSON.stringify({method, params}), {contentType: "application/json", signal});
+    const value = await responseJSON(response);
+    return value.result;
+  }
+
+  function register(name, description, schema, annotations, execute) {
+    const tool = {
+      name, description, inputSchema: schema, annotations,
+      execute: async (input, options = {}) => {
+        state.lastOperation = `${name}: running`;
+        announce();
+        try {
+          const value = await execute(input, options.signal);
+          state.lastOperation = `${name}: completed`;
+          announce();
+          return output(value);
+        } catch (error) {
+          state.lastOperation = `${name}: ${error.message}`;
+          announce();
+          throw error;
+        }
+      }
+    };
+    pending.push(Promise.resolve().then(() => context.registerTool(tool)).then(() => {
+      state.registered.push(name);
+    }, error => {
+      state.errors.push(`${name}: ${error.message || error}`);
+    }));
+  }
+
+  register("tiny.list_repositories", "List repositories visible to your account. Supports search and pagination.",
+    object({cursor: text, limit, q: text}), reads, (input, signal) => query("browserepos", input, signal));
+  register("tiny.read_repository", "Read a repository tree, source file, history, commit diff or activity. Use ref to select a branch, tag or commit.",
+    object({...repository, offset: {type: "integer", minimum: 0}, limit}, ["owner", "repo"]), reads,
+    (input, signal) => query("browserepo", input, signal));
+  register("tiny.list_files", "List stored files visible to your account.",
+    object({cursor: text, limit}), reads, (input, signal) => query("browsefiles", input, signal));
+  register("tiny.read_file", "Read a stored file's metadata and available preview by SHA-256 hash.",
+    object({hash}, ["hash"]), reads, (input, signal) => query("browsefile", input, signal));
+  register("tiny.read_status", "Read service health, storage and job status. Requires a signed-in owner or moderator session.",
+    object(), reads, (input, signal) => query("browsestatus", input, signal));
+
+  const readMethods = ["stats", "getpolicy", "listaudit", "listjobs", "listbackups", "listdumps", "deliverystatus", "storagestats", "gitstorage", "listconnections", "listmembers"];
+  register("tiny.read_management", "Read relay configuration, jobs, backups, delivery status or members using your connected signer. gitstorage requires owner and repo.",
+    object({method: {type: "string", enum: readMethods}, owner: pubkey, repo: id}, ["method"]), reads,
+    (input, signal) => {
+      if (!readMethods.includes(input.method)) throw new Error("Unsupported read operation.");
+      if (input.method === "gitstorage") {
+        if (!input.owner || !input.repo) throw new Error("Choose a repository owner and name.");
+        return manage(input.method, [input.owner, input.repo], signal);
+      }
+      return manage(input.method, [], signal);
+    });
+
+  function open(path) {
+    const url = new URL(local(path), location.href);
+    location.assign(url.href);
+    return {opened: url.href};
+  }
+  function repoURL(input) {
+    const params = new URLSearchParams();
+    for (const key of ["owner", "repo", "ref", "path", "view"]) {
+      if (input[key] !== undefined) params.set(key, input[key]);
+    }
+    return "/repo?" + params;
+  }
+  register("tiny.open_repository", "Open a repository in this tab for browsing code, history or activity.",
+    object(repository, ["owner", "repo"]), {}, input => open(repoURL(input)));
+  register("tiny.open_file", "Open a stored file by its SHA-256 hash in this tab. For repository source, use tiny.open_repository with view=file.",
+    object({hash}, ["hash"]), {}, input => open("/file?hash=" + encodeURIComponent(input.hash)));
+  register("tiny.open_status", "Open the relay status page in this tab.", object(), {}, () => open("/manage/status"));
+
+  function control(name, description, schema, method, params) {
+    register(name, description, schema, changes, (input, signal) => manage(method, params(input), signal));
+  }
+  control("tiny.run_job", "Queue an existing job to run now. Inspect job status to check its completion.",
+    object({id}, ["id"]), "runjob", input => [input.id]);
+  control("tiny.add_job", "Add a background job. every is the interval in hours; 0 runs once. Pull and push jobs need ws:// or wss:// relay URLs; pull may instead discover relays for a public key. Dump and backup jobs may omit relays.",
+    object({id, kind: {type: "string", enum: ["pull", "push", "import", "mirror", "dump", "backup"]},
+      relays: {type: "array", items: text}, filter: {...text, description: "Nostr filter encoded as a JSON object string."},
+      every: {type: "integer", minimum: 0, description: "Interval in hours. Zero runs once."}, discoverPubKey: pubkey}, ["id", "kind"]),
+    "addjob", input => [input]);
+  control("tiny.remove_job", "Remove a job and cancel its pending runs.", object({id}, ["id"]), "removejob", input => [input.id]);
+  control("tiny.backup_now", "Queue a backup of relay data. Inspect jobs and backups to check completion.", object(), "backupnow", () => []);
+  control("tiny.dump_now", "Queue an event export. Inspect jobs and dumps to check completion.", object(), "dumpnow", () => []);
+  control("tiny.set_connections", "Replace the relay's connection list. Read the current list before editing it.",
+    object({connections: {type: "array", items: {type: "object"}}}, ["connections"]), "setconnections", input => [input.connections]);
+  control("tiny.set_policy", "Apply a partial relay policy update. Read the current policy before changing access, delivery or features. Requires the owner signer.",
+    object({patch: {type: "object", minProperties: 1}}, ["patch"]), "setpolicy", input => [input.patch]);
+
+  state.ready = Promise.all(pending).then(() => { state.registered.sort(); announce(); });
+})();

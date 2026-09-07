@@ -1,0 +1,9 @@
+.git
+.DS_Store
+.playwright-cli
+output
+artifacts
+node_modules
+*.db
+*.db-shm
+*.db-wal

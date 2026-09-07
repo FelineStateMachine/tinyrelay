@@ -1,0 +1,27 @@
+{
+  auto_https disable_redirects
+  admin 127.0.0.1:2019
+}
+
+http://tiny, http://tiny.tailbe516a.ts.net {
+  redir https://tiny.tailbe516a.ts.net{uri} permanent
+}
+
+https://tiny {
+  tls /certs/tiny.crt /certs/tiny.key
+  redir https://tiny.tailbe516a.ts.net{uri} permanent
+}
+
+https://tiny.tailbe516a.ts.net {
+  tls /certs/tailnet.crt /certs/tailnet.key
+  reverse_proxy 127.0.0.1:7447
+  @signerQR path /qr.svg /r/*/qr.svg
+  log_skip @signerQR
+  log {
+    output file /logs/access.json {
+      roll_size 10MiB
+      roll_keep 7
+    }
+    format json
+  }
+}

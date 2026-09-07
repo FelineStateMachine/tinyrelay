@@ -2,8 +2,10 @@ package daemon
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
+	"net/http"
 	"sort"
 	"strings"
 	"sync"
@@ -36,30 +38,35 @@ type tenantConfig struct {
 }
 
 type Tenant struct {
-	app         *App
-	meta        catalog.Tenant
-	store       *storage.Store
-	community   *community.Service
-	gate        *gates.Gate
-	router      *relay.Router
-	auth        *auth.Validator
-	blobs       *blob.Service
-	sites       *sites.Service
-	records     *records.Service
-	config      *configport.ConfigStore
-	replication *replication.Service
-	git         *gitrelay.GitRelay
-	ui          *webui.App
-	workCtx     context.Context
-	workCancel  context.CancelFunc
-	workWG      sync.WaitGroup
-	publicURL   string
-	mu          sync.RWMutex
-	policy      policy.Policy
+	app           *App
+	meta          catalog.Tenant
+	store         *storage.Store
+	community     *community.Service
+	gate          *gates.Gate
+	router        *relay.Router
+	auth          *auth.Validator
+	blobs         *blob.Service
+	sites         *sites.Service
+	records       *records.Service
+	config        *configport.ConfigStore
+	replication   *replication.Service
+	git           *gitrelay.GitRelay
+	ui            *webui.App
+	schedulerWake chan struct{}
+	workCtx       context.Context
+	workCancel    context.CancelFunc
+	workWG        sync.WaitGroup
+	workErrMu     sync.Mutex
+	workErr       error
+	publicURL     string
+	mu            sync.RWMutex
+	policyWrite   sync.Mutex
+	policy        policy.Policy
+	maintenance   maintenanceGate
 }
 
 func newTenant(ctx context.Context, cfg tenantConfig) (*Tenant, error) {
-	t := &Tenant{app: cfg.app, meta: cfg.meta, store: cfg.store, policy: cfg.policy, publicURL: cfg.publicURL, auth: auth.NewValidator(time.Now)}
+	t := &Tenant{app: cfg.app, meta: cfg.meta, store: cfg.store, policy: cfg.policy, publicURL: cfg.publicURL, auth: auth.NewValidator(time.Now), schedulerWake: make(chan struct{}, 1)}
 	var err error
 	t.community, err = community.New(ctx, t.store, t.policy.Owner)
 	if err != nil {
@@ -69,11 +76,45 @@ func newTenant(ctx context.Context, cfg tenantConfig) (*Tenant, error) {
 	if err != nil {
 		return nil, err
 	}
-	t.router = relay.New(t, relay.Config{RelayURL: t.RelayURL(), MaxMessageBytes: t.app.cfg.MaxMessageBytes, MaxPendingBytes: t.app.cfg.MaxPendingBytes, OriginPatterns: []string{"*"}})
+	t.router = relay.New(t, InstrumentRelayConfig(relay.Config{RelayURL: t.RelayURL(), RequestRelayURL: func(r *http.Request) string { return strings.Replace(t.requestURL(r), "http", "ws", 1) }, OnAuthenticate: t.authenticated, MaxMessageBytes: t.app.cfg.MaxMessageBytes, MaxPendingBytes: t.app.cfg.MaxPendingBytes, OriginPatterns: []string{"*"}}, t.app.telemetry))
 	if err := t.initServices(ctx); err != nil {
 		return nil, err
 	}
 	return t, nil
+}
+
+func (t *Tenant) authenticated(ctx context.Context, s relay.Session) error {
+	ctx, done, admissionErr := t.beginOperation(ctx)
+	if admissionErr != nil {
+		return admissionErr
+	}
+	defer done()
+	for _, pubkey := range s.PubKeys {
+		if privatePolicy(t.Policy()) {
+			// Keep NIP-42 and NIP-98 at the same private-service boundary.
+			// Membership is resolved for every AUTH, so revocation applies to
+			// already connected clients when they authenticate again.
+			if err := t.requirePrivateAccess(ctx, pubkey); err != nil {
+				return err
+			}
+		}
+		banned, err := t.community.IsBanned(ctx, pubkey)
+		if err != nil {
+			return err
+		}
+		if banned {
+			return errors.New("blocked: this pubkey is banned")
+		}
+		if err := t.records.NotePresence(ctx, pubkey, time.Now().Unix()); err != nil {
+			return err
+		}
+		if pubkey == t.Policy().Owner {
+			if err := t.records.Heartbeat(ctx, pubkey, time.Now().Unix()); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 func (t *Tenant) Policy() policy.Policy {
@@ -84,15 +125,31 @@ func (t *Tenant) Policy() policy.Policy {
 }
 func (t *Tenant) RelayURL() string { return strings.Replace(t.publicURL, "http", "ws", 1) }
 func (t *Tenant) Close(ctx context.Context) error {
-	return errors.Join(t.closeServices(ctx), t.router.Close(ctx), t.store.Close())
+	t.maintenance.markClosing()
+	servicesErr := t.closeServices(ctx)
+	routerErr := t.router.Close(ctx)
+	if err := t.maintenance.waitIdle(ctx); err != nil {
+		return errors.Join(servicesErr, routerErr, err)
+	}
+	return errors.Join(servicesErr, routerErr, t.store.Close())
 }
 
 func (t *Tenant) Publish(ctx context.Context, e event.Event, s relay.Session) (string, error) {
+	ctx, done, admissionErr := t.beginOperation(ctx)
+	if admissionErr != nil {
+		return "", admissionErr
+	}
+	defer done()
 	ctx, finish := t.app.telemetry.Start(ctx, "publish")
 	outcome := "error"
 	defer func() { finish(outcome) }()
 	now := time.Now().Unix()
+	var gitRepo gitrelay.Repository
+	gitMetadata := false
 	if err := t.gate.Write(ctx, e, s, now); err != nil {
+		return "", err
+	}
+	if err := t.validatePushRegistration(ctx, e, s); err != nil {
 		return "", err
 	}
 	if e.Kind == event.KIND_VANISH {
@@ -102,22 +159,209 @@ func (t *Tenant) Publish(ctx context.Context, e event.Event, s relay.Session) (s
 		outcome = "ok"
 		return "", nil
 	}
+	if e.Kind == event.KIND_REPORT {
+		target := ""
+		targetType := ""
+		reportType := ""
+		for _, tag := range e.Tags {
+			if len(tag) > 1 && tag[0] == "e" && target == "" {
+				target = tag[1]
+				targetType = "event"
+				if len(tag) > 2 {
+					reportType = tag[2]
+				}
+			}
+			if len(tag) > 1 && tag[0] == "p" && target == "" {
+				target = tag[1]
+				targetType = "pubkey"
+				if len(tag) > 2 {
+					reportType = tag[2]
+				}
+			}
+			if len(tag) > 1 && tag[0] == "x" && target == "" {
+				target = tag[1]
+				targetType = "blob"
+				if len(tag) > 2 {
+					reportType = tag[2]
+				}
+			}
+		}
+		if target == "" {
+			return "", errors.New("invalid: report needs an e or p tag")
+		}
+		if err := t.community.SubmitReportTarget(ctx, e.PubKey, target, targetType, reportType, e.Content, t.Policy().ReportThreshold); err != nil {
+			return "", err
+		}
+		outcome = "ok"
+		return "info: report received", nil
+	}
 	opts := storage.SaveOptions{Now: now, SearchMode: t.Policy().Features.Search}
+	if e.Kind == 30023 {
+		opts.Intents = append(opts.Intents, storage.Intent{Kind: "view-publish", EventID: e.ID, Target: "articles", Payload: "{}"})
+	}
+	var metadataNext policy.Policy
+	metadataChanged := false
+	if e.Kind == event.KIND_EDIT_METADATA || e.Kind == event.KIND_PINS {
+		role, roleErr := t.community.Role(ctx, e.PubKey)
+		if roleErr != nil {
+			return "", roleErr
+		}
+		if role != "owner" && role != "moderator" {
+			return "", errors.New("restricted: not a group admin")
+		}
+		before := opts.BeforeCommit
+		opts.BeforeCommit = func(txCtx context.Context, tx *sql.Tx) error {
+			if before != nil {
+				if err := before(txCtx, tx); err != nil {
+					return err
+				}
+			}
+			return t.community.HandleProjectionEventTx(txCtx, tx, e, func(sideTx *sql.Tx) error {
+				if e.Kind == event.KIND_EDIT_METADATA {
+					metadataNext = t.Policy()
+					for _, tag := range e.Tags {
+						if len(tag) < 2 {
+							continue
+						}
+						switch tag[0] {
+						case "name":
+							metadataNext.Name = tag[1][:min(200, len(tag[1]))]
+						case "about":
+							metadataNext.Description = tag[1][:min(2000, len(tag[1]))]
+						case "picture":
+							metadataNext.Icon = tag[1][:min(2000, len(tag[1]))]
+						}
+					}
+					metadataChanged = true
+					return storage.PutSetting(txCtx, sideTx, "policy", metadataNext)
+				}
+				pins, err := parsePinTags(e.Tags)
+				if err != nil {
+					return err
+				}
+				if _, err := sideTx.ExecContext(txCtx, `DELETE FROM records_pins`); err != nil {
+					return err
+				}
+				for i, ref := range pins {
+					if _, err := sideTx.ExecContext(txCtx, `INSERT INTO records_pins(position,ref) VALUES(?,?)`, i, ref); err != nil {
+						return err
+					}
+				}
+				return nil
+			})
+		}
+	}
+	opts.Intents = append(opts.Intents, t.replication.Prepare(e, replication.OriginClient)...)
+	if callbackIntents, callbackErr := t.PrepareReplicationCallbacks(ctx, e); callbackErr != nil {
+		return "", callbackErr
+	} else {
+		for _, intent := range callbackIntents {
+			opts.Intents = append(opts.Intents, intent)
+		}
+	}
 	if t.sites != nil {
 		if err := sites.ValidateManifest(e); err != nil {
 			return "", err
 		}
-		opts = t.sites.SaveOptions(e, now)
+		before := opts.BeforeCommit
+		intents := opts.Intents
+		siteOpts := t.sites.SaveOptions(e, now)
+		opts = siteOpts
 		opts.SearchMode = t.Policy().Features.Search
-		opts.Intents = append(opts.Intents, t.replication.Prepare(e, replication.OriginClient)...)
+		if before != nil {
+			siteBefore := opts.BeforeCommit
+			opts.BeforeCommit = func(txCtx context.Context, tx *sql.Tx) error {
+				if err := before(txCtx, tx); err != nil {
+					return err
+				}
+				if siteBefore != nil {
+					return siteBefore(txCtx, tx)
+				}
+				return nil
+			}
+		}
+		opts.Intents = append(intents, opts.Intents...)
 	}
-	_, err := t.store.Save(ctx, e, opts)
+	if t.Policy().Features.Grasp && (e.Kind == event.KIND_REPO || e.Kind == event.KIND_REPO_STATE) {
+		repo, err := t.git.Validate(ctx, e)
+		if err != nil {
+			return "", err
+		}
+		gitRepo, gitMetadata = repo, true
+		raw, err := json.Marshal(repo)
+		if err != nil {
+			return "", err
+		}
+		opts.Intents = append(opts.Intents, storage.Intent{Kind: "git-metadata", EventID: e.ID, Target: repo.Owner + ":" + repo.Identifier, Payload: string(raw)})
+		if e.Kind == event.KIND_REPO_STATE {
+			before := opts.BeforeCommit
+			opts.BeforeCommit = func(txCtx context.Context, tx *sql.Tx) error {
+				if before != nil {
+					if err := before(txCtx, tx); err != nil {
+						return err
+					}
+				}
+				_, err := tx.ExecContext(txCtx, "INSERT OR REPLACE INTO pending_events(id,reason) VALUES(?,'git objects')", e.ID)
+				return err
+			}
+		}
+	}
+	if e.Kind == event.KIND_MARMOT_GROUP {
+		principal, principalErr := t.gate.Principal(ctx, e, s)
+		if principalErr != nil {
+			return "", principalErr
+		}
+		before := opts.BeforeCommit
+		opts.BeforeCommit = func(txCtx context.Context, tx *sql.Tx) error {
+			if before != nil {
+				if err := before(txCtx, tx); err != nil {
+					return err
+				}
+			}
+			_, err := tx.ExecContext(txCtx, `INSERT OR REPLACE INTO marmot_principals(event_id,pubkey) VALUES(?,?)`, e.ID, principal)
+			return err
+		}
+	}
+	var err error
+	persist := func(tx *sql.Tx) error {
+		_, saveErr := storage.SaveTx(ctx, tx, e, opts)
+		return saveErr
+	}
+	switch e.Kind {
+	case event.KIND_JOIN, event.KIND_LEAVE, event.KIND_NIP43_JOIN, event.KIND_NIP43_LEAVE:
+		_, err = t.community.HandleMembershipEventTx(ctx, e, persist)
+	case event.KIND_PUT_USER, event.KIND_REMOVE_USER, event.KIND_DELETE_EVENT, event.KIND_CREATE_INVITE:
+		_, err = t.community.HandleModerationEventTx(ctx, e, persist)
+	default:
+		_, err = t.store.Save(ctx, e, opts)
+	}
 	if errors.Is(err, storage.ErrDuplicate) {
 		outcome = "duplicate"
 		return storage.ErrDuplicate.Error(), nil
 	}
 	if err != nil {
 		return "", err
+	}
+	// Stage Git metadata before acknowledging the event. This closes the
+	// publish-ACK/receive-pack race: the signed pending refs and hook exist
+	// before a client can push objects for the state.
+	if gitMetadata {
+		if err := t.git.CommitAfterStoreNoNotify(ctx, e, gitRepo); err != nil {
+			return "", err
+		}
+	}
+	if metadataChanged {
+		t.mu.Lock()
+		t.policy = metadataNext
+		t.mu.Unlock()
+	}
+	if err := t.records.NotePresence(ctx, e.PubKey, now); err != nil {
+		t.app.telemetry.Logger().Error("publish presence", "error", err)
+	}
+	if e.PubKey == t.Policy().Owner {
+		if err := t.records.Heartbeat(ctx, e.PubKey, now); err != nil {
+			t.app.telemetry.Logger().Error("owner heartbeat", "error", err)
+		}
 	}
 	outcome = "ok"
 	return "", nil
@@ -132,14 +376,65 @@ func (t *Tenant) vanish(ctx context.Context, e event.Event) error {
 	return errors.New("invalid: vanish request does not name this relay")
 }
 
+func parsePinTags(tags [][]string) ([]string, error) {
+	seen := map[string]bool{}
+	out := []string{}
+	for _, tag := range tags {
+		if len(tag) < 2 || (tag[0] != "e" && tag[0] != "a") {
+			continue
+		}
+		ref := tag[1]
+		if tag[0] == "e" && (len(ref) != 64 || !hexLower(ref)) {
+			continue
+		}
+		if tag[0] == "a" && !strings.Contains(ref, ":") {
+			continue
+		}
+		if !seen[ref] {
+			seen[ref] = true
+			out = append(out, ref)
+		}
+	}
+	if len(out) > 20 {
+		return nil, errors.New("invalid: pin list has more than 20 entries")
+	}
+	return out, nil
+}
+
+func hexLower(value string) bool {
+	for _, c := range value {
+		if !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f')) {
+			return false
+		}
+	}
+	return true
+}
+
 func (t *Tenant) Query(ctx context.Context, filters []event.Filter, s relay.Session) ([]event.Event, error) {
+	ctx, done, admissionErr := t.beginOperation(ctx)
+	if admissionErr != nil {
+		return nil, admissionErr
+	}
+	defer done()
 	if _, err := t.gate.Read(ctx, filters, s); err != nil {
 		return nil, err
 	}
 	result := []event.Event{}
 	seen := make(map[string]bool)
 	for _, f := range filters {
-		rows, err := t.store.Query(ctx, f, storage.QueryOptions{Now: time.Now().Unix(), Access: storage.Access{PubKeys: s.PubKeys}})
+		invite, includeInvite, err := t.nip43Invite(ctx, f, s)
+		if err != nil {
+			return nil, err
+		}
+		if includeInvite && !seen[invite.ID] {
+			seen[invite.ID] = true
+			result = append(result, invite)
+		}
+		queryFilter, queryStored := withoutNIP43Invite(f)
+		if !queryStored {
+			continue
+		}
+		rows, err := t.store.Query(ctx, queryFilter, storage.QueryOptions{Now: time.Now().Unix(), Access: storage.Access{PubKeys: s.PubKeys}})
 		if err != nil {
 			return nil, err
 		}
@@ -160,6 +455,11 @@ func (t *Tenant) Query(ctx context.Context, filters []event.Filter, s relay.Sess
 }
 
 func (t *Tenant) Count(ctx context.Context, filters []event.Filter, s relay.Session) (any, error) {
+	ctx, done, admissionErr := t.beginOperation(ctx)
+	if admissionErr != nil {
+		return nil, admissionErr
+	}
+	defer done()
 	if !t.Policy().Features.Count {
 		return nil, errors.New("unsupported: COUNT is switched off on this relay")
 	}
@@ -189,6 +489,11 @@ func (t *Tenant) Count(ctx context.Context, filters []event.Filter, s relay.Sess
 }
 
 func (t *Tenant) Sync(ctx context.Context, f event.Filter, s relay.Session) ([]syncprotocol.Item, error) {
+	ctx, done, admissionErr := t.beginOperation(ctx)
+	if admissionErr != nil {
+		return nil, admissionErr
+	}
+	defer done()
 	if !t.Policy().Features.Sync {
 		return nil, errors.New("unsupported: sync is switched off on this relay")
 	}
@@ -213,6 +518,11 @@ func (t *Tenant) CanReadFilter(e event.Event, s relay.Session, f *event.Filter) 
 }
 
 func (t *Tenant) QueryHints(ctx context.Context, filters []event.Filter, s relay.Session) ([]event.Event, []string, error) {
+	ctx, done, admissionErr := t.beginOperation(ctx)
+	if admissionErr != nil {
+		return nil, nil, admissionErr
+	}
+	defer done()
 	authHint, err := t.gate.Read(ctx, filters, s)
 	if err != nil {
 		return nil, nil, err
@@ -242,17 +552,38 @@ func (t *Tenant) QueryHints(ctx context.Context, filters []event.Filter, s relay
 }
 
 func (t *Tenant) setPolicy(ctx context.Context, patch map[string]json.RawMessage) (policy.Policy, error) {
-	t.mu.Lock()
-	next, err := policy.Patch(t.policy, patch)
-	if err == nil {
-		err = t.store.PutSetting(ctx, "policy", next)
+	t.policyWrite.Lock()
+	defer t.policyWrite.Unlock()
+	next, err := policy.Patch(t.Policy(), patch)
+	if err != nil {
+		return next, err
 	}
-	if err == nil {
-		t.policy = next
+	return next, t.persistPolicy(ctx, next)
+}
+
+func (t *Tenant) applyPolicy(ctx context.Context, next policy.Policy) error {
+	t.policyWrite.Lock()
+	defer t.policyWrite.Unlock()
+	return t.persistPolicy(ctx, next)
+}
+
+func (t *Tenant) persistPolicy(ctx context.Context, next policy.Policy) error {
+	previous := t.Policy()
+	err := t.store.WithTx(ctx, func(tx *sql.Tx) error {
+		if next.Owner != previous.Owner {
+			if err := t.community.ApplyOwnerTx(ctx, tx, previous.Owner, next.Owner); err != nil {
+				return err
+			}
+			if err := storage.AddIntents(ctx, tx, []storage.Intent{{Kind: "catalog-owner", EventID: next.Owner + time.Now().Format(time.RFC3339Nano), Target: t.meta.ID, Payload: next.Owner}}, time.Now().Unix()); err != nil {
+				return err
+			}
+		}
+		return storage.PutSetting(ctx, tx, "policy", next)
+	})
+	if err != nil {
+		return err
 	}
-	t.mu.Unlock()
-	if err == nil {
-		t.router.CloseSubscriptions("blocked: relay policy changed; subscribe again")
-	}
-	return next, err
+	t.community.SetOwner(next.Owner)
+	t.replacePolicy(next)
+	return nil
 }

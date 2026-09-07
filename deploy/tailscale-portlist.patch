@@ -1,0 +1,16 @@
+--- a/ipn/ipnlocal/local.go
++++ b/ipn/ipnlocal/local.go
+@@ -707,7 +707,12 @@
+ 		eventbus.SubscribeFunc(ec, b.onHealthChange)
+ 	}
+ 	if buildfeatures.HasPortList {
+-		eventbus.SubscribeFunc(ec, b.setPortlistServices)
++		// PortlistServices is a named eventbus topic. Register the exact named
++		// type; subscribing with []tailcfg.Service silently misses every event.
++		// See https://github.com/tailscale/tailscale/issues/18297.
++		eventbus.SubscribeFunc(ec, func(sl PortlistServices) {
++			b.setPortlistServices([]tailcfg.Service(sl))
++		})
+ 	}
+ 	eventbus.SubscribeFunc(ec, b.onAppConnectorRouteUpdate)
+ 	eventbus.SubscribeFunc(ec, b.onAppConnectorStoreRoutes)

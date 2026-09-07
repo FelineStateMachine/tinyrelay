@@ -1,0 +1,17 @@
+services:
+  tiny:
+    build:
+      context: ..
+      target: runtime
+    command: ["serve", "--listen", ":7447", "--public-url", "${TINY_PUBLIC_URL:-http://localhost:7447}"]
+    ports:
+      - "7447:7447"
+    volumes:
+      - tiny-data:/data
+    environment:
+      TINY_DATA_DIR: /data
+      TINY_PUBLIC_URL: ${TINY_PUBLIC_URL:-http://localhost:7447}
+    restart: unless-stopped
+
+volumes:
+  tiny-data:

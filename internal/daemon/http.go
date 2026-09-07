@@ -8,9 +8,12 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
+	"github.com/FelineStateMachine/tinyrelay/internal/blob"
+	"github.com/FelineStateMachine/tinyrelay/internal/domains"
 	"github.com/FelineStateMachine/tinyrelay/internal/event"
 	"github.com/FelineStateMachine/tinyrelay/internal/relay"
 	"github.com/FelineStateMachine/tinyrelay/internal/storage"
@@ -25,24 +28,76 @@ func (t *Tenant) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNoContent)
 		return
 	}
+	if r.URL.Path == "/healthz" || r.URL.Path == "/readyz" {
+		t.healthHTTP(w, r)
+		return
+	}
 	if strings.EqualFold(r.Header.Get("Upgrade"), "websocket") {
 		t.router.HandleHTTP(w, r)
+		return
+	}
+	if r.URL.Path != "/backups/restore" && r.URL.Path != "/manage/jobs/status" {
+		ctx, done, err := t.beginOperation(r.Context())
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusServiceUnavailable)
+			return
+		}
+		defer done()
+		r = r.WithContext(ctx)
+	}
+	if t.tryDataHTTP(w, r) {
+		return
+	}
+	if r.URL.Path == "/session" || r.URL.Path == "/session/logout" {
+		t.sessionHTTP(w, r)
+		return
+	}
+	if t.tryBrowseHTTP(w, r) {
 		return
 	}
 	if t.sites != nil && t.sites.MatchesHost(r.Host) {
 		t.sites.Handler().ServeHTTP(w, r)
 		return
 	}
-	if t.git != nil && (strings.HasPrefix(r.URL.Path, "/npub1") || strings.HasPrefix(r.URL.Path, "/prs/")) {
+	if t.git != nil && (strings.HasPrefix(r.URL.Path, "/npub1") || strings.HasPrefix(r.URL.Path, "/npub/") || strings.HasPrefix(r.URL.Path, "/prs/")) {
+		p := t.Policy()
+		if !p.Features.Grasp || (strings.HasPrefix(r.URL.Path, "/prs/") && !p.Features.Grasp06) {
+			http.NotFound(w, r)
+			return
+		}
+		if p.Reads != "open" && !privatePolicy(p) {
+			http.Error(w, "restricted: public Git hosting requires open reads", http.StatusForbidden)
+			return
+		}
+		if privatePolicy(p) && strings.TrimSpace(r.Header.Get("Authorization")) == "" {
+			http.Error(w, "auth-required: private Git hosting requires NIP-98", http.StatusUnauthorized)
+			return
+		}
+		if privatePolicy(p) {
+			proof, authErr := t.auth.VerifyNIP98(r.Header.Get("Authorization"), t.requestURL(r), r.Method, "")
+			if authErr != nil {
+				http.Error(w, authErr.Error(), http.StatusUnauthorized)
+				return
+			}
+			if accessErr := t.requirePrivateAccess(r.Context(), proof.PubKey); accessErr != nil {
+				http.Error(w, accessErr.Error(), http.StatusForbidden)
+				return
+			}
+			if spoolErr := spoolGitPayload(r, proof); spoolErr != nil {
+				http.Error(w, spoolErr.Error(), http.StatusUnauthorized)
+				return
+			}
+			r = privateGitRequest(r, proof)
+		}
 		t.git.ServeHTTP(w, r)
 		return
 	}
-	if t.blobs != nil && (r.URL.Path == "/upload" || r.URL.Path == "/mirror" || r.URL.Path == "/report" || r.URL.Path == "/nip96" || strings.HasPrefix(r.URL.Path, "/.well-known/nostr/nip96") || strings.HasPrefix(r.URL.Path, "/list/") || len(r.URL.Path) == 65 || len(r.URL.Path) == 69) {
+	if t.blobs != nil && blob.HandlesPath(r.URL.Path) {
+		if !t.Policy().Features.Files {
+			http.NotFound(w, r)
+			return
+		}
 		t.blobs.Handler().ServeHTTP(w, r)
-		return
-	}
-	if strings.Contains(r.Header.Get("Accept"), "application/nostr+json") {
-		t.information(w, r)
 		return
 	}
 	if r.Method == http.MethodPost && strings.Contains(r.Header.Get("Content-Type"), "application/nostr+json+rpc") {
@@ -54,11 +109,15 @@ func (t *Tenant) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if r.URL.Path == "/.well-known/nostr.json" {
+		if _, exists := r.URL.Query()["path"]; exists {
+			t.webAddress(w, r)
+			return
+		}
 		t.nip05(w, r)
 		return
 	}
-	if r.URL.Path == "/healthz" {
-		writeJSON(w, 200, map[string]any{"status": "ready"})
+	if strings.Contains(r.Header.Get("Accept"), "application/nostr+json") {
+		t.information(w, r)
 		return
 	}
 	if t.ui != nil {
@@ -70,6 +129,47 @@ func (t *Tenant) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	http.NotFound(w, r)
+}
+
+func (t *Tenant) webAddress(w http.ResponseWriter, r *http.Request) {
+	actor, err := t.resolveUIActor(r)
+	if err != nil {
+		http.Error(w, err.Error(), 401)
+		return
+	}
+	keys := []string{}
+	if actor != "" {
+		keys = append(keys, actor)
+	}
+	session := relay.Session{PubKeys: keys, RelayURL: t.RelayURL()}
+	domains.WebAddressHandler(domains.AddressConfig{
+		RelayURL: t.RelayURL(),
+		Authorized: func(req *http.Request) bool {
+			// resolveUIActor already verified and consumed the NIP-98 proof.
+			// Revalidating it here would reject every signed request as replay.
+			return req.Header.Get("Authorization") != "" && actor != ""
+		},
+		ReadAllowed: func(r *http.Request) bool {
+			_, err := t.gate.Read(r.Context(), []event.Filter{{}}, session)
+			return err == nil
+		},
+		Lookup: func(ctx context.Context, path string) (map[string]any, bool, error) {
+			filter, ok := AddressFilterForPath(path, t.Policy().Owner, t.records.PublicKey())
+			if !ok {
+				return nil, false, nil
+			}
+			raw, err := json.Marshal(filter)
+			if err != nil {
+				return nil, false, err
+			}
+			f, err := event.ParseFilter(raw)
+			if err != nil {
+				return nil, false, err
+			}
+			rows, err := t.Query(ctx, []event.Filter{f}, session)
+			return filter, len(rows) > 0, err
+		},
+	}).ServeHTTP(w, r)
 }
 
 func writeJSON(w http.ResponseWriter, status int, value any) {
@@ -103,7 +203,7 @@ func (t *Tenant) session(r *http.Request, body []byte) (relay.Session, error) {
 		ip = r.RemoteAddr
 	}
 	s := relay.Session{RelayURL: t.RelayURL(), RemoteIP: ip}
-	url := t.publicURL + r.URL.RequestURI()
+	url := t.requestURL(r)
 	e, err := t.auth.VerifyNIP98(r.Header.Get("Authorization"), url, r.Method, string(body))
 	if err != nil {
 		return s, err
@@ -181,21 +281,14 @@ func statusFor(err error) int {
 
 func (t *Tenant) information(w http.ResponseWriter, r *http.Request) {
 	p := t.Policy()
-	nips := []int{1, 9, 11, 13, 17, 40, 42, 62, 67, 70, 86, 98}
-	if p.Features.Count {
-		nips = append(nips, 45)
-	}
-	if p.Features.Search != "off" {
-		nips = append(nips, 50)
-	}
-	if p.Features.Sync {
-		nips = append(nips, 77)
-	}
-	if p.Features.Names {
-		nips = append(nips, 5)
-	}
-	if p.Features.Signer {
-		nips = append(nips, 46)
+	nips := []int{}
+	for _, capability := range t.Capabilities(nil) {
+		if capability.Status != "enabled" {
+			continue
+		}
+		if number, ok := capabilityNIPNumber(capability.ID); ok {
+			nips = append(nips, number)
+		}
 	}
 	name := p.Name
 	if name == "" {
@@ -212,21 +305,52 @@ func (t *Tenant) information(w http.ResponseWriter, r *http.Request) {
 		limits["min_pow_difficulty"] = p.MinPow
 	}
 	info := map[string]any{"name": name, "description": p.Description, "pubkey": p.Owner, "supported_nips": nips, "software": "https://github.com/FelineStateMachine/tinyrelay", "version": t.app.cfg.Version, "self_url": t.RelayURL(), "limitation": limits}
+	if privatePolicy(p) {
+		// GRASP-08 discovery is intentionally sparse. Clients need the service
+		// identity and protocol markers; tenant presentation metadata stays
+		// behind authenticated reads.
+		info = t.privateNIP11()
+		info["supported_nips"] = nips
+		info["software"] = "https://github.com/FelineStateMachine/tinyrelay"
+		info["version"] = t.app.cfg.Version
+		info["self_url"] = t.RelayURL()
+		info["limitation"] = limits
+	}
+	if t.records != nil {
+		info["self"] = t.records.PublicKey()
+	}
+	if p.Features.Grasp && t.git != nil && !privatePolicy(p) {
+		info["supported_grasps"] = t.git.SupportedGRASPs()
+	}
+	if privatePolicy(p) && t.git != nil {
+		info["supported_grasps"] = []string{"GRASP-01", "GRASP-08"}
+	}
+	if p.Features.Sites.Enabled && !privatePolicy(p) {
+		base, _ := url.Parse(t.publicURL)
+		domain := t.siteDomain()
+		if base.Port() != "" {
+			domain += ":" + base.Port()
+		}
+		info["nsites"] = map[string]any{"host": t.siteDomain(), "kinds": []int{15128, 35128, 5128}, "root": base.Scheme + "://<npub>." + domain, "named": base.Scheme + "://<pubkeyB36><dTag>." + domain, "snapshot": base.Scheme + "://v<snapshotIdB36>." + domain}
+	}
 	for key, value := range map[string]string{"icon": p.Icon, "banner": p.Banner, "contact": p.Contact, "posting_policy": p.PostingPolicy, "privacy_policy": p.PrivacyPolicy} {
+		if privatePolicy(p) {
+			break
+		}
 		if value != "" {
 			info[key] = value
 		}
 	}
-	if p.JoinTerms != "" {
+	if p.JoinTerms != "" && !privatePolicy(p) {
 		info["terms_of_service"] = t.publicURL + "/terms"
 	}
-	if len(p.Tags) > 0 {
+	if len(p.Tags) > 0 && !privatePolicy(p) {
 		info["tags"] = p.Tags
 	}
-	if len(p.LanguageTags) > 0 {
+	if len(p.LanguageTags) > 0 && !privatePolicy(p) {
 		info["language_tags"] = p.LanguageTags
 	}
-	if len(p.RelayCountries) > 0 {
+	if len(p.RelayCountries) > 0 && !privatePolicy(p) {
 		info["relay_countries"] = p.RelayCountries
 	}
 	raw, err := json.Marshal(info)
@@ -245,6 +369,17 @@ func (t *Tenant) nip05(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
+	if privatePolicy(t.Policy()) {
+		actor, err := t.resolveUIActor(r)
+		if err != nil || actor == "" {
+			http.Error(w, "auth-required: private service metadata requires NIP-98", http.StatusUnauthorized)
+			return
+		}
+		if err := t.requirePrivateAccess(r.Context(), actor); err != nil {
+			http.Error(w, err.Error(), http.StatusForbidden)
+			return
+		}
+	}
 	result, err := t.community.NIP05(r.Context(), r.URL.Query().Get("name"), t.RelayURL())
 	if err != nil {
 		writeJSON(w, 404, map[string]string{"error": "name not found"})
@@ -254,7 +389,7 @@ func (t *Tenant) nip05(w http.ResponseWriter, r *http.Request) {
 }
 
 func (t *Tenant) home(w http.ResponseWriter, r *http.Request) {
-	tmpl, err := template.New("home").Parse(`<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>{{.Name}}</title><h1>{{.Name}}</h1><p>{{.Description}}</p><p>Relay: <code>{{.URL}}</code></p><p><a href="./people">People</a> · <a href="./manage">Manage relay</a></p></html>`)
+	tmpl, err := template.New("home").Parse(`<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>{{.Name}}</title><h1>{{.Name}}</h1><p>{{.Description}}</p><p>Relay: <code>{{.URL}}</code></p><p><a href="./people">People</a> | <a href="./manage">Manage relay</a></p></html>`)
 	if err != nil {
 		http.Error(w, "page unavailable", 500)
 		return
@@ -302,19 +437,40 @@ func (t *Tenant) manageHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 func (t *Tenant) Execute(ctx context.Context, actor, method string, params []json.RawMessage) (any, error) {
+	ctx, done, admissionErr := t.beginOperation(ctx)
+	if admissionErr != nil {
+		return nil, admissionErr
+	}
+	defer done()
 	if method == "supportedmethods" {
 		methods := append([]string{"supportedmethods", "getpolicy", "setpolicy", "stats", "listlisthistory", "restorelist"}, t.community.Methods()...)
+		methods = append(methods, "successionstatus", "setsuccession", "clearsuccession", "listpins", "pinevent", "unpinevent", "listviews", "notifytest", "notifystatus")
 		if t.config != nil {
 			methods = append(methods, "exportconfig", "importconfig", "planconfig", "applypreset", "listpresets")
 		}
 		if t.replication != nil {
 			methods = append(methods, t.replication.Methods()...)
 		}
-		return methods, nil
+		methods = append(methods, ManagementMethods()...)
+		seen := make(map[string]bool)
+		result := []string{}
+		for _, method := range methods {
+			if !seen[method] {
+				seen[method] = true
+				result = append(result, method)
+			}
+		}
+		return result, nil
 	}
 	role, err := t.community.Role(ctx, actor)
 	if err != nil {
 		return nil, err
+	}
+	if result, handled, err := t.executeManagement(ctx, actor, method, params); handled {
+		return result, err
+	}
+	if containsString(t.community.Methods(), method) {
+		return t.executeCommunity(ctx, actor, method, params)
 	}
 	if method == "listlisthistory" {
 		return t.store.ListHistory(ctx, actor, time.Now().Unix())
@@ -331,6 +487,9 @@ func (t *Tenant) Execute(ctx context.Context, actor, method string, params []jso
 	}
 	if role != "owner" && role != "moderator" {
 		return nil, errors.New("restricted: owner or moderator required")
+	}
+	if t.records != nil && containsString([]string{"successionstatus", "setsuccession", "clearsuccession", "listpins", "pinevent", "unpinevent", "listviews", "notifytest", "notifystatus"}, method) {
+		return t.records.Execute(ctx, actor, method, params)
 	}
 	switch method {
 	case "getpolicy":
@@ -352,20 +511,37 @@ func (t *Tenant) Execute(ctx context.Context, actor, method string, params []jso
 		return t.store.Stats(ctx)
 	default:
 		if t.config != nil && containsString([]string{"exportconfig", "importconfig", "planconfig", "applypreset", "listpresets"}, method) {
+			if role != "owner" {
+				return nil, errors.New("restricted: only the owner manages configuration")
+			}
 			return t.config.Execute(ctx, method, params)
 		}
 		if t.replication != nil && containsString(t.replication.Methods(), method) {
-			values := make([]any, len(params))
-			for i, raw := range params {
-				var value any
-				if err := json.Unmarshal(raw, &value); err != nil {
-					return nil, err
-				}
-				values[i] = value
+			if role != "owner" {
+				return nil, errors.New("restricted: only the owner manages replication")
 			}
-			return t.replication.Execute(ctx, method, values...)
+			return t.replication.ExecuteRaw(ctx, method, params)
 		}
+		return t.executeCommunity(ctx, actor, method, params)
+	}
+}
+
+func (t *Tenant) executeCommunity(ctx context.Context, actor, method string, params []json.RawMessage) (any, error) {
+	if !communityACLMutation(method) {
 		return t.community.Execute(ctx, actor, method, params)
+	}
+	result, err := t.router.ApplyACLChange(ctx, func(changeCtx context.Context) (any, error) {
+		return t.community.Execute(changeCtx, actor, method, params)
+	}, "blocked: relay access policy changed; subscribe again")
+	return result, err
+}
+
+func communityACLMutation(method string) bool {
+	switch method {
+	case "setmember", "allowpubkey", "removemember", "unrulepubkey", "removesubtree", "banpubkey", "banevent", "allowevent", "blockip", "unblockip", "resolvereport", "allowkind", "disallowkind", "unrulekind", "setblockedwords":
+		return true
+	default:
+		return false
 	}
 }
 

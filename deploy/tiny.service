@@ -1,0 +1,22 @@
+[Unit]
+Description=tiny self-hosted Nostr relay daemon
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=relay
+Group=relay
+EnvironmentFile=-/etc/tiny/tiny.env
+ExecStart=/usr/local/bin/tiny serve --data-dir /var/lib/tiny --listen 127.0.0.1:7447 --public-url ${TINY_PUBLIC_URL}
+Restart=on-failure
+RestartSec=2s
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/tiny
+LimitNOFILE=65536
+
+[Install]
+WantedBy=multi-user.target
