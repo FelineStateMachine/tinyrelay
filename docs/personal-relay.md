@@ -52,17 +52,17 @@ The owner is `npub1cq2s86qrtadf36eqq3epm38wmhdynrrcwxf84eldk3f94dkv7ttsrulrz5`. 
 
 ## Repository hosting
 
-The relay hosts Git repositories over GRASP. Publishing needs the owner's signature on the announcement, on every ref state, and on each push, so use `nak git` with a remote signer rather than plain `git push`. Amber shows a bunker QR code under Applications; scan it into the shell with the webcam so the key stays on the phone:
+The relay hosts Git repositories over GRASP. Use [ngit](https://ngit.dev) so the owner signs the announcement, the ref state and each push with a remote signer. `ngit account login` shows a QR code to scan with Amber; the key stays on the phone.
 
 ```sh
-export NOSTR_SECRET_KEY="$(imagesnap -q -w 2 /tmp/amber.jpg && zbarimg -q --raw /tmp/amber.jpg)"
-export NOSTR_CLIENT_KEY="$(nak key generate)"
-nak git init --identifier tinyrelay --name tiny --owner <owner npub> \
-  --grasp-servers tiny.tailbe516a.ts.net --relays wss://tiny.tailbe516a.ts.net
-nak git push --tags
+ngit account login
+ngit init --name tiny --identifier tinyrelay --grasp-server tiny.tailbe516a.ts.net \
+  --description "self-hosted, multitenant Nostr relay"
+git remote add tiny nostr://<owner npub>/tiny.tailbe516a.ts.net/tinyrelay
+git push tiny main --tags
 ```
 
-Keep the same client key so Amber remembers the approval. Run `nak git push` again after new commits. Anyone can clone from `https://tiny.tailbe516a.ts.net/<owner npub>/tinyrelay.git` without signing.
+Later pushes are plain `git push tiny`. Anyone can clone the repository with `git clone nostr://<owner npub>/tiny.tailbe516a.ts.net/tinyrelay`, or with plain Git from `https://tiny.tailbe516a.ts.net/<owner npub>/tinyrelay.git`.
 
 ## Web operations
 
