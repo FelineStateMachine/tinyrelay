@@ -2009,6 +2009,14 @@ func streamCGI(w http.ResponseWriter, controller *http.ResponseController, reade
 			responseHeaders.Add(k, strings.TrimSpace(v))
 		}
 	}
+	// Hold the response until git produces its first body byte. HTTP/1.1
+	// proxies without full duplex discard the unread request body once a
+	// response starts, which would truncate a pack that is still uploading.
+	// git-http-backend writes its headers before reading the request, but
+	// writes body bytes only after it has consumed the pack.
+	if _, err := reader.Peek(1); err != nil && !errors.Is(err, io.EOF) {
+		return false, fmt.Errorf("read Git response body: %w", err)
+	}
 	for k, values := range responseHeaders {
 		for _, value := range values {
 			w.Header().Add(k, value)

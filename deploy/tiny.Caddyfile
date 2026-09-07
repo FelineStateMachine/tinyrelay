@@ -1,6 +1,9 @@
 {
   auto_https disable_redirects
   admin 127.0.0.1:2019
+  servers {
+    enable_full_duplex
+  }
 }
 
 http://tiny, http://tiny.tailbe516a.ts.net {
