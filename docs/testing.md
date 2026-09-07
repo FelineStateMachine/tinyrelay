@@ -47,7 +47,7 @@ The conformance harness runs the copied bindws-compatible cases against a runnin
 
 ## Real Git repositories
 
-The [Git performance report](git-performance.md) records the six-repository Slate experiment. Its HTML version and raw profiles live in `artifacts/git-performance/`; regenerate both reports with `python3 scripts/report-git-performance.py`.
+The Git performance harness below records raw profiles and results under `artifacts/git-performance/`.
 
 Prepare a new corpus from committed local branches and tags. This leaves the source repositories unchanged and refuses an existing output directory:
 

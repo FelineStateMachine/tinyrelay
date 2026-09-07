@@ -6,8 +6,7 @@
     "build:signer": "node scripts/build-signer.mjs",
     "test:conformance": "node scripts/conformance/run.mjs",
     "test:webmcp": "node --test scripts/webmcp.test.mjs",
-    "test:signer": "node --test scripts/signer.test.mjs",
-    "check:parity": "node scripts/conformance/check-parity.mjs"
+    "test:signer": "node --test scripts/signer.test.mjs"
   },
   "devDependencies": {
     "@noble/hashes": "2.4.0",
