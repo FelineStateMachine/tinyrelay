@@ -1,12 +1,15 @@
 package daemon
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/url"
 	"strings"
+	"time"
 
 	"github.com/FelineStateMachine/tinyrelay/internal/blob"
 	"github.com/FelineStateMachine/tinyrelay/internal/configport"
@@ -27,18 +30,38 @@ func (t *Tenant) initServices(ctx context.Context) error {
 	var err error
 	t.blobs, err = blob.New(ctx, blob.Config{
 		Root: t.meta.Paths.Root, Store: t.store, Authorize: t.authorizeBlob,
-		CanRead: func(ctx context.Context, pubkey string, hashes []string) bool {
+		CanRead: func(ctx context.Context, hash string, pubkeys []string) bool {
 			p := t.Policy()
 			if p.Reads == "open" {
 				return true
 			}
-			role, err := t.community.Role(ctx, pubkey)
-			return err == nil && role != ""
+			for _, pubkey := range pubkeys {
+				if p.Reads == "auth" {
+					return true
+				}
+				role, err := t.community.Role(ctx, pubkey)
+				if err == nil && role != "" {
+					return true
+				}
+			}
+			return false
 		}, IsOwner: func(pubkey string) bool { return pubkey == t.Policy().Owner },
 	})
 	if err != nil {
 		return err
 	}
+	t.community.ConfigurePolicy(t.Policy)
+	t.community.OnMembershipApplied(func(event.Event) {
+		go func() {
+			generated, err := t.records.PublishMembership(context.Background(), time.Now().Unix())
+			if err != nil {
+				return
+			}
+			for _, record := range generated {
+				_ = t.generatedRecord(context.Background(), record)
+			}
+		}()
+	})
 	t.sites, err = sites.New(sites.Config{
 		Store: t.store,
 		GetBlob: func(ctx context.Context, hash string) (sites.Blob, error) {
@@ -62,10 +85,10 @@ func (t *Tenant) initServices(ctx context.Context) error {
 	}
 	t.config = configport.New(configport.ConfigStore{Store: t.store, Community: t.community, Policy: t.Policy, OnApplied: func(p policy.Policy) { t.replacePolicy(p) }})
 	transport := &replication.NostrTransport{Dialer: replication.WebsocketDialer{}}
-	t.replication, err = replication.NewService(replication.Config{Store: t.store, Policy: replication.Policy{Enabled: t.Policy().Delivery.Enabled, SelfPubKey: t.Policy().Owner}, CurrentPolicy: func() replication.Policy {
+	t.replication, err = replication.NewService(replication.Config{Store: t.store, Policy: replication.Policy{Enabled: t.Policy().Delivery.Enabled, SelfPubKey: t.records.PublicKey()}, CurrentPolicy: func() replication.Policy {
 		p := t.Policy()
-		return replication.Policy{Enabled: p.Delivery.Enabled, SelfPubKey: p.Owner}
-	}, Delivery: transport, Pull: transport, Push: transport, DataDir: t.meta.Paths.Root, Ingest: t.ingest})
+		return replication.Policy{Enabled: p.Delivery.Enabled, ReadMembersOnly: p.Reads != "open", SelfPubKey: t.records.PublicKey()}
+	}, Directory: localDirectory{store: t.store}, Delivery: transport, Pull: transport, Push: transport, DataDir: t.meta.Paths.Root, Ingest: t.ingest})
 	if err != nil {
 		return err
 	}
@@ -85,6 +108,25 @@ func (t *Tenant) initServices(ctx context.Context) error {
 
 // backend adapts the management method signature to webui's form-oriented API.
 type backend struct{ tenant *Tenant }
+
+type localDirectory struct{ store *storage.Store }
+
+func (d localDirectory) WriteRelays(pubkey string) []string { return d.relays(pubkey, true) }
+func (d localDirectory) ReadRelays(pubkey string) []string  { return d.relays(pubkey, false) }
+func (d localDirectory) relays(pubkey string, write bool) []string {
+	rows, err := d.store.Query(context.Background(), event.Filter{Authors: []string{pubkey}, Kinds: []int{10002}, Tags: map[string][]string{}}, storage.QueryOptions{Now: time.Now().Unix(), Access: storage.Access{All: true}, Limit: 1})
+	if err != nil || len(rows.Events) == 0 {
+		return nil
+	}
+	result := make([]string, 0)
+	for _, tag := range rows.Events[0].Tags {
+		if len(tag) < 2 || tag[0] != "r" || (!write && len(tag) > 2 && tag[2] != "read") || (write && len(tag) > 2 && tag[2] == "read") {
+			continue
+		}
+		result = append(result, tag[1])
+	}
+	return result
+}
 
 func (b backend) Query(ctx context.Context, method string, params []json.RawMessage, actor string) (any, error) {
 	return b.tenant.Execute(ctx, actor, method, params)
@@ -121,11 +163,42 @@ func (t *Tenant) siteReadAccess(r *http.Request) bool {
 }
 func (t *Tenant) authorizeBlob(r *http.Request, action blob.Action) (string, error) {
 	e, err := t.auth.WhoAsks(r.Header.Get("Authorization"), t.publicURL+r.URL.RequestURI(), r.Method, "", string(action), strings.TrimPrefix(r.URL.Path, "/"))
-	return first(e), err
+	pubkey := first(e)
+	if err != nil {
+		return "", err
+	}
+	if pubkey == "" {
+		return "", errors.New("auth-required: blob authorization required")
+	}
+	if action == blob.ActionUpload || action == blob.ActionMirror {
+		if !t.Policy().Features.Files {
+			return "", errors.New("restricted: file uploads are disabled")
+		}
+		role, roleErr := t.community.Role(r.Context(), pubkey)
+		if roleErr != nil || (t.Policy().Writes != "open" && role == "") {
+			return "", errors.New("restricted: file upload is not allowed")
+		}
+	}
+	return pubkey, nil
 }
 func (t *Tenant) authorizeGit(ctx context.Context, r *http.Request, repo gitrelay.Repository) error {
-	_, err := t.auth.VerifyNIP98(r.Header.Get("Authorization"), t.publicURL+r.URL.RequestURI(), r.Method, "")
-	return err
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		return err
+	}
+	r.Body = io.NopCloser(bytes.NewReader(body))
+	e, err := t.auth.VerifyNIP98(r.Header.Get("Authorization"), t.publicURL+r.URL.RequestURI(), r.Method, string(body))
+	if err != nil {
+		return err
+	}
+	if e.PubKey == repo.Owner {
+		return nil
+	}
+	role, roleErr := t.community.Role(ctx, e.PubKey)
+	if roleErr != nil || (role != "owner" && role != "moderator" && role != "member") {
+		return errors.New("restricted: repository authorization required")
+	}
+	return nil
 }
 func first(v []string) string {
 	if len(v) == 0 {
@@ -134,7 +207,12 @@ func first(v []string) string {
 	return v[0]
 }
 func (t *Tenant) resolveUIActor(r *http.Request) (string, error) {
-	e, err := t.auth.VerifyNIP98(r.Header.Get("Authorization"), t.publicURL+r.URL.RequestURI(), r.Method, "")
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		return "", err
+	}
+	r.Body = io.NopCloser(bytes.NewReader(body))
+	e, err := t.auth.VerifyNIP98(r.Header.Get("Authorization"), t.publicURL+r.URL.RequestURI(), r.Method, string(body))
 	if err != nil {
 		return "", err
 	}
