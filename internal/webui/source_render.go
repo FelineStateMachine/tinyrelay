@@ -28,7 +28,8 @@ func previewLines(content string) ([]string, bool) {
 
 // sourceHTML renders a bounded source preview. It returns template.HTML only
 // after escaping every source byte and constructing the surrounding markup.
-// The template should place the result inside a source-view region.
+// The markup is wrapped in a <source-view lang="..."> element and uses only
+// semantic elements so styling needs no class hooks.
 func sourceHTML(value any) template.HTML {
 	m := valueMap(value)
 	content, _ := m["content"].(string)
@@ -45,29 +46,32 @@ func sourceHTML(value any) template.HTML {
 	lines, linesTruncated := previewLines(content)
 	var out strings.Builder
 	out.Grow(len(content) + len(lines)*120)
-	out.WriteString(`<table class="source-view source-lang-`)
+	out.WriteString(`<source-view lang="`)
 	out.WriteString(language)
-	out.WriteString(`"><tbody>`)
+	out.WriteString(`"><table><tbody>`)
 	state := highlightState{}
 	for number, line := range lines {
 		out.WriteString(`<tr id="L`)
 		writeUint(&out, number+1)
-		out.WriteString(`"><td class="source-line"><a href="#L`)
+		out.WriteString(`"><td><a href="#L`)
 		writeUint(&out, number+1)
 		out.WriteString(`">`)
 		writeUint(&out, number+1)
-		out.WriteString(`</a></td><td class="source-code"><code>`)
+		out.WriteString(`</a></td><td><code>`)
 		highlightLine(&out, line, language, &state)
 		out.WriteString(`</code></td></tr>`)
 	}
+	out.WriteString(`</tbody>`)
 	if truncated || linesTruncated {
-		out.WriteString(`<tr class="source-truncated"><td colspan="2">Preview truncated (256 KiB or 10,000 lines). Use the raw/download control to view the complete file.</td></tr>`)
+		out.WriteString(`<tfoot><tr><td colspan="2">Preview truncated (256 KiB or 10,000 lines). Use the raw/download control to view the complete file.</td></tr></tfoot>`)
 	}
-	out.WriteString(`</tbody></table>`)
+	out.WriteString(`</table></source-view>`)
 	return template.HTML(out.String())
 }
 
 // diffHTML renders a line-oriented diff without interpreting its content.
+// Added lines are wrapped in <ins>, removed lines in <del>, and hunk headers
+// in <b>; context lines carry no wrapper.
 func diffHTML(value any) template.HTML {
 	m := valueMap(value)
 	diff, _ := m["diff"].(string)
@@ -84,35 +88,32 @@ func diffHTML(value any) template.HTML {
 	lines, linesTruncated := previewLines(diff)
 	var out strings.Builder
 	out.Grow(len(diff) + len(lines)*140)
-	out.WriteString(`<table class="diff-view"><tbody>`)
+	out.WriteString(`<diff-view><table><tbody>`)
 	for number, line := range lines {
-		class := "diff-context"
+		wrapper := ""
 		switch {
 		case strings.HasPrefix(line, "@@"):
-			class = "diff-hunk"
+			wrapper = "b"
 		case strings.HasPrefix(line, "+"):
-			class = "diff-add"
+			wrapper = "ins"
 		case strings.HasPrefix(line, "-"):
-			class = "diff-remove"
-		case strings.HasPrefix(line, "\\"):
-			class = "diff-note"
+			wrapper = "del"
 		}
-		out.WriteString(`<tr class="`)
-		out.WriteString(class)
-		out.WriteString(`" id="D`)
+		out.WriteString(`<tr id="D`)
 		writeUint(&out, number+1)
-		out.WriteString(`"><td class="diff-line"><a href="#D`)
+		out.WriteString(`"><td><a href="#D`)
 		writeUint(&out, number+1)
 		out.WriteString(`">`)
 		writeUint(&out, number+1)
-		out.WriteString(`</a></td><td class="diff-code"><code>`)
-		out.WriteString(html.EscapeString(line))
+		out.WriteString(`</a></td><td><code>`)
+		writeWrapped(&out, wrapper, line)
 		out.WriteString(`</code></td></tr>`)
 	}
+	out.WriteString(`</tbody>`)
 	if truncated || linesTruncated {
-		out.WriteString(`<tr class="diff-truncated"><td colspan="2">Diff preview truncated (256 KiB or 10,000 lines).</td></tr>`)
+		out.WriteString(`<tfoot><tr><td colspan="2">Diff preview truncated (256 KiB or 10,000 lines).</td></tr></tfoot>`)
 	}
-	out.WriteString(`</tbody></table>`)
+	out.WriteString(`</table></diff-view>`)
 	return template.HTML(out.String())
 }
 
@@ -229,15 +230,26 @@ func highlightLine(out *strings.Builder, line, language string, state *highlight
 	}
 }
 
-func writeToken(out *strings.Builder, class, value string) {
-	if class != "" {
-		out.WriteString(`<span class="tok-`)
-		out.WriteString(class)
-		out.WriteString(`">`)
+// tokenElements maps token kinds to the semantic element that carries them.
+var tokenElements = map[string]string{"keyword": "b", "comment": "i", "string": "q", "number": "var"}
+
+func writeToken(out *strings.Builder, kind, value string) {
+	writeWrapped(out, tokenElements[kind], value)
+}
+
+// writeWrapped escapes value and, when element is not empty, wraps it in that
+// attribute-free element.
+func writeWrapped(out *strings.Builder, element, value string) {
+	if element != "" {
+		out.WriteByte('<')
+		out.WriteString(element)
+		out.WriteByte('>')
 	}
 	out.WriteString(html.EscapeString(value))
-	if class != "" {
-		out.WriteString(`</span>`)
+	if element != "" {
+		out.WriteString("</")
+		out.WriteString(element)
+		out.WriteByte('>')
 	}
 }
 

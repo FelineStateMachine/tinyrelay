@@ -15,18 +15,19 @@ func TestSourceHTMLIsEscapedAndAnchored(t *testing.T) {
 	})
 	html := string(got)
 	for _, want := range []string{
-		`class="source-view source-lang-go"`,
+		`<source-view lang="go"><table>`,
 		`id="L1"`,
 		`href="#L2"`,
-		`class="tok-keyword">var</span>`,
-		`&lt;script&gt;`,
+		`<b>var</b>`,
+		`<q>&#34;&lt;script&gt;alert(1)&lt;/script&gt;&#34;</q>`,
+		`</table></source-view>`,
 	} {
 		if !strings.Contains(html, want) {
 			t.Fatalf("source output missing %q: %s", want, html)
 		}
 	}
-	if strings.Contains(html, "<script>alert") {
-		t.Fatalf("source content was not escaped: %s", html)
+	if strings.Contains(html, "<script>alert") || strings.Contains(html, "class=") {
+		t.Fatalf("source content was not escaped or used class hooks: %s", html)
 	}
 	if _, ok := any(got).(template.HTML); !ok {
 		t.Fatalf("sourceHTML type = %T, want template.HTML", got)
@@ -36,10 +37,10 @@ func TestSourceHTMLIsEscapedAndAnchored(t *testing.T) {
 func TestSourceHTMLUsesPlaintextAndBoundsPreview(t *testing.T) {
 	content := strings.Repeat("<unsafe>\n", sourcePreviewLimit/len("<unsafe>\n")+10)
 	got := string(sourceHTML(map[string]any{"name": "README.unknown", "content": content}))
-	if !strings.Contains(got, `class="source-view source-lang-text"`) {
+	if !strings.Contains(got, `<source-view lang="text">`) {
 		t.Fatalf("unknown extension should use plaintext: %s", got[:min(len(got), 200)])
 	}
-	if !strings.Contains(got, `class="source-truncated"`) {
+	if !strings.Contains(got, `<tfoot><tr><td colspan="2">Preview truncated`) {
 		t.Fatal("bounded preview should identify truncation")
 	}
 	if strings.Contains(got, "<unsafe>") {
@@ -49,13 +50,13 @@ func TestSourceHTMLUsesPlaintextAndBoundsPreview(t *testing.T) {
 
 func TestDiffHTMLClassifiesLinesWithoutHTMLInjection(t *testing.T) {
 	got := string(diffHTML(map[string]any{"diff": "@@ -1 +1 @@\n-old\n+<script>bad</script>\n context"}))
-	for _, want := range []string{`class="diff-hunk"`, `class="diff-remove"`, `class="diff-add"`, `class="diff-context"`, `&lt;script&gt;`} {
+	for _, want := range []string{`<diff-view><table>`, `<code><b>@@ -1 +1 @@</b></code>`, `<code><del>-old</del></code>`, `<code><ins>+&lt;script&gt;bad&lt;/script&gt;</ins></code>`, `<code> context</code>`, `</table></diff-view>`} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("diff output missing %q: %s", want, got)
 		}
 	}
-	if strings.Contains(got, "<script>bad") {
-		t.Fatal("diff content was not escaped")
+	if strings.Contains(got, "<script>bad") || strings.Contains(got, "class=") {
+		t.Fatal("diff content was not escaped or used class hooks")
 	}
 }
 
@@ -67,7 +68,7 @@ func TestPreviewBoundsLineMarkupAndDisclosesOmission(t *testing.T) {
 			if len(got) > 2*1024*1024 {
 				t.Fatalf("a short-line preview expanded to %d bytes", len(got))
 			}
-			if !strings.Contains(got, "10,000 lines") {
+			if !strings.Contains(got, "<tfoot>") || !strings.Contains(got, "10,000 lines") {
 				t.Fatal("line preview omission was not disclosed")
 			}
 		})
@@ -76,7 +77,7 @@ func TestPreviewBoundsLineMarkupAndDisclosesOmission(t *testing.T) {
 
 func TestDiffDisclosesBackendTruncation(t *testing.T) {
 	got := string(diffHTML(map[string]any{"diff": "already bounded", "truncated": true}))
-	if !strings.Contains(got, "truncated") {
+	if !strings.Contains(got, "<tfoot>") || !strings.Contains(got, "truncated") {
 		t.Fatal("backend truncation was hidden")
 	}
 }
@@ -100,7 +101,7 @@ func TestSourceHTMLPreservesRenderedSourceText(t *testing.T) {
 	var got strings.Builder
 	var visit func(*html.Node)
 	visit = func(node *html.Node) {
-		if node.Type == html.ElementNode && node.Data == "td" && hasClass(node, "source-code") {
+		if node.Type == html.ElementNode && node.Data == "td" && isCodeCell(node) {
 			appendText(&got, node)
 			got.WriteByte('\n')
 			return
@@ -115,13 +116,11 @@ func TestSourceHTMLPreservesRenderedSourceText(t *testing.T) {
 	}
 }
 
-func hasClass(node *html.Node, class string) bool {
-	for _, attr := range node.Attr {
-		if attr.Key == "class" && attr.Val == class {
-			return true
-		}
-	}
-	return false
+// isCodeCell reports whether a table cell holds rendered source rather than
+// a line number anchor.
+func isCodeCell(node *html.Node) bool {
+	first := node.FirstChild
+	return first != nil && first.Type == html.ElementNode && first.Data == "code"
 }
 
 func appendText(out *strings.Builder, node *html.Node) {
