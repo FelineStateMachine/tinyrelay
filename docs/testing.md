@@ -1,4 +1,4 @@
-# Testing and the Linux slate
+# Testing and the Linux host
 
 The normal development loop is local:
 
@@ -9,17 +9,17 @@ make test
 
 The repository also contains a multistage Docker build. `make docker-test` runs `TEST_PACKAGES` (default `./...`) under Go 1.27.1 on Debian Bookworm with the race detector. `make docker-build` builds the self-hosted runtime image.
 
-## Remote slate
+## Remote Linux host
 
-`scripts/test-slate.sh` runs the same internal race test in an isolated Docker build on the configured Linux host. It synchronizes the exact worktree, including untracked files, over SSH into a unique directory under `/home/tank/tinyrelay-tests/`; it never runs global Docker cleanup and never edits host configuration.
+`scripts/test-linux.sh` runs the same internal race test in an isolated Docker build on the configured Linux host. It synchronizes the exact worktree, including untracked files, over SSH into a unique directory under `~/tinyrelay-tests/` in the remote home directory; it never runs global Docker cleanup and never edits host configuration.
 
 ```sh
-SLATE_HOST=slate SLATE_NAME=tinyrelay-review-1 ./scripts/test-slate.sh
+LINUX_HOST=<host> LINUX_NAME=tinyrelay-review-1 ./scripts/test-linux.sh
 ```
 
-Useful overrides are `SLATE_PACKAGES` (the default internal package list) and `SLATE_ARTIFACTS` (local artifact destination). The script records UTC time, host, kernel, CPU count, Docker server version, Go version, target platform, and SQLite module version beside the Docker build log, including a status file when the build fails. A unique `SLATE_NAME` is required when multiple runs share a slate host.
+Useful overrides are `LINUX_PACKAGES` (the default internal package list) and `LINUX_ARTIFACTS` (local artifact destination). The script records UTC time, host, kernel, CPU count, Docker server version, Go version, target platform, and SQLite module version beside the Docker build log, including a status file when the build fails. A unique `LINUX_NAME` is required when multiple runs share a host.
 
-To run the complete tree on Linux, set `SLATE_PACKAGES='./...'`.
+To run the complete tree on Linux, set `LINUX_PACKAGES='./...'`.
 
 The runtime image is a small Debian image containing the static Go binary, `ca-certificates`, and `git`. It runs as UID 10001 (`relay`) with `/data` as the writable volume. Bind the relay and diagnostics listeners explicitly; diagnostics should stay on loopback or a protected Tailscale address and must not be published publicly.
 
@@ -29,10 +29,10 @@ The checked-in benchmarks provide a repeatable first baseline without claiming a
 
 ```sh
 make benchmark
-SLATE_HOST=slate ./scripts/bench-slate.sh
+LINUX_HOST=<host> ./scripts/bench-linux.sh
 ```
 
-`BenchmarkSave`, `BenchmarkQuery`, and `BenchmarkTextSearch` use a local SQLite WAL store with representative seeded events. `BenchmarkFanout` measures only the in-memory broadcast and enqueue path to 10, 100, and 1,000 subscribed clients; it excludes websocket network writes and client-reader scheduling. The slate script records the Linux host, CPU count, Docker/Go/SQLite versions, benchmark output, and exit status under `artifacts/bench/`; use `BENCH_PACKAGES` and `BENCHTIME` for controlled comparisons. Treat these as baselines until a workload and hardware matrix supports a capacity claim.
+`BenchmarkSave`, `BenchmarkQuery`, and `BenchmarkTextSearch` use a local SQLite WAL store with representative seeded events. `BenchmarkFanout` measures only the in-memory broadcast and enqueue path to 10, 100, and 1,000 subscribed clients; it excludes websocket network writes and client-reader scheduling. The benchmark script records the Linux host, CPU count, Docker/Go/SQLite versions, benchmark output, and exit status under `artifacts/bench/`; use `BENCH_PACKAGES` and `BENCHTIME` for controlled comparisons. Treat these as baselines until a workload and hardware matrix supports a capacity claim.
 
 For Git workloads that include child processes inside Docker, `scripts/observe-git-benchmark.py` captures the benchmark output, host load/memory, and Docker cgroup v2 CPU, memory, I/O, and PID samples every 500ms. It also snapshots authenticated `/metrics`, heap, and goroutine profiles before and after the run. The optional `--cpu-profile` captures one bounded 60-second Go CPU profile; cgroup samples remain the source for child CPU accounting.
 

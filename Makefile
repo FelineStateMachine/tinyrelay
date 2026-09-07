@@ -1,4 +1,4 @@
-.PHONY: test test-race test-internal-race benchmark docker-test docker-build slate
+.PHONY: test test-race test-internal-race benchmark docker-test docker-build linux-test
 
 TEST_PACKAGES ?= ./...
 
@@ -20,5 +20,5 @@ docker-test:
 docker-build:
 	docker build --target runtime -t tinyrelay:local .
 
-slate:
-	./scripts/test-slate.sh
+linux-test:
+	./scripts/test-linux.sh

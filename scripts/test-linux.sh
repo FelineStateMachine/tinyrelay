@@ -1,18 +1,18 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-remote_host="${SLATE_HOST:-slate}"
-name="${SLATE_NAME:-tinyrelay-${USER:-user}-$$}"
+remote_host="${LINUX_HOST:?set LINUX_HOST to the SSH name of the Linux Docker host}"
+name="${LINUX_NAME:-tinyrelay-${USER:-user}-$$}"
 safe_name="$(printf '%s' "$name" | tr -cs 'A-Za-z0-9_.-' '-' | sed 's/^-*//;s/-*$//')"
 if [[ -z "$safe_name" ]]; then
-  echo "invalid empty SLATE_NAME" >&2
+  echo "invalid empty LINUX_NAME" >&2
   exit 2
 fi
-remote_root="/home/tank/tinyrelay-tests/${safe_name}"
-image="tinyrelay-slate-${safe_name}"
-packages="${SLATE_PACKAGES:-./internal/auth ./internal/blob ./internal/catalog ./internal/policy ./internal/relay ./internal/replication ./internal/storage ./internal/syncprotocol ./internal/telemetry ./internal/templates ./internal/work}"
+remote_root="tinyrelay-tests/${safe_name}"
+image="tinyrelay-linux-${safe_name}"
+packages="${LINUX_PACKAGES:-./internal/auth ./internal/blob ./internal/catalog ./internal/policy ./internal/relay ./internal/replication ./internal/storage ./internal/syncprotocol ./internal/telemetry ./internal/templates ./internal/work}"
 stamp="$(date -u +%Y%m%dT%H%M%SZ)"
-local_artifacts="${SLATE_ARTIFACTS:-artifacts/slate/${safe_name}/${stamp}}"
+local_artifacts="${LINUX_ARTIFACTS:-artifacts/linux/${safe_name}/${stamp}}"
 mkdir -p "$local_artifacts"
 packages_b64="$(printf '%s' "$packages" | base64 | tr -d '\n')"
 
@@ -29,12 +29,12 @@ COPYFILE_DISABLE=1 tar \
 
 echo "running Linux race tests in ${image}"
 set +e
-ssh "$remote_host" "SLATE_PACKAGES_B64='$packages_b64' sh -s -- '$remote_root' '$image' '$stamp'" <<'REMOTE'
+ssh "$remote_host" "LINUX_PACKAGES_B64='$packages_b64' sh -s -- '$remote_root' '$image' '$stamp'" <<'REMOTE'
 set -eu
 remote_root=$1
 image=$2
 stamp=$3
-packages=$(printf '%s' "$SLATE_PACKAGES_B64" | base64 -d)
+packages=$(printf '%s' "$LINUX_PACKAGES_B64" | base64 -d)
 artifact_dir="$remote_root/artifacts/$stamp"
 mkdir -p "$artifact_dir"
 {

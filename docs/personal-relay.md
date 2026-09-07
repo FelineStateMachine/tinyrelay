@@ -1,6 +1,6 @@
 # Personal relay deployment
 
-The personal relay runs on Slate and is available through Tailscale. Open [https://tiny](https://tiny) on this Mac, or use [https://tiny.tailbe516a.ts.net](https://tiny.tailbe516a.ts.net) on your phone with Tailscale connected.
+The personal relay runs on a Linux Docker host and is available through Tailscale. Open [https://tiny](https://tiny) on this Mac, or use [https://tiny.tailbe516a.ts.net](https://tiny.tailbe516a.ts.net) on your phone with Tailscale connected.
 
 ## Storage
 
@@ -22,13 +22,13 @@ The service is `tiny.service`, with certificate renewal scheduled by `tiny-certi
 In the Tailscale admin console, open **Machines > tiny > Endpoints** to find the HTTP and HTTPS listeners. The node's key expiry is disabled.
 
 ```sh
-ssh slate sudo systemctl status tiny
-ssh slate sudo systemctl restart tiny
-ssh slate sudo systemctl status tiny-certificates.timer
-ssh slate docker logs tiny
+ssh <host> sudo systemctl status tiny
+ssh <host> sudo systemctl restart tiny
+ssh <host> sudo systemctl status tiny-certificates.timer
+ssh <host> docker logs tiny
 ```
 
-To deploy an update, build the images from a checkout on Slate, then restart the service:
+To deploy an update, build the images from a checkout on the host, then restart the service:
 
 ```sh
 docker build --target runtime -t tiny:dogfood .

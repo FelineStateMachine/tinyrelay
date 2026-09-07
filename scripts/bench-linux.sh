@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-remote_host="${SLATE_HOST:-slate}"
-name="${SLATE_NAME:-tinyrelay-bench-${USER:-user}-$$}"
+remote_host="${LINUX_HOST:?set LINUX_HOST to the SSH name of the Linux Docker host}"
+name="${LINUX_NAME:-tinyrelay-bench-${USER:-user}-$$}"
 safe_name="$(printf '%s' "$name" | tr -cs 'A-Za-z0-9_.-' '-' | sed 's/^-*//;s/-*$//')"
-remote_root="/home/tank/tinyrelay-tests/${safe_name}"
+remote_root="tinyrelay-tests/${safe_name}"
 image="tinyrelay-bench-${safe_name}"
 packages="${BENCH_PACKAGES:-./internal/storage ./internal/relay}"
 benchtime="${BENCHTIME:-5s}"
@@ -19,13 +19,13 @@ COPYFILE_DISABLE=1 tar --no-xattrs \
   -cf - . | ssh "$remote_host" "mkdir -p '$remote_root' && tar -xf - -C '$remote_root'"
 
 set +e
-ssh "$remote_host" "SLATE_PACKAGES_B64='$packages_b64' sh -s -- '$remote_root' '$image' '$stamp' '$benchtime'" <<'REMOTE'
+ssh "$remote_host" "LINUX_PACKAGES_B64='$packages_b64' sh -s -- '$remote_root' '$image' '$stamp' '$benchtime'" <<'REMOTE'
 set -eu
 remote_root=$1
 image=$2
 stamp=$3
 benchtime=$4
-packages=$(printf '%s' "$SLATE_PACKAGES_B64" | base64 -d)
+packages=$(printf '%s' "$LINUX_PACKAGES_B64" | base64 -d)
 artifact_dir="$remote_root/artifacts/$stamp"
 mkdir -p "$artifact_dir"
 {

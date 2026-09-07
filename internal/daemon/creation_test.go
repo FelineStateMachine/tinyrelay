@@ -72,7 +72,7 @@ func TestInboxSourceFollowsOwnerWithHourlyPull(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer app.Close(ctx)
-	meta, err := app.Catalog().Create(ctx, catalog.CreateOptions{Name: "inbox", Owner: creationOwner, Template: "inbox", Source: "https://slate.example/relay"})
+	meta, err := app.Catalog().Create(ctx, catalog.CreateOptions{Name: "inbox", Owner: creationOwner, Template: "inbox", Source: "https://upstream.example/relay"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -91,7 +91,7 @@ func TestInboxSourceFollowsOwnerWithHourlyPull(t *testing.T) {
 	if !strings.Contains(payload, `"every":1`) || !strings.Contains(payload, "#p") || !strings.Contains(payload, creationOwner) {
 		t.Fatalf("inbox source job payload = %s", payload)
 	}
-	if strings.Contains(payload, "https://") || !strings.Contains(payload, "wss://slate.example/relay") {
+	if strings.Contains(payload, "https://") || !strings.Contains(payload, "wss://upstream.example/relay") {
 		t.Fatalf("inbox source URL was not converted: %s", payload)
 	}
 }

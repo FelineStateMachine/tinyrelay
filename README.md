@@ -66,7 +66,7 @@ sudo systemctl enable --now tiny
 
 Keep the data directory on local durable storage. The process exposes `/healthz` and `/readyz`. An optional diagnostics listener provides `/metrics` and protected pprof endpoints. Set `--otlp-endpoint` or `OTEL_EXPORTER_OTLP_ENDPOINT` when exporting traces.
 
-See [Personal relay deployment](docs/personal-relay.md) for the current Slate installation.
+See [Personal relay deployment](docs/personal-relay.md) for the reference installation.
 
 ## Test and diagnose
 
@@ -77,4 +77,4 @@ make docker-test
 make benchmark
 ```
 
-Run the Linux race suite on Slate with `SLATE_HOST=slate ./scripts/test-slate.sh`. Run the conformance harness against a started daemon with `node scripts/conformance/run.mjs`; results are written under `artifacts/conformance/`.
+Run the Linux race suite on a Docker host with `LINUX_HOST=<host> ./scripts/test-linux.sh`. Run the conformance harness against a started daemon with `node scripts/conformance/run.mjs`; results are written under `artifacts/conformance/`.
