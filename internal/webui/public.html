@@ -1,0 +1,169 @@
+{{define "home"}}<main>
+<h2>About this relay</h2>
+<p>Browse notes, repositories and files. Connect your Nostr signer to publish and manage your relay.</p>
+<dl>
+<dt>Reads</dt><dd>{{.Policy.Reads}}</dd>
+<dt>Writes</dt><dd>{{.Policy.Writes}}</dd>
+<dt>Search</dt><dd>{{.Policy.Features.Search}}</dd>
+<dt>Files</dt><dd>{{.Policy.Features.Files}}</dd>
+</dl>
+<p>Relay URL: <code>{{.URL}}</code></p>
+</main>
+{{end}}
+
+{{define "signin"}}<main>
+<h2>{{if .Actor}}Your account{{else}}Sign in{{end}}</h2>
+{{if .Actor}}<p>Signed in as {{template "nostrKey" .Actor}}.</p>
+<p><a href="/manage/people">Manage relay</a> | <a href="/tools">Browser tools</a></p>
+{{else}}<p>Use a browser extension or connect Amber on your phone.</p>
+{{end}}{{template "signerControls" .}}
+</main>
+{{end}}
+
+{{define "signerControls"}}<p><button id="session-login" type="button">Sign in with connected signer</button></p>
+<h3>Phone signer</h3>
+<p>Scan the QR code with Amber and approve the connection and sign-in request. This page will open your relay when you finish.</p>
+<p><button id="nostrconnect" type="button">Generate QR code</button> <a id="nostrconnect-open" hidden>Open in signer</a></p>
+<p><img id="signer-qr" alt="Nostr Connect QR code" hidden width="240" height="240"></p>
+<p id="signer-status" role="status"></p>
+<details>
+<summary>Use a bunker URL</summary>
+<form id="bunker">
+<label>Bunker URL <input id="bunker-url" type="url" placeholder="bunker://…" required></label>
+<button>Connect remote signer</button>
+</form>
+</details>
+{{end}}
+
+{{define "inbox"}}<main>
+<h2>Inbox</h2>
+<p>Events addressed to this signed-in key, subject to the same private-event gates as websocket queries.</p>
+{{if .Error}}{{template "alert" .Error}}{{else}}{{template "eventList" .}}{{end}}
+</main>
+{{end}}
+
+{{define "outbox"}}<main>
+<h2>Outbox</h2>
+<p>Events authored by this signed-in key.</p>
+{{if .Error}}{{template "alert" .Error}}{{else}}{{template "eventList" .}}{{end}}
+</main>
+{{end}}
+
+{{define "search"}}<main>
+<h2>Search</h2>
+<form id="search" action="/search" method="get">
+<label>Terms <input name="q" type="search" value="{{.Query.Get "q"}}" required></label>
+<button>Search</button>
+</form>
+{{if .Error}}{{template "alert" .Error}}
+{{else if .Feed}}<h3>Results</h3>
+{{template "eventList" .}}
+{{else if .Query.Get "q"}}<p>No matching events.</p>
+{{end}}</main>
+{{end}}
+
+{{define "articles"}}<main>
+<h2>Articles</h2>
+<p>Long-form NIP-23 events published on this relay.</p>
+{{if .Error}}{{template "alert" .Error}}{{else}}{{template "eventList" .}}{{end}}
+<p><a href="/feed.xml">Atom/RSS feed</a> | <a href="/articles.json">JSON feed</a></p>
+</main>
+{{end}}
+
+{{define "event"}}<main>
+<h2>Event</h2>
+<p><a href="/feed.xml">Atom feed</a> | <a href="/articles.json">JSON feed</a></p>
+{{if .Feed}}{{template "eventList" .}}{{else}}{{template "nostrEvent" .Event}}{{end}}
+</main>
+{{end}}
+
+{{define "view"}}<main>
+<h2>View: {{.View}}</h2>
+{{template "jsonView" .Event}}
+</main>
+{{end}}
+
+{{define "invite"}}<main>
+<h2>Join this relay</h2>
+<p>This invite is claimed with one signature from your Nostr signer. The relay never receives a private key.</p>
+{{if .Policy.JoinTerms}}<h3>Before you join</h3>
+<pre>{{.Policy.JoinTerms}}</pre>
+{{end}}<rpc-form method="claiminvite" action="/api/invites/claim" terms="{{.Policy.JoinTerms}}">
+<input type="hidden" name="param" value="{{.Invite}}">
+{{if .Policy.JoinTerms}}<label><input type="checkbox" name="termsAgreement" required> I agree to these relay terms.</label>
+{{end}}<button>Join relay</button>
+</rpc-form>
+</main>
+{{end}}
+
+{{define "terms"}}<main>
+<h2>Terms</h2>
+<p>{{.Policy.JoinTerms}}</p>
+</main>
+{{end}}
+
+{{define "tools"}}<main>
+<h2>Browser tools</h2>
+<p>Use a browser agent to browse repositories and files, check relay health, manage jobs and create backups. Connect your signer to manage the relay.</p>
+<p id="webmcp-status" role="status">Checking browser support...</p>
+<ul id="webmcp-tools"></ul>
+<p id="webmcp-operation" role="status"></p>
+<details>
+<summary>Enable WebMCP</summary>
+<p>In Chrome, open <code>chrome://flags/#enable-webmcp-testing</code>, enable WebMCP for testing and relaunch. Your usual pages and signed forms work in other browsers.</p>
+</details>
+<script>(() => {
+  const update = () => {
+    const state = window.tinyWebMCP;
+    document.getElementById("webmcp-status").textContent = !state?.supported
+      ? "WebMCP is unavailable in this browser."
+      : state.errors.length ? "Some tools could not register: " + state.errors.join("; ") : state.registered.length + " tools available.";
+    document.getElementById("webmcp-tools").replaceChildren(...(state?.registered || []).map(name => {
+      const item = document.createElement("li");
+      item.textContent = name;
+      return item;
+    }));
+    document.getElementById("webmcp-operation").textContent = state?.lastOperation || "";
+  };
+  window.addEventListener("tiny:webmcp", update);
+  update();
+  window.tinyWebMCP?.ready.then(update);
+})();</script>
+</main>
+{{end}}
+
+{{define "private"}}<main>
+<h2>Private messages</h2>
+<p>Sign in with a Nostr client to view addressed private events.</p>
+</main>
+{{end}}
+
+{{define "chat"}}<main>
+<h2>Chat</h2>
+<p>Group and direct conversations are available through NIP-17 and NIP-29 clients.</p>
+</main>
+{{end}}
+
+{{define "media"}}<main>
+<h2>Media</h2>
+<p>Blossom uploads and NIP-96 metadata are available from compatible clients.</p>
+</main>
+{{end}}
+
+{{define "site"}}<main>
+<h2>Sites</h2>
+<p>This relay serves signed site manifests and snapshots when enabled by policy.</p>
+</main>
+{{end}}
+
+{{define "marmot"}}<main>
+<h2>Marmot</h2>
+<p>Marmot group state is served when the feature is enabled.</p>
+</main>
+{{end}}
+
+{{define "grasp"}}<main>
+<h2>GRASP</h2>
+<p>Repository state and relay capabilities are served through the GRASP endpoints.</p>
+</main>
+{{end}}

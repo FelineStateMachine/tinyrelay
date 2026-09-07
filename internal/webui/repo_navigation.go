@@ -1,15 +1,11 @@
 package webui
 
 import (
-	_ "embed"
 	"fmt"
 	"net/url"
 	"strings"
 	"time"
 )
-
-//go:embed repo.html
-var repoTemplate string
 
 type repoCrumb struct{ Label, URL string }
 

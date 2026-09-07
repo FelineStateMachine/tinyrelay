@@ -1,0 +1,105 @@
+html,body{margin:0;padding:0}
+body{font-family:system-ui,sans-serif;line-height:1.4;color:#202124}
+#layout{border-collapse:collapse;table-layout:fixed;width:960px;margin:0 auto}
+#layout>tbody>tr>td{padding:12px;vertical-align:top;overflow-wrap:anywhere}
+#layout>tbody>tr>td>header{border-bottom:1px solid #bbb}
+#layout>tbody>tr>td>footer{border-top:1px solid #bbb;margin-top:1rem;padding-top:.5rem}
+h1{font-size:1.6rem}
+h2{font-size:1.3rem}
+h3{font-size:1.05rem;margin:1.5rem 0 .5rem;border-bottom:1px solid #e2e2e2}
+input,textarea,button,select{max-width:100%;box-sizing:border-box;font:inherit}
+button{padding:.3rem .65rem}
+textarea{width:100%;min-height:5em;vertical-align:top}
+pre{white-space:pre-wrap;overflow-wrap:anywhere}
+code{font-family:ui-monospace,SFMono-Regular,Consolas,monospace}
+[role=alert]{color:#a40000}
+[role=status]{color:#444}
+small{color:#666}
+nav a{white-space:nowrap}
+#manage-nav{margin:.5rem 0 1rem}
+
+/* Data tables inside the page body. Wide tables sit in a scroll-box and
+   scroll sideways instead of squeezing columns; cells never break mid-word. */
+scroll-box{display:block;overflow-x:auto;max-width:100%}
+main table{width:100%;border-collapse:collapse;margin:.5rem 0}
+main th,main td{padding:.35rem .5rem;border-bottom:1px solid #e2e2e2;text-align:left;vertical-align:top;overflow-wrap:normal}
+main th,main td code,main td nostr-key,main td time,main td a{white-space:nowrap}
+main th[scope=row]{width:9em}
+dl{margin:.5rem 0}
+dt{font-weight:600}
+dd{margin:0 0 .35rem 1rem}
+
+/* rpc-form: one signed management call. Labels wrap like inline text so short forms stay on one line. */
+rpc-form,signed-form,publish-list{display:block;margin:.6rem 0}
+rpc-form label,signed-form label,publish-list label{display:inline-block;margin:0 .6rem .35rem 0;vertical-align:top}
+rpc-form label:has(textarea),publish-list label:has(textarea){display:block}
+rpc-form output,signed-form output,publish-list output{display:block;margin:.3rem 0;color:#444}
+rpc-form output[data-error]{color:#a40000}
+
+/* json-view: structured rendering of any JSON payload, with the raw text kept behind a details toggle. */
+json-view{display:block}
+json-view>details>summary{cursor:pointer;color:#666}
+json-view>details>pre{margin:.3rem 0;padding:.5rem;border:1px solid #e2e2e2;background:#fafafa;font-size:13px}
+json-view table{font-size:14px}
+json-view td pre{margin:0;white-space:pre;max-width:40em;overflow:auto}
+json-view dl dl{margin:.2rem 0 .2rem 1rem}
+json-view ul{margin:.2rem 0;padding-left:1.2rem}
+json-view code{overflow-wrap:anywhere}
+
+/* nostr-event: a single event in feeds, activity, and detail pages. */
+#events{list-style:none;margin:0;padding:0}
+nostr-event{display:block;padding:.6rem 0;border-bottom:1px solid #e2e2e2}
+nostr-event>p{margin:0 0 .3rem;color:#555}
+nostr-event>pre{margin:0}
+nostr-event>details{margin-top:.3rem}
+nostr-event>details>summary{cursor:pointer;color:#666}
+nostr-key{font-family:ui-monospace,SFMono-Regular,Consolas,monospace;cursor:copy}
+
+/* Repository browsing. */
+#repo-head{border:1px solid #d0d0d0;padding:12px;background:#fafafa}
+#repo-head h2{margin:0 0 6px}
+#repo-head p{margin:0 0 10px}
+#repo-tabs{display:block;border-bottom:1px solid #bbb;margin:1rem 0}
+#repo-tabs a{display:inline-block;padding:.45rem .7rem;text-decoration:none}
+#repo-tabs a[aria-current=page]{border:1px solid #bbb;border-bottom-color:white;margin-bottom:-1px;background:white;font-weight:600}
+#repo-ref{display:inline-block;margin:0 .5rem 0 0;vertical-align:middle}
+#repo-clone{display:inline-block;vertical-align:middle}
+#repo-clone input{width:40em;font:13px ui-monospace,monospace}
+#repo-breadcrumbs{margin:16px 0;font:14px ui-monospace,monospace}
+#file-heading{padding:8px 12px;margin:0;border:1px solid #ccc;border-bottom:0;background:#f5f5f5}
+#file-heading a{float:right}
+#repo-tree small{display:inline-block;width:5.5em;color:#777;font:12px ui-monospace,monospace}
+#repo-tree td:last-child,#repo-tree th:last-child{font-family:ui-monospace,monospace}
+#repo-pages a{margin-right:16px}
+
+/* source-view and diff-view wrap the tables emitted by the source renderer. */
+source-view,diff-view{display:block;overflow:auto;border:1px solid #ccc;background:#fafafa}
+source-view table,diff-view table{border-collapse:collapse;width:100%;margin:0;font:13px/20px ui-monospace,SFMono-Regular,Consolas,monospace}
+source-view td,diff-view td{padding:0 .75rem;border:0;vertical-align:top;white-space:pre;overflow-wrap:normal;word-break:normal}
+source-view td:first-child,diff-view td:first-child{color:#888;text-align:right;user-select:none;border-right:1px solid #ddd}
+source-view td:first-child a,diff-view td:first-child a{text-decoration:none;color:#777}
+source-view td:last-child,diff-view td:last-child{width:100%}
+source-view tr:target,diff-view tr:target{background:#fff1bc}
+source-view code,diff-view code{font:inherit}
+source-view b{font-weight:600}
+source-view i{font-style:normal;color:#777}
+source-view q{quotes:none;color:#146b2d}
+source-view q::before,source-view q::after{content:none}
+source-view var{font-style:normal;color:#7a3e00}
+source-view tfoot td,diff-view tfoot td{white-space:normal;color:#777;font-family:system-ui,sans-serif}
+diff-view ins,diff-view del{text-decoration:none}
+diff-view tr:has(ins){background:#e9f7e9}
+diff-view tr:has(del){background:#fbeaea}
+diff-view b{font-weight:600;color:#555}
+
+@media(max-width:979px){
+#layout{width:360px;max-width:100%;margin:0}
+#layout>tbody>tr>td{padding:8px}
+nav{line-height:2}
+#repo-tabs{overflow-x:auto}
+#repo-tabs a{white-space:nowrap}
+#repo-tree th:nth-child(3),#repo-tree td:nth-child(3){display:none}
+#repo-clone input{width:100%}
+source-view table,diff-view table{font-size:12px}
+source-view td,diff-view td{padding:0 .5rem}
+}

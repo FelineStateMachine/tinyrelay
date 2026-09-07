@@ -1,0 +1,92 @@
+{{define "page"}}<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>{{.Title}}</title>
+<style>{{stylesheet}}</style>
+<script src="/fixi.js"></script>
+<script src="/signer.js"></script>
+<script src="/webmcp.js"></script>
+</head>
+<body>
+<table id="layout" aria-label="tiny relay"><tr><td>
+<header>
+{{if .Private}}<h1>Private relay</h1>
+<p>Sign in with a Nostr signer to continue.</p>
+{{else}}<h1><a href="/">{{.Slug}}</a></h1>
+<p>{{.Policy.Description}}</p>
+<p><code>{{.URL}}</code> | identity {{template "nostrKey" .Identity}}</p>
+<nav aria-label="Site">
+<a href="/">Home</a> | <a href="/repos">Repositories</a> | <a href="/files">Files</a> | <a href="/inbox">Inbox</a> | <a href="/outbox">Outbox</a> | <a href="/search">Search</a> | <a href="/manage/people">Manage</a> |
+{{if .Actor}}<a href="/signin" title="{{.Actor}}">{{shortID .Actor}}</a> <button id="session-logout" type="button">Sign out</button>{{else}}<a href="/signin">Sign in</a>{{end}}
+</nav>
+<p id="session-status" role="status"></p>
+{{end}}</header>
+{{if .Private}}{{template "signin" .}}
+{{else if eq .Tab "home"}}{{template "home" .}}
+{{else if eq .Tab "inbox"}}{{template "inbox" .}}
+{{else if eq .Tab "outbox"}}{{template "outbox" .}}
+{{else if eq .Tab "search"}}{{template "search" .}}
+{{else if eq .Tab "articles"}}{{template "articles" .}}
+{{else if eq .Tab "private"}}{{template "private" .}}
+{{else if eq .Tab "chat"}}{{template "chat" .}}
+{{else if eq .Tab "media"}}{{template "media" .}}
+{{else if eq .Tab "site"}}{{template "site" .}}
+{{else if eq .Tab "marmot"}}{{template "marmot" .}}
+{{else if eq .Tab "grasp"}}{{template "grasp" .}}
+{{else if eq .Tab "terms"}}{{template "terms" .}}
+{{else if eq .Tab "people"}}{{template "people" .}}
+{{else if eq .Tab "moderation"}}{{template "moderation" .}}
+{{else if eq .Tab "rules"}}{{template "rules" .}}
+{{else if eq .Tab "identity"}}{{template "identity" .}}
+{{else if eq .Tab "signin"}}{{template "signin" .}}
+{{else if eq .Tab "connect"}}{{template "connect" .}}
+{{else if eq .Tab "data"}}{{template "data" .}}
+{{else if eq .Tab "sync"}}{{template "sync" .}}
+{{else if eq .Tab "views"}}{{template "views" .}}
+{{else if eq .Tab "health"}}{{template "health" .}}
+{{else if eq .Tab "status"}}{{template "status" .}}
+{{else if eq .Tab "owner"}}{{template "owner" .}}
+{{else if eq .Tab "repos"}}{{template "repos" .}}
+{{else if eq .Tab "repo"}}{{template "repo" .}}
+{{else if eq .Tab "files"}}{{template "files" .}}
+{{else if eq .Tab "file"}}{{template "file" .}}
+{{else if eq .Tab "tools"}}{{template "tools" .}}
+{{else if eq .Tab "event"}}{{template "event" .}}
+{{else if eq .Tab "view"}}{{template "view" .}}
+{{else if eq .Tab "invite"}}{{template "invite" .}}
+{{else}}{{template "home" .}}
+{{end}}
+<footer><a href="/.well-known/nostr.json">NIP-05</a> | <a href="/terms">Terms</a></footer>
+</td></tr></table>
+<script>{{script "bridge.js"}}</script>
+<script>{{script "components.js"}}</script>
+</body>
+</html>
+{{end}}
+
+{{/* Shared partials. Each renders one reusable element so pages never repeat markup for the same kind of data. */}}
+
+{{define "alert"}}{{if .}}<p role="alert">{{.}}</p>{{end}}{{end}}
+
+{{define "nostrKey"}}<nostr-key hex="{{.}}">{{shortID .}}</nostr-key>{{end}}
+
+{{define "jsonView"}}<json-view><pre>{{json .}}</pre></json-view>{{end}}
+
+{{define "nostrEvent"}}{{$e := asMap .}}<nostr-event id="event-{{str (index $e "id")}}">
+<p><a href="/e/{{str (index $e "id")}}"><code>{{shortID (index $e "id")}}</code></a> | kind {{str (index $e "kind")}} | {{template "nostrKey" (str (index $e "pubkey"))}} | <time datetime="{{datetime (index $e "created_at")}}">{{when (index $e "created_at")}}</time></p>
+<pre>{{str (index $e "content")}}</pre>
+<details><summary>Event JSON</summary>{{template "jsonView" .}}</details>
+</nostr-event>{{end}}
+
+{{define "eventList"}}{{if .Feed}}<ol id="events">
+{{range .Feed}}<li>{{template "nostrEvent" .}}</li>
+{{end}}</ol>
+{{else}}<p>No events.</p>
+{{end}}{{end}}
+
+{{define "manageNav"}}<nav id="manage-nav" aria-label="Manage">
+<a href="/manage/people">People</a> | <a href="/manage/moderation">Moderation</a> | <a href="/manage/rules">Rules</a> | <a href="/manage/identity">Identity</a> | <a href="/manage/connect">Connect</a> | <a href="/manage/data">Data</a> | <a href="/manage/sync">Sync</a> | <a href="/manage/views">Views</a> | <a href="/manage/health">Health</a> | <a href="/manage/owner">Owner</a> | <a href="/manage/status">Status</a> | <a href="/tools">Tools</a>
+</nav>
+{{end}}

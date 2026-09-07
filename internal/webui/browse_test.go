@@ -79,7 +79,7 @@ func TestConnectPublishesGRASPAndDeliveryKinds(t *testing.T) {
 	recorder := httptest.NewRecorder()
 	app.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/manage/connect", nil))
 	body := recorder.Body.String()
-	for _, marker := range []string{"10317", "10063", "tinySignedFetch", `name="relays"`, `map(x=>["g",x])`, `map(x=>["server",x])`, `tags:t,content:c`} {
+	for _, marker := range []string{`<publish-list kind="10317" tag="g" scheme="ws">`, `<publish-list kind="10063" tag="server">`, `name="lines"`, `customElements.define("publish-list"`, `tiny.signedFetch("/events", "POST"`} {
 		if !strings.Contains(body, marker) {
 			t.Fatalf("connect page missing %q", marker)
 		}

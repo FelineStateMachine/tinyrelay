@@ -1,52 +1,57 @@
-{{define "repo"}}
-<main class="repository">
+{{define "repo"}}<main>
 <p><a href="/repos">All repositories</a></p>
-{{if .Error}}<h2>{{.Query.Get "repo"}}</h2><p role="alert">{{.Error}}</p>
-{{else}}
-{{$repo := asMap .Event}}{{$view := .Query.Get "view"}}
-<section class="repo-head">
-  <h2>{{index $repo "identifier"}}</h2>
-  <p class="repo-muted">{{if index $repo "private"}}Private{{else}}Public{{end}} repository | Owner <code title="{{index $repo "owner"}}">{{shortID (index $repo "owner")}}</code>{{with index $repo "commit"}} | Commit <code title="{{.}}">{{shortID .}}</code>{{end}}</p>
-  <nav class="repo-tabs" aria-label="Repository views">
-    <a href="{{repoURL .Query "tree" ""}}"{{if or (eq $view "tree") (eq $view "file")}} aria-current="page"{{end}}>Code</a>
-    <a href="{{repoURL .Query "history" ""}}"{{if or (eq $view "history") (eq $view "commit")}} aria-current="page"{{end}}>History</a>
-    <a href="{{repoURL .Query "activity" ""}}"{{if eq $view "activity"}} aria-current="page"{{end}}>Activity</a>
-  </nav>
-  <div class="repo-toolbar">
-    <form method="get" action="/repo">
-      <input type="hidden" name="owner" value="{{.Query.Get "owner"}}">
-      <input type="hidden" name="repo" value="{{.Query.Get "repo"}}">
-      <input type="hidden" name="path" value="{{.Query.Get "path"}}">
-      <input type="hidden" name="view" value="{{if eq $view "commit"}}tree{{else}}{{$view}}{{end}}">
-      <label>Branch or tag <select name="ref"><option value="">Default branch</option>{{range $name,$oid := index $repo "refs"}}<option value="{{$name}}"{{if eq ($.Query.Get "ref") $name}} selected{{end}}>{{$name}}</option>{{end}}</select></label>
-      <button>Go</button>
-    </form>
-    <details class="repo-clone"><summary>Clone</summary>{{range index $repo "clone"}}<p><input aria-label="Clone URL" readonly value="{{.}}" onclick="this.select()"></p>{{else}}<p>No clone URL advertised.</p>{{end}}</details>
-  </div>
+{{if .Error}}<h2>{{.Query.Get "repo"}}</h2>
+{{template "alert" .Error}}
+{{else}}{{$repo := asMap .Event}}{{$view := .Query.Get "view"}}
+<section id="repo-head">
+<h2>{{str (index $repo "identifier")}}</h2>
+<p><small>{{if index $repo "private"}}Private{{else}}Public{{end}} repository | Owner {{template "nostrKey" (str (index $repo "owner"))}}{{with index $repo "commit"}} | Commit <code title="{{.}}">{{shortID .}}</code>{{end}}</small></p>
+<nav id="repo-tabs" aria-label="Repository views">
+<a href="{{repoURL .Query "tree" ""}}"{{if or (eq $view "tree") (eq $view "file")}} aria-current="page"{{end}}>Code</a>
+<a href="{{repoURL .Query "history" ""}}"{{if or (eq $view "history") (eq $view "commit")}} aria-current="page"{{end}}>History</a>
+<a href="{{repoURL .Query "activity" ""}}"{{if eq $view "activity"}} aria-current="page"{{end}}>Activity</a>
+</nav>
+<form id="repo-ref" method="get" action="/repo">
+<input type="hidden" name="owner" value="{{.Query.Get "owner"}}">
+<input type="hidden" name="repo" value="{{.Query.Get "repo"}}">
+<input type="hidden" name="path" value="{{.Query.Get "path"}}">
+<input type="hidden" name="view" value="{{if eq $view "commit"}}tree{{else}}{{$view}}{{end}}">
+<label>Branch or tag <select name="ref"><option value="">Default branch</option>{{range $name, $oid := index $repo "refs"}}<option value="{{$name}}"{{if eq ($.Query.Get "ref") $name}} selected{{end}}>{{$name}}</option>{{end}}</select></label>
+<button>Go</button>
+</form>
+<details id="repo-clone">
+<summary>Clone</summary>
+{{range index $repo "clone"}}<p><input aria-label="Clone URL" readonly value="{{.}}" onclick="this.select()"></p>
+{{else}}<p>No clone URL advertised.</p>
+{{end}}</details>
 </section>
-{{if or (eq $view "tree") (eq $view "file")}}
-<nav class="repo-breadcrumbs" aria-label="File path">{{range $index,$crumb := repoBreadcrumbs .Query}}{{if $index}} / {{end}}{{if $crumb.URL}}<a href="{{$crumb.URL}}">{{$crumb.Label}}</a>{{else}}<strong>{{$crumb.Label}}</strong>{{end}}{{end}}</nav>
-{{end}}
-{{if eq $view "file"}}
-  <div class="file-heading"><strong>{{.Query.Get "path"}}</strong><a href="/repo/raw?owner={{urlquery (.Query.Get "owner")}}&amp;repo={{urlquery (.Query.Get "repo")}}&amp;ref={{urlquery (.Query.Get "ref")}}&amp;path={{urlquery (.Query.Get "path")}}">Raw/download</a></div>
-  {{if index $repo "binary"}}<p>This is a binary file. Download it to view its contents.</p>{{else if index $repo "content"}}<div class="source-wrap">{{sourceHTML .Event}}</div>{{else}}<p>This file is empty.</p>{{end}}
-{{else if eq $view "tree"}}
-  <table class="repo-tree"><thead><tr><th scope="col">Name</th><th scope="col">Size</th><th scope="col">Object</th></tr></thead><tbody>
-  {{range index $repo "entries"}}{{$entry := asMap .}}<tr><td>{{if eq (index $entry "type") "tree"}}<span class="entry-kind" aria-label="Directory">dir</span> <a href="{{repoURL $.Query "tree" (index $entry "path")}}">{{index $entry "name"}}/</a>{{else if eq (index $entry "type") "commit"}}<span class="entry-kind">submodule</span> {{index $entry "name"}}{{else}}<span class="entry-kind" aria-label="File">file</span> <a href="{{repoURL $.Query "file" (index $entry "path")}}">{{index $entry "name"}}</a>{{end}}</td><td>{{if eq (index $entry "type") "blob"}}{{index $entry "size"}} B{{else}}—{{end}}</td><td><code title="{{index $entry "oid"}}">{{shortID (index $entry "oid")}}</code></td></tr>
-  {{else}}<tr><td colspan="3">No published files in this directory.</td></tr>{{end}}
-  </tbody></table>
-{{else if eq $view "history"}}
-  <table class="repo-history"><thead><tr><th scope="col">Commit</th><th scope="col">Message</th><th scope="col">Author and date</th></tr></thead><tbody>
-  {{range index $repo "commits"}}{{$commit := asMap .}}<tr><td><a href="{{repoCommitURL $.Query (index $commit "oid")}}"><code>{{shortID (index $commit "oid")}}</code></a></td><td>{{index $commit "subject"}}</td><td>{{index $commit "author"}}<br><small>{{repoDate (index $commit "time")}}</small></td></tr>{{else}}<tr><td colspan="3">No commits.</td></tr>{{end}}
-  </tbody></table>
-{{else if eq $view "commit"}}
-  <h3>Commit <code>{{shortID (index $repo "commit")}}</code></h3>
-  <p><a href="{{repoURL .Query "tree" ""}}">Browse files at this commit</a></p>
-  <div class="source-wrap">{{diffHTML .Event}}</div>
-{{else if eq $view "activity"}}
-  {{range index $repo "events"}}{{$event := asMap .}}<article class="repo-activity"><p><a href="/e/{{index $event "id"}}">Event {{shortID (index $event "id")}}</a> | {{repoDate (index $event "created_at")}}</p><pre>{{index $event "content"}}</pre><details><summary>Event details</summary><pre>{{json .}}</pre></details></article>{{else}}<p>No repository activity.</p>{{end}}
-{{end}}
-{{if or (eq $view "tree") (eq $view "history")}}<p class="repo-pages">{{if .Query.Get "offset"}}<a href="{{repoURL .Query $view (.Query.Get "path")}}">First page</a>{{end}} {{if hasNextOffset (index $repo "next_offset")}}<a href="{{browsePageURL "/repo" .Query "offset" (index $repo "next_offset")}}">Next page</a>{{end}}</p>{{end}}
-{{end}}
-</main>
+{{if or (eq $view "tree") (eq $view "file")}}<nav id="repo-breadcrumbs" aria-label="File path">{{range $index, $crumb := repoBreadcrumbs .Query}}{{if $index}} / {{end}}{{if $crumb.URL}}<a href="{{$crumb.URL}}">{{$crumb.Label}}</a>{{else}}<strong>{{$crumb.Label}}</strong>{{end}}{{end}}</nav>
+{{end}}{{if eq $view "file"}}<p id="file-heading"><strong>{{.Query.Get "path"}}</strong> <a href="/repo/raw?owner={{urlquery (.Query.Get "owner")}}&amp;repo={{urlquery (.Query.Get "repo")}}&amp;ref={{urlquery (.Query.Get "ref")}}&amp;path={{urlquery (.Query.Get "path")}}">Raw/download</a></p>
+{{if index $repo "binary"}}<p>This is a binary file. Download it to view its contents.</p>
+{{else if index $repo "content"}}{{sourceHTML .Event}}
+{{else}}<p>This file is empty.</p>
+{{end}}{{else if eq $view "tree"}}<scroll-box><table id="repo-tree">
+<thead><tr><th scope="col">Name</th><th scope="col">Size</th><th scope="col">Object</th></tr></thead>
+<tbody>
+{{range index $repo "entries"}}{{$entry := asMap .}}<tr><td>{{if eq (str (index $entry "type")) "tree"}}<small aria-label="Directory">dir</small> <a href="{{repoURL $.Query "tree" (str (index $entry "path"))}}">{{str (index $entry "name")}}/</a>{{else if eq (str (index $entry "type")) "commit"}}<small>submodule</small> {{str (index $entry "name")}}{{else}}<small aria-label="File">file</small> <a href="{{repoURL $.Query "file" (str (index $entry "path"))}}">{{str (index $entry "name")}}</a>{{end}}</td><td>{{if eq (str (index $entry "type")) "blob"}}{{str (index $entry "size")}} B{{else}}-{{end}}</td><td><code title="{{str (index $entry "oid")}}">{{shortID (index $entry "oid")}}</code></td></tr>
+{{else}}<tr><td colspan="3">No published files in this directory.</td></tr>
+{{end}}</tbody>
+</table></scroll-box>
+{{else if eq $view "history"}}<scroll-box><table id="repo-history">
+<thead><tr><th scope="col">Commit</th><th scope="col">Message</th><th scope="col">Author and date</th></tr></thead>
+<tbody>
+{{range index $repo "commits"}}{{$commit := asMap .}}<tr><td><a href="{{repoCommitURL $.Query (str (index $commit "oid"))}}"><code>{{shortID (index $commit "oid")}}</code></a></td><td>{{str (index $commit "subject")}}</td><td>{{str (index $commit "author")}}<br><small>{{repoDate (index $commit "time")}}</small></td></tr>
+{{else}}<tr><td colspan="3">No commits.</td></tr>
+{{end}}</tbody>
+</table></scroll-box>
+{{else if eq $view "commit"}}<h3>Commit <code>{{shortID (index $repo "commit")}}</code></h3>
+<p><a href="{{repoURL .Query "tree" ""}}">Browse files at this commit</a></p>
+{{diffHTML .Event}}
+{{else if eq $view "activity"}}{{with index $repo "events"}}<ol id="events">
+{{range .}}<li>{{template "nostrEvent" .}}</li>
+{{end}}</ol>
+{{else}}<p>No repository activity.</p>
+{{end}}{{end}}
+{{if or (eq $view "tree") (eq $view "history")}}<p id="repo-pages">{{if .Query.Get "offset"}}<a href="{{repoURL .Query $view (.Query.Get "path")}}">First page</a> {{end}}{{if hasNextOffset (index $repo "next_offset")}}<a href="{{browsePageURL "/repo" .Query "offset" (index $repo "next_offset")}}">Next page</a>{{end}}</p>
+{{end}}{{end}}</main>
 {{end}}

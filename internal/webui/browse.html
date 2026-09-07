@@ -1,0 +1,52 @@
+{{define "repos"}}<main>
+<h2>Repositories</h2>
+<p><a href="/repos">Refresh</a> | <a href="/manage/connect">Connect a repository relay</a></p>
+{{if .Error}}{{template "alert" .Error}}
+{{else if .Feed}}<scroll-box><table id="repo-list">
+<thead><tr><th scope="col">Repository</th><th scope="col">Owner</th><th scope="col">Head</th><th scope="col">Private</th></tr></thead>
+<tbody>
+{{range .Feed}}{{$r := asMap .}}<tr><td><a href="/repo?owner={{urlquery (str (index $r "owner"))}}&repo={{urlquery (str (index $r "identifier"))}}">{{str (index $r "identifier")}}</a></td><td>{{template "nostrKey" (str (index $r "owner"))}}</td><td><code>{{shortID (index $r "head")}}</code></td><td>{{if index $r "private"}}yes{{else}}no{{end}}</td></tr>
+{{end}}</tbody>
+</table></scroll-box>
+{{else}}<p>No repositories were reported.</p>
+{{end}}{{with (asMap .Event).next_cursor}}<p><a href="{{browsePageURL "/repos" $.Query "cursor" .}}">Next page</a></p>
+{{end}}</main>
+{{end}}
+
+{{define "files"}}<main>
+<h2>Files</h2>
+<p><a href="/files">Refresh</a> | <a href="/manage/data">Upload or manage blobs</a></p>
+{{if .Error}}{{template "alert" .Error}}
+{{else if .Feed}}<scroll-box><table id="file-list">
+<thead><tr><th scope="col">Hash</th><th scope="col">Type</th><th scope="col">Size</th><th scope="col">Uploaded</th></tr></thead>
+<tbody>
+{{range .Feed}}{{$f := asMap .}}<tr><td><a href="/file?sha={{str (index $f "sha256")}}"><code>{{str (index $f "sha256")}}</code></a></td><td>{{str (index $f "type")}}</td><td>{{str (index $f "size")}}</td><td>{{str (index $f "uploaded")}}</td></tr>
+{{end}}</tbody>
+</table></scroll-box>
+{{else}}<p>No files were reported.</p>
+{{end}}{{with (asMap .Event).next_cursor}}<p><a href="{{browsePageURL "/files" $.Query "cursor" .}}">Next page</a></p>
+{{end}}</main>
+{{end}}
+
+{{define "file"}}<main>
+<h2>File</h2>
+<p><a href="/files">All files</a></p>
+{{if .Error}}{{template "alert" .Error}}
+{{else}}{{$file := asMap .Event}}{{$hash := or (.Query.Get "hash") (.Query.Get "sha")}}
+<p><a href="/files/raw?hash={{str (index $file "sha256")}}">Raw/download</a></p>
+<scroll-box><table id="file-meta">
+<tbody>
+<tr><th scope="row">SHA-256</th><td><code>{{str (index $file "sha256")}}</code></td></tr>
+<tr><th scope="row">Type</th><td>{{str (index $file "type")}}</td></tr>
+<tr><th scope="row">Size</th><td>{{str (index $file "size")}} bytes</td></tr>
+{{with index $file "blossom_uri"}}<tr><th scope="row">Blossom URI</th><td><code>{{.}}</code></td></tr>
+{{end}}</tbody>
+</table></scroll-box>
+{{if index $file "binary"}}<p>This is a binary file. Download it to view its contents.</p>
+{{else}}{{sourceHTML .Event}}
+{{end}}<details>
+<summary>Manage file</summary>
+<rpc-form method="deleteblob"><input type="hidden" name="param" value="{{$hash}}"><button>Delete file</button></rpc-form>
+</details>
+{{end}}</main>
+{{end}}

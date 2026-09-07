@@ -1,43 +1,161 @@
 package webui
 
-const pageTemplate = `{{define "page"}}<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>{{.Title}}</title><style>html,body{margin:0;padding:0}body{font-family:system-ui,sans-serif;line-height:1.4;color:#202124}.layout{border-collapse:collapse;table-layout:fixed;width:960px;margin:0 auto}.layout>tbody>tr>td{padding:12px;vertical-align:top;overflow-wrap:anywhere}.layout header,.layout footer{border-bottom:1px solid #bbb}.layout footer{border-top:1px solid #bbb;border-bottom:0}.layout main{width:100%}input,textarea,button,select{max-width:100%;box-sizing:border-box;font:inherit}button{padding:.3rem .65rem}pre{white-space:pre-wrap;overflow-wrap:anywhere}.repo-head{border:1px solid #d0d0d0;padding:12px;background:#fafafa}.repo-head h2{margin:0 0 6px}.repo-head p{margin:0 0 10px}.repo-tabs a{display:inline-block}.repo-breadcrumbs{margin:16px 0;font:14px ui-monospace,monospace}.file-heading{padding:8px 12px;border:1px solid #ccc;border-bottom:0;background:#f5f5f5}.file-heading a{float:right}.source-view tr:target{background:#fff1bc}.source-view code,.diff-view code{font:inherit}.source-line a,.diff-line a{text-decoration:none;color:#777}.entry-kind{display:inline-block;width:3.5em;color:#777;font:12px ui-monospace,monospace}.repo-clone input{width:40em;font:13px ui-monospace,monospace}.repo-pages a{margin-right:16px}.repo-activity{border-bottom:1px solid #ddd}.repo-title{display:block}.repo-title>*{display:inline-block;margin-right:.7rem;vertical-align:baseline}.repo-title h2{margin:.1rem 0}.repo-muted{color:#666}.repo-tabs{display:block;border-bottom:1px solid #bbb;margin:1rem 0}.repo-tabs a{padding:.45rem .7rem;text-decoration:none}.repo-tabs a[aria-current=page]{border:1px solid #bbb;border-bottom-color:white;margin-bottom:-1px;background:white;font-weight:600}.repo-toolbar{display:block;margin:.7rem 0}.repo-toolbar>*{display:inline-block;margin-right:.5rem;vertical-align:middle}.repo-toolbar code{font-family:ui-monospace,monospace}.repo-tree,.repo-history{width:100%;border-collapse:collapse}.repo-tree th,.repo-tree td,.repo-history th,.repo-history td{padding:.35rem .5rem;border-bottom:1px solid #e2e2e2;text-align:left}.repo-tree td:last-child,.repo-tree th:last-child{font-family:ui-monospace,monospace}.source-wrap{overflow:auto;border:1px solid #ccc;background:#fafafa}.source-view{border-collapse:collapse;width:100%;font:13px/20px ui-monospace,SFMono-Regular,Consolas,monospace}.source-view td{padding:0 .75rem;vertical-align:top;white-space:pre;overflow-wrap:normal;word-break:normal}.source-line{color:#888;text-align:right;user-select:none;border-right:1px solid #ddd}.source-code{width:100%}.tok-keyword{font-weight:600}.tok-comment{color:#777}.tok-string{color:#146b2d}.tok-number{color:#7a3e00}.diff-view{overflow:auto;border:1px solid #ccc;width:100%;border-collapse:collapse;font:13px/20px ui-monospace,SFMono-Regular,Consolas,monospace}.diff-view td{padding:0 .75rem;white-space:pre;overflow-wrap:normal;word-break:normal}.diff-add{background:#e9f7e9}.diff-remove{background:#fbeaea}.diff-line{color:#888;text-align:right;user-select:none;border-right:1px solid #ddd}.diff-code{width:100%}.clone-list{display:block}.clone-list>*{display:inline-block;margin:.25rem .5rem .25rem 0}.clone-list code{padding:.25rem .4rem;background:#f1f1f1;overflow-wrap:anywhere}@media(max-width:979px){.layout{width:360px;max-width:100%;margin:0}.layout>tbody>tr>td{padding:8px}nav{line-height:2}.repo-tabs{overflow-x:auto}.repo-tabs a{white-space:nowrap}.repo-tree th:nth-child(3),.repo-tree td:nth-child(3),.repo-tree th:nth-child(4),.repo-tree td:nth-child(4){display:none}.source-view{font-size:12px}.source-view td{padding:0 .5rem}}</style></head><body>
-<table class="layout" aria-label="tiny relay"><tr><td><header>{{if .Private}}<h1>Private relay</h1><p>Sign in with a Nostr signer to continue.</p>{{else}}<h1><a href="/">{{.Slug}}</a></h1><p>{{.Policy.Description}}</p><p><code>{{.URL}}</code> | identity <code>{{.Identity}}</code></p><nav><a href="/">Home</a> | <a href="/repos">Repositories</a> | <a href="/files">Files</a> | <a href="/manage/status">Status</a> | <a href="/inbox">Inbox</a> | <a href="/outbox">Outbox</a> | <a href="/search">Search</a> | <a href="/manage/people">Manage</a> | {{if .Actor}}<a href="/signin" title="{{.Actor}}">{{shortID .Actor}}</a> <button id="session-logout" type="button">Sign out</button>{{else}}<a href="/signin">Sign in</a>{{end}}</nav><p id="session-status" role="status"></p>{{end}}</header>
-{{if .Private}}{{template "privateGate" .}}{{else if eq .Tab "home"}}{{template "home" .}}{{else if eq .Tab "inbox"}}{{template "inbox" .}}{{else if eq .Tab "outbox"}}{{template "outbox" .}}{{else if eq .Tab "search"}}{{template "search" .}}{{else if eq .Tab "articles"}}{{template "articles" .}}{{else if eq .Tab "private"}}{{template "private" .}}{{else if eq .Tab "chat"}}{{template "chat" .}}{{else if eq .Tab "media"}}{{template "media" .}}{{else if eq .Tab "site"}}{{template "site" .}}{{else if eq .Tab "marmot"}}{{template "marmot" .}}{{else if eq .Tab "grasp"}}{{template "grasp" .}}{{else if eq .Tab "terms"}}{{template "terms" .}}{{else if eq .Tab "people"}}{{template "people" .}}{{else if eq .Tab "moderation"}}{{template "moderation" .}}{{else if eq .Tab "rules"}}{{template "rules" .}}{{else if eq .Tab "identity"}}{{template "identity" .}}{{else if eq .Tab "signin"}}{{template "signin" .}}{{else if eq .Tab "connect"}}{{template "connect" .}}{{else if eq .Tab "data"}}{{template "data" .}}{{else if eq .Tab "sync"}}{{template "sync" .}}{{else if eq .Tab "views"}}{{template "views" .}}{{else if eq .Tab "health"}}{{template "health" .}}{{else if eq .Tab "status"}}{{template "status" .}}{{else if eq .Tab "owner"}}{{template "owner" .}}{{else if eq .Tab "repos"}}{{template "repos" .}}{{else if eq .Tab "repo"}}{{template "repo" .}}{{else if eq .Tab "files"}}{{template "files" .}}{{else if eq .Tab "file"}}{{template "file" .}}{{else if eq .Tab "tools"}}{{template "tools" .}}{{else if eq .Tab "event"}}{{template "event" .}}{{else if eq .Tab "view"}}{{template "view" .}}{{else if eq .Tab "invite"}}{{template "invite" .}}{{else}}{{template "home" .}}{{end}}
-<footer><a href="/.well-known/nostr.json">NIP-05</a> | <a href="/terms">Terms</a></footer></td></tr></table>
-<script>(()=>{const root=(location.pathname.match(/^\/r\/[^/]+/)||[""])[0],localPath=p=>p&&p.startsWith("/")?(p===root||p.startsWith(root+"/")?p:root+p):p;const sha256hex=async value=>Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256",new TextEncoder().encode(value))),b=>b.toString(16).padStart(2,"0")).join("");const out=(f,m)=>{let n=f.querySelector("[role=status]");if(!n){n=document.createElement("p");n.setAttribute("role","status");f.append(n)}n.textContent=m;const b=f.querySelector("button");if(b)b.disabled=false};async function auth(url,method,body){if(!window.nostr?.signEvent)throw Error("Connect a Nostr signer first.");const digest=await crypto.subtle.digest("SHA-256",new TextEncoder().encode(body));const hash=Array.from(new Uint8Array(digest),b=>b.toString(16).padStart(2,"0")).join("");return "Nostr "+btoa(JSON.stringify(await window.nostr.signEvent({kind:27235,created_at:Math.floor(Date.now()/1000),tags:[["u",url],["method",method],["payload",hash]],content:""})))}document.querySelectorAll("form.rpc").forEach(form=>form.addEventListener("submit",async ev=>{ev.preventDefault();let params=[...form.querySelectorAll("[name=param]")].map(x=>{try{return JSON.parse(x.value)}catch{return x.value}});if(form.dataset.jsonParams&&params.length===1&&Array.isArray(params[0]))params=params[0];if(form.dataset.method==="claiminvite"){const agree=form.querySelector("[name=termsAgreement]");if(agree&&!agree.checked){out(form,"Agree to the relay terms before joining.");return}if(form.dataset.terms)params=[params[0],await sha256hex(form.dataset.terms)]}const body=JSON.stringify({method:form.dataset.method,params});out(form,"Signing…");try{const endpoint=localPath(form.dataset.endpoint||"/manage/rpc");const url=new URL(endpoint,location.href).href;const response=await fetch(endpoint,{method:"POST",headers:{"content-type":"application/json",authorization:await auth(url,"POST",body)},body});out(form,response.ok?"Done: "+await response.text():"Error: "+await response.text())}catch(err){out(form,"Error: "+err.message)}}))})();</script></body></html>{{end}}
+import (
+	"embed"
+	"encoding/json"
+	"fmt"
+	"html/template"
+	"net/url"
+	"strings"
+	"time"
+)
 
-{{define "privateGate"}}{{template "signin" .}}{{end}}
-{{define "signin"}}<main><h2>{{if .Actor}}Your account{{else}}Sign in{{end}}</h2>{{if .Actor}}<p>Signed in as <code>{{.Actor}}</code>.</p><p><a href="/manage/people">Manage relay</a> | <a href="/tools">Browser tools</a></p>{{else}}<p>Use a browser extension or connect Amber on your phone.</p>{{end}}{{template "signerControls" .}}</main>{{end}}
-{{define "signerControls"}}<p><button id="session-login" type="button">Sign in with connected signer</button></p><h3>Phone signer</h3><p>Scan the QR code with Amber and approve the connection and sign-in request. This page will open your relay when you finish.</p><p><button id="nostrconnect" type="button">Generate QR code</button> <a id="nostrconnect-open" hidden>Open in signer</a></p><p><img id="signer-qr" alt="Nostr Connect QR code" hidden width="240" height="240"></p><p id="signer-status" role="status"></p><details><summary>Use a bunker URL</summary><form id="bunker"><label>Bunker URL <input id="bunker-url" type="url" placeholder="bunker://…" required></label><button>Connect remote signer</button></form></details>{{end}}
-{{define "home"}}<main><h2>About this relay</h2><p>Browse notes, repositories and files. Connect your Nostr signer to publish and manage your relay.</p><dl><dt>Reads</dt><dd>{{.Policy.Reads}}</dd><dt>Writes</dt><dd>{{.Policy.Writes}}</dd><dt>Search</dt><dd>{{.Policy.Features.Search}}</dd><dt>Files</dt><dd>{{.Policy.Features.Files}}</dd></dl><p>Relay URL: <code>{{.URL}}</code></p><p><a href="/inbox">Inbox</a> | <a href="/outbox">Outbox</a> | <a href="/search">Search</a> | <a href="/manage/people">Management</a></p></main>{{end}}
-{{define "inbox"}}<main><h2>Inbox</h2><p>Events addressed to this signed-in key, subject to the same private-event gates as websocket queries.</p>{{if .Error}}<p role="alert">{{.Error}}</p>{{else}}{{template "eventList" .}}{{end}}</main>{{end}}
-{{define "outbox"}}<main><h2>Outbox</h2><p>Events authored by this signed-in key.</p>{{if .Error}}<p role="alert">{{.Error}}</p>{{else}}{{template "eventList" .}}{{end}}</main>{{end}}
-{{define "search"}}<main><h2>Search</h2><form action="/search" method="get"><label>Terms <input name="q" type="search" value="{{.Query.Get "q"}}" required></label><button>Search</button></form>{{if .Error}}<p role="alert">{{.Error}}</p>{{else if .Feed}}<h3>Results</h3>{{template "eventList" .}}{{else if .Query.Get "q"}}<p>No matching events.</p>{{end}}</main>{{end}}
-{{define "manageNav"}}<nav><a href="/manage/people">People</a> | <a href="/manage/moderation">Moderation</a> | <a href="/manage/rules">Rules</a> | <a href="/manage/identity">Identity</a> | <a href="/manage/connect">Connect</a> | <a href="/manage/data">Data</a> | <a href="/manage/sync">Sync</a> | <a href="/manage/views">Views</a> | <a href="/manage/health">Health</a> | <a href="/manage/owner">Owner</a> | <a href="/tools">Tools</a></nav>{{end}}
-{{define "people"}}<main><h2>People</h2>{{template "manageNav" .}}<form class="rpc" on-submit="this.querySelector('button').disabled=true" data-method="listmembers"><button>List members</button></form><form class="rpc" on-submit="this.querySelector('button').disabled=true" data-method="setmember"><label>Pubkey <input name="param" pattern="[0-9a-f]{64}" required></label><label>JSON patch <input name="param" value="{}"></label><button>Save member</button></form><form class="rpc" on-submit="this.querySelector('button').disabled=true" data-method="removemember"><label>Pubkey <input name="param" required></label><button>Remove member</button></form><form class="rpc" on-submit="this.querySelector('button').disabled=true" data-method="createinvite"><label>TTL seconds <input name="param" type="number" value="259200"></label><label>Maximum uses <input name="param" type="number" value="1"></label><label>Note <input name="param"></label><button>Create invite</button></form><form class="rpc" on-submit="this.querySelector('button').disabled=true" data-method="listinvites"><button>List invites</button></form><form class="rpc" on-submit="this.querySelector('button').disabled=true" data-method="listclaims"><button>List claims</button></form><form class="rpc" on-submit="this.querySelector('button').disabled=true" data-method="createclaim"><label>JSON claim <input name="param" value="{}"></label><button>Create claim</button></form><form class="rpc" on-submit="this.querySelector('button').disabled=true" data-method="deleteclaim"><label>Claim code <input name="param" required></label><button>Delete claim</button></form><form class="rpc" on-submit="this.querySelector('button').disabled=true" data-method="removesubtree"><label>Member pubkey <input name="param" required></label><button>Remove invite subtree</button></form><form class="rpc" on-submit="this.querySelector('button').disabled=true" data-method="listallowedpubkeys"><button>Allowed pubkeys</button></form><form class="rpc" on-submit="this.querySelector('button').disabled=true" data-method="listbannedpubkeys"><button>Banned pubkeys</button></form></main>{{end}}
-{{define "moderation"}}<main><h2>Moderation</h2>{{template "manageNav" .}}<form class="rpc" on-submit="this.querySelector('button').disabled=true" data-method="listreports"><button>List reports</button></form><form class="rpc" on-submit="this.querySelector('button').disabled=true" data-method="resolvereport"><label>Report ID <input name="param" required></label><label>JSON resolution <input name="param" value="{}"></label><button>Resolve report</button></form><form class="rpc" on-submit="this.querySelector('button').disabled=true" data-method="banpubkey"><label>Pubkey <input name="param" required></label><button>Ban</button></form><form class="rpc" on-submit="this.querySelector('button').disabled=true" data-method="banevent"><label>Event ID <input name="param" required></label><button>Hide event</button></form><form class="rpc" on-submit="this.querySelector('button').disabled=true" data-method="allowevent"><label>Event ID <input name="param" required></label><button>Allow event</button></form><form class="rpc" on-submit="this.querySelector('button').disabled=true" data-method="deleteevent"><label>Event ID <input name="param" required></label><button>Delete event</button></form><form class="rpc" on-submit="this.querySelector('button').disabled=true" data-method="pinevent"><label>Event ID or address <input name="param" required></label><button>Pin</button></form><form class="rpc" on-submit="this.querySelector('button').disabled=true" data-method="unpinevent"><label>Event ID or address <input name="param" required></label><button>Unpin</button></form><form class="rpc" on-submit="this.querySelector('button').disabled=true" data-method="listpins"><button>List pins</button></form><form class="rpc" on-submit="this.querySelector('button').disabled=true" data-method="listrecentevents"><button>Recent events</button></form><form class="rpc" on-submit="this.querySelector('button').disabled=true" data-method="searchevents"><label>JSON filter <input name="param" value="{}"></label><button>Search events</button></form></main>{{end}}
-{{define "rules"}}<main><h2>Rules</h2>{{template "manageNav" .}}<form class="rpc" on-submit="this.querySelector('button').disabled=true" data-method="getpolicy"><button>Load policy</button></form><form class="rpc" on-submit="this.querySelector('button').disabled=true" data-method="setpolicy"><label>JSON policy patch <textarea name="param">{}</textarea></label><button>Apply policy</button></form><form class="rpc" on-submit="this.querySelector('button').disabled=true" data-method="allowkind"><label>Kind <input name="param" type="number" required></label><button>Allow kind</button></form><form class="rpc" on-submit="this.querySelector('button').disabled=true" data-method="disallowkind"><label>Kind <input name="param" type="number" required></label><button>Block kind</button></form></main>{{end}}
-{{define "identity"}}<main><h2>Identity</h2>{{template "manageNav" .}}<form class="rpc" on-submit="this.querySelector('button').disabled=true" data-method="changerelayname"><label>Name <input name="param" value="{{.Policy.Name}}"></label><button>Save name</button></form><form class="rpc" on-submit="this.querySelector('button').disabled=true" data-method="changerelaydescription"><label>Description <textarea name="param">{{.Policy.Description}}</textarea></label><button>Save description</button></form><form class="rpc" on-submit="this.querySelector('button').disabled=true" data-method="transferowner"><label>New owner pubkey <input name="param" required></label><button>Transfer ownership</button></form></main>{{end}}
-{{define "connect"}}<main><h2>Connect</h2>{{if .Private}}<p>This private relay requires current membership. Connect a signer to sign in.</p>{{end}}{{template "manageNav" .}}<button fx-action="/connect/fragment" fx-method="get" fx-trigger="click" fx-target="#connections-preview" fx-swap="morph">Preview connections</button><pre id="connections-preview" aria-live="polite"></pre><form class="rpc" on-submit="this.querySelector('button').disabled=true" data-method="listconnections"><button>List connections</button></form><form class="rpc" on-submit="this.querySelector('button').disabled=true" data-method="setconnections"><label>JSON connections <textarea name="param">[]</textarea></label><button>Save connections</button></form><form class="rpc" on-submit="this.querySelector('button').disabled=true" data-method="listconnectiontemplates"><button>List templates</button></form><h3>Publish signed relay records</h3><p>These actions open the configured signer and publish owner-authored Nostr records.</p><form id="publish-grasp"><label>GRASP relay URLs, one per line <textarea name="relays" placeholder="wss://relay.example\nwss://backup.example"></textarea></label><button>Publish GRASP list</button><output role="status"></output></form><form id="publish-delivery"><label>Blossom server URLs, one per line <textarea name="servers"></textarea></label><button>Publish server list</button><output role="status"></output></form><h3>Sign in</h3>{{template "signerControls" .}}<script>(()=>{const publish=async(f,k,t,c)=>{const o=f.querySelector("output");try{if(!window.nostr?.signEvent)throw Error("Connect a signer first.");const e=await window.nostr.signEvent({kind:k,created_at:Math.floor(Date.now()/1000),tags:t,content:c});const r=await window.tinySignedFetch("/events","POST",JSON.stringify(e));let result=null;try{result=await r.clone().json()}catch{}if(!r.ok||result?.error||result?.accepted===false)throw Error(result?.error||result?.message||"The relay rejected the event.");if(o)o.textContent="Published"}catch(e){if(o)o.textContent="Error: "+e.message}};const g=document.getElementById("publish-grasp");if(g)g.addEventListener("submit",e=>{e.preventDefault();const tags=g.querySelector("[name=relays]").value.split(/\r?\n/).map(x=>x.trim()).filter(Boolean).filter(x=>/^wss?:\/\//i.test(x)).map(x=>["g",x]);publish(g,10317,tags,"")});const d=document.getElementById("publish-delivery");if(d)d.addEventListener("submit",e=>{e.preventDefault();publish(d,10063,d.querySelector("[name=servers]").value.split(/\r?\n/).map(x=>x.trim()).filter(Boolean).map(x=>["server",x]),"")})})();</script></main>{{end}}
-{{define "data"}}<main><h2>Data</h2>{{template "manageNav" .}}<form id="blob-upload"><label>Upload file <input id="blob-upload-input" type="file" required></label><button>Upload</button><output role="status"></output></form><form class="rpc" on-submit="this.querySelector('button').disabled=true" data-method="storagestats"><button>Storage stats</button></form><form class="rpc" on-submit="this.querySelector('button').disabled=true" data-method="listdumps"><button>List dumps</button></form><form class="rpc" on-submit="this.querySelector('button').disabled=true" data-method="dumpnow"><button>Write dump</button></form><form class="rpc" on-submit="this.querySelector('button').disabled=true" data-method="deletedump"><label>Dump name <input name="param" required></label><button>Delete dump</button></form><form class="rpc" on-submit="this.querySelector('button').disabled=true" data-method="listbackups"><button>List backups</button></form><form class="rpc" on-submit="this.querySelector('button').disabled=true" data-method="backupnow"><button>Create backup</button></form><form class="rpc" on-submit="this.querySelector('button').disabled=true" data-method="deletebackup"><label>Backup name <input name="param" required></label><button>Delete backup</button></form><form class="rpc" on-submit="this.querySelector('button').disabled=true" data-method="listblobs"><button>List blobs</button></form><form class="rpc" on-submit="this.querySelector('button').disabled=true" data-method="deleteblob"><label>Blob hash <input name="param" required></label><button>Delete blob</button></form><form class="rpc" on-submit="this.querySelector('button').disabled=true" data-method="listsites"><button>List sites</button></form><form class="rpc" on-submit="this.querySelector('button').disabled=true" data-method="gitstorage"><button>Git storage status</button></form><h3>Portable data</h3><form id="import-file"><label>Event JSONL <input id="import-input" type="file" accept=".jsonl,.json,application/json"></label><button>Import events</button></form><form id="backup-preview"><label>Backup archive <input id="backup-preview-input" type="file" accept=".backup.json,application/json"></label><button>Preview backup</button></form><form id="backup-restore"><label>Backup archive <input id="backup-restore-input" type="file" accept=".backup.json,application/json"></label><button>Restore backup</button></form><form id="backup-download"><label>Backup name <input id="backup-download-name" required></label><button>Download backup</button></form><form id="dump-download"><label>Dump name <input id="dump-download-name" required></label><button>Download dump</button></form><p id="data-status" role="status"></p></main>{{end}}
-{{define "sync"}}<main><h2>Sync and delivery</h2>{{template "manageNav" .}}<button fx-action="/manage/jobs/status" fx-method="get" fx-trigger="click" fx-target="#job-status" fx-swap="innerHTML" id="watch-jobs">Watch job status</button><table id="job-status"><tbody><tr><td>Job status is idle.</td></tr></tbody></table><form class="rpc" on-submit="this.querySelector('button').disabled=true" data-method="listjobs"><button>List jobs</button></form><form class="rpc" on-submit="this.querySelector('button').disabled=true" data-method="pullfrom"><label>Relay URL <input name="param" type="url" required></label><label>JSON filter <input name="param" value="{}"></label><button>Add pull source</button></form><form class="rpc" on-submit="this.querySelector('button').disabled=true" data-method="addjob"><label>JSON job <input name="param" value="{}"></label><button>Add job</button></form><form class="rpc" on-submit="this.querySelector('button').disabled=true" data-method="deliverystatus"><button>Delivery status</button></form><form class="rpc" on-submit="this.querySelector('button').disabled=true" data-method="pullstatus"><button>Pull status</button></form><form class="rpc" on-submit="this.querySelector('button').disabled=true" data-method="runjob"><label>Job ID <input name="param" required></label><button>Run job</button></form><form class="rpc" on-submit="this.querySelector('button').disabled=true" data-method="removejob"><label>Job ID <input name="param" required></label><button>Remove job</button></form><form class="rpc" on-submit="this.querySelector('button').disabled=true" data-method="backfill"><label>JSON backfill plan <input name="param" value="{}"></label><button>Backfill</button></form></main>{{end}}
-{{define "views"}}<main><h2>Views</h2>{{template "manageNav" .}}<form class="rpc" on-submit="this.querySelector('button').disabled=true" data-method="listviews"><button>List views</button></form><form class="rpc" on-submit="this.querySelector('button').disabled=true" data-method="publishview"><label>View name <input name="param" required></label><button>Publish view</button></form></main>{{end}}
-{{define "health"}}<main><h2>Health</h2>{{template "manageNav" .}}<form class="rpc" on-submit="this.querySelector('button').disabled=true" data-method="stats"><button>Relay stats</button></form><form class="rpc" on-submit="this.querySelector('button').disabled=true" data-method="listaudit"><label>Before sequence <input name="param" type="number" value="0"></label><button>Audit log</button></form><form class="rpc" on-submit="this.querySelector('button').disabled=true" data-method="supportedmethods"><button>Supported methods</button></form>{{end}}
-{{define "owner"}}<main><h2>Owner operations</h2>{{template "manageNav" .}}<p>Destructive actions ask the signer. The browser never receives or submits a private key.</p><form class="rpc" on-submit="this.querySelector('button').disabled=true" data-method="exportconfig"><button>Export configuration</button></form><form class="rpc" on-submit="this.querySelector('button').disabled=true" data-method="planconfig"><label>Config JSON <textarea name="param">{}</textarea></label><button>Preview configuration</button></form><form class="rpc" on-submit="this.querySelector('button').disabled=true" data-method="importconfig"><label>Config JSON <textarea name="param">{}</textarea></label><button>Apply configuration</button></form><form class="rpc" on-submit="this.querySelector('button').disabled=true" data-method="forkrelay"><label>Fork options JSON <textarea name="param">{}</textarea></label><button>Fork relay</button></form><form class="rpc" on-submit="this.querySelector('button').disabled=true" data-method="deleterelay"><label>Type relay name to confirm <input name="param" value="{{.Slug}}" required></label><button>Delete relay</button></form><h3>Supported management methods</h3><p>Each retained NIP-86 method remains callable through the signed form bridge while its dedicated tab supplies guided fields.</p>{{range .Methods}}<form class="rpc" on-submit="this.querySelector('button').disabled=true" data-json-params="true" data-method="{{.}}"><details><summary>{{.}}</summary><label>JSON parameters <input name="param" value="[]"></label><button>Run {{.}}</button></details></form>{{end}}</main>{{end}}
-{{define "event"}}<main><h2>Event</h2><p><a href="/feed.xml">Atom feed</a> | <a href="/articles.json">JSON feed</a></p><pre>{{json .Event}}</pre></main>{{end}}
-{{define "view"}}<main><h2>View: {{.View}}</h2><pre>{{json .Event}}</pre></main>{{end}}
-{{define "invite"}}<main><h2>Join this relay</h2><p>This invite is claimed with one signature from your Nostr signer. The relay never receives a private key.</p>{{if .Policy.JoinTerms}}<h3>Before you join</h3><pre>{{.Policy.JoinTerms}}</pre>{{end}}<form class="rpc" on-submit="this.querySelector('button').disabled=true" data-method="claiminvite" data-terms="{{.Policy.JoinTerms}}" data-endpoint="/api/invites/claim"><input type="hidden" name="param" value="{{.Invite}}">{{if .Policy.JoinTerms}}<label><input type="checkbox" name="termsAgreement" required> I agree to these relay terms.</label>{{end}}<button>Join relay</button></form></main>{{end}}
-{{define "articles"}}<main><h2>Articles</h2><p>Long-form NIP-23 events published on this relay.</p>{{if .Error}}<p role="alert">{{.Error}}</p>{{else}}{{template "eventList" .}}{{end}}<p><a href="/feed.xml">Atom/RSS feed</a> | <a href="/articles.json">JSON feed</a></p></main>{{end}}
-{{define "eventList"}}{{if .Feed}}<ol>{{range .Feed}}<li><pre>{{json .}}</pre></li>{{end}}</ol>{{else}}<p>No events.</p>{{end}}{{end}}
-{{define "private"}}<main><h2>Private messages</h2><p>Sign in with a Nostr client to view addressed private events.</p></main>{{end}}
-{{define "chat"}}<main><h2>Chat</h2><p>Group and direct conversations are available through NIP-17 and NIP-29 clients.</p></main>{{end}}
-{{define "media"}}<main><h2>Media</h2><p>Blossom uploads and NIP-96 metadata are available from compatible clients.</p></main>{{end}}
-{{define "site"}}<main><h2>Sites</h2><p>This relay serves signed site manifests and snapshots when enabled by policy.</p></main>{{end}}
-{{define "marmot"}}<main><h2>Marmot</h2><p>Marmot group state is served when the feature is enabled.</p></main>{{end}}
-{{define "grasp"}}<main><h2>GRASP</h2><p>Repository state and relay capabilities are served through the GRASP endpoints.</p></main>{{end}}
-{{define "repos"}}<main><h2>Repositories</h2><p><a href="/repos">Refresh</a> | <a href="/connect">Connect a repository relay</a></p>{{if .Error}}<p role="alert">{{.Error}}</p>{{else if .Feed}}<table><thead><tr><th>Repository</th><th>Owner</th><th>Head</th><th>Private</th></tr></thead><tbody>{{range .Feed}}{{with $r := asMap .}}<tr><td><a href="/repo?owner={{urlquery (printf "%v" (index $r "owner"))}}&repo={{urlquery (printf "%v" (index $r "identifier"))}}">{{index $r "identifier"}}</a></td><td>{{index $r "owner"}}</td><td><code>{{index $r "head"}}</code></td><td>{{index $r "private"}}</td></tr>{{end}}{{end}}</tbody></table>{{else}}<p>No repositories were reported.</p>{{end}}{{with (asMap .Event).next_cursor}}<p><a href="{{browsePageURL "/repos" $.Query "cursor" .}}">Next page</a></p>{{end}}</main>{{end}}
-{{define "files"}}<main><h2>Files</h2><p><a href="/files">Refresh</a> | <a href="/manage/data">Upload or manage blobs</a></p>{{if .Error}}<p role="alert">{{.Error}}</p>{{else if .Feed}}<table><thead><tr><th>Hash</th><th>Type</th><th>Size</th><th>Uploaded</th></tr></thead><tbody>{{range .Feed}}<tr><td><a href="/file?sha={{index (asMap .) "sha256"}}">{{index (asMap .) "sha256"}}</a></td><td>{{index (asMap .) "type"}}</td><td>{{index (asMap .) "size"}}</td><td>{{index (asMap .) "uploaded"}}</td></tr>{{end}}</tbody></table>{{else}}<p>No files were reported.</p>{{end}}{{with (asMap .Event).next_cursor}}<p><a href="{{browsePageURL "/files" $.Query "cursor" .}}">Next page</a></p>{{end}}</main>{{end}}
-{{define "file"}}<main><h2>File</h2><p><a href="/files">All files</a></p>{{if .Error}}<p role="alert">{{.Error}}</p>{{else}}{{$file := asMap .Event}}<p><a href="/files/raw?hash={{index $file "sha256"}}">Raw/download</a></p><table class="repo-history"><tbody><tr><th>SHA-256</th><td><code>{{index $file "sha256"}}</code></td></tr><tr><th>Type</th><td>{{index $file "type"}}</td></tr><tr><th>Size</th><td>{{index $file "size"}} bytes</td></tr>{{with index $file "blossom_uri"}}<tr><th>Blossom URI</th><td><code>{{.}}</code></td></tr>{{end}}</tbody></table>{{if index $file "binary"}}<p>This is a binary file. Download it to view its contents.</p>{{else}}<div class="source-wrap">{{sourceHTML .Event}}</div>{{end}}<details><summary>Manage file</summary><form class="rpc" data-method="deleteblob"><input type="hidden" name="param" value="{{if .Query.Get "hash"}}{{.Query.Get "hash"}}{{else}}{{.Query.Get "sha"}}{{end}}"><button>Delete file</button></form></details>{{end}}</main>{{end}}
-{{define "status"}}<main><h2>Service status</h2>{{template "manageNav" .}}{{if .Error}}<p role="alert">{{.Error}}</p>{{else}}<pre>{{json .Event}}</pre><p><a href="/manage/sync">Jobs and delivery</a> | <a href="/manage/data">Storage and backups</a> | <a href="/manage/health">Relay health</a></p>{{end}}</main>{{end}}
-{{define "tools"}}<main><h2>Browser tools</h2><p>Use a browser agent to browse repositories and files, check relay health, manage jobs and create backups. Connect your signer to manage the relay.</p><p id="webmcp-status" role="status">Checking browser support...</p><ul id="webmcp-tools"></ul><p id="webmcp-operation" role="status"></p><details><summary>Enable WebMCP</summary><p>In Chrome, open <code>chrome://flags/#enable-webmcp-testing</code>, enable WebMCP for testing and relaunch. Your usual pages and signed forms work in other browsers.</p></details><script>(()=>{const update=()=>{const s=window.tinyWebMCP;document.getElementById("webmcp-status").textContent=!s?.supported?"WebMCP is unavailable in this browser.":s.errors.length?"Some tools could not register: "+s.errors.join("; "):s.registered.length+" tools available.";const list=document.getElementById("webmcp-tools");list.replaceChildren(...(s?.registered||[]).map(name=>{const li=document.createElement("li");li.textContent=name;return li}));document.getElementById("webmcp-operation").textContent=s?.lastOperation||"";};window.addEventListener("tiny:webmcp",update);update();window.tinyWebMCP?.ready.then(update)})();</script></main>{{end}}{{define "terms"}}<main><h2>Terms</h2><p>{{.Policy.JoinTerms}}</p></main>{{end}}
-`
+// templateFS holds every page template. page.html owns the shell and the
+// shared partials; the other files each define one group of tabs.
+//
+//go:embed page.html public.html manage.html browse.html repo.html
+var templateFS embed.FS
+
+// styleCSS is inlined into every page so the UI needs no extra request and
+// works unchanged under a tenant path prefix. It styles ids, elements and the
+// custom element names only; templates never carry class attributes.
+//
+//go:embed style.css
+var styleCSS string
+
+// bridgeJS is the signer bridge and componentsJS defines the custom
+// elements. Both are inlined at the end of the body in that order.
+//
+//go:embed bridge.js
+var bridgeJS string
+
+//go:embed components.js
+var componentsJS string
+
+func parseTemplates() (*template.Template, error) {
+	scripts := map[string]string{"bridge.js": bridgeJS, "components.js": componentsJS}
+	funcs := template.FuncMap{
+		"stylesheet": func() template.CSS { return template.CSS(styleCSS) },
+		"script": func(name string) (template.JS, error) {
+			source, ok := scripts[name]
+			if !ok {
+				return "", fmt.Errorf("unknown script %q", name)
+			}
+			return template.JS(source), nil
+		},
+		"json": func(value any) string {
+			encoded, err := json.Marshal(value)
+			if err != nil {
+				return "null"
+			}
+			return string(encoded)
+		},
+		"join":     strings.Join,
+		"urlquery": url.QueryEscape,
+		"asMap":    valueMap,
+		"str":      plainString,
+		"datetime": datetime,
+		"when":     when,
+		"selectedView": func(query url.Values, view string) string {
+			if query.Get("view") == view || (query.Get("view") == "" && view == "tree") {
+				return " selected"
+			}
+			return ""
+		},
+		"repoCommitURL":   repoCommitURL,
+		"hasNextOffset":   hasNextOffset,
+		"repoURL":         repoURL,
+		"repoBreadcrumbs": repoBreadcrumbs,
+		"browsePageURL":   browsePageURL,
+		"shortID":         shortID,
+		"repoDate":        repoDate,
+		"sourceHTML":      sourceHTML,
+		"diffHTML":        diffHTML,
+	}
+	tmpl, err := template.New("webui").Funcs(funcs).ParseFS(templateFS, "*.html")
+	if err != nil {
+		return nil, fmt.Errorf("parse web templates: %w", err)
+	}
+	return tmpl, nil
+}
+
+func valueMap(value any) map[string]any {
+	if result, ok := value.(map[string]any); ok {
+		return result
+	}
+	encoded, _ := json.Marshal(value)
+	var result map[string]any
+	_ = json.Unmarshal(encoded, &result)
+	return result
+}
+
+// plainString prints a decoded JSON value for display: nil becomes empty,
+// whole floats print without a fraction, and everything else uses fmt.
+func plainString(value any) string {
+	switch value := value.(type) {
+	case nil:
+		return ""
+	case string:
+		return value
+	case float64:
+		if value == float64(int64(value)) {
+			return fmt.Sprintf("%d", int64(value))
+		}
+		return fmt.Sprintf("%v", value)
+	default:
+		return fmt.Sprint(value)
+	}
+}
+
+// datetime renders a Unix timestamp as UTC text suitable for a time element.
+func datetime(value any) string {
+	seconds := unixSeconds(value)
+	if seconds <= 0 {
+		return ""
+	}
+	return time.Unix(seconds, 0).UTC().Format("2006-01-02T15:04:05Z")
+}
+
+// when renders a Unix timestamp as short UTC text for people to read.
+func when(value any) string {
+	seconds := unixSeconds(value)
+	if seconds <= 0 {
+		return ""
+	}
+	return time.Unix(seconds, 0).UTC().Format("2006-01-02 15:04 UTC")
+}
+
+func unixSeconds(value any) int64 {
+	switch value := value.(type) {
+	case float64:
+		return int64(value)
+	case int64:
+		return value
+	case int:
+		return int64(value)
+	}
+	return 0
+}
+
+// tableRows renders escaped table head and body markup for fragments and
+// streams that swap into an existing table element.
+func tableRows(headers []string, rows [][]string) string {
+	var out strings.Builder
+	out.WriteString(`<thead><tr>`)
+	for _, header := range headers {
+		out.WriteString(`<th scope="col">` + template.HTMLEscapeString(header) + `</th>`)
+	}
+	out.WriteString(`</tr></thead><tbody>`)
+	if len(rows) == 0 {
+		out.WriteString(`<tr><td colspan="` + fmt.Sprint(len(headers)) + `">No entries.</td></tr>`)
+	}
+	for _, row := range rows {
+		out.WriteString(`<tr>`)
+		for _, cell := range row {
+			out.WriteString(`<td>` + template.HTMLEscapeString(cell) + `</td>`)
+		}
+		out.WriteString(`</tr>`)
+	}
+	out.WriteString(`</tbody>`)
+	return out.String()
+}

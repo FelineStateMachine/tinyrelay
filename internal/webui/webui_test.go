@@ -49,7 +49,7 @@ func TestPagesUsePlainHTMLAndExposeAllManagementTabs(t *testing.T) {
 		request := httptest.NewRequest(http.MethodGet, path, nil)
 		recorder := httptest.NewRecorder()
 		app.ServeHTTP(recorder, request)
-		if recorder.Code != http.StatusOK || !strings.Contains(recorder.Body.String(), "<html") || !strings.Contains(recorder.Body.String(), `class="layout"`) {
+		if recorder.Code != http.StatusOK || !strings.Contains(recorder.Body.String(), "<html") || !strings.Contains(recorder.Body.String(), `id="layout"`) {
 			t.Fatalf("%s: status=%d body=%s", path, recorder.Code, recorder.Body.String())
 		}
 		if strings.Contains(recorder.Body.String(), "fonts.googleapis") || strings.Contains(recorder.Body.String(), "bind.ws") {
@@ -156,7 +156,7 @@ func TestDataPageGuidesGitStorageArguments(t *testing.T) {
 	recorder := httptest.NewRecorder()
 	app.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/manage/data", nil))
 	body := recorder.Body.String()
-	if !strings.Contains(body, `data-method="gitstorage"`) || !strings.Contains(body, `placeholder="64 hex pubkey"`) || !strings.Contains(body, `placeholder="repository name"`) {
+	if !strings.Contains(body, `method="gitstorage"`) || !strings.Contains(body, `placeholder="64 hex pubkey"`) || !strings.Contains(body, `placeholder="repository name"`) {
 		t.Fatalf("gitstorage form is missing guided owner and identifier fields: %s", body)
 	}
 }
@@ -173,10 +173,10 @@ func TestGuidedFormsExposeSourceConsoleControls(t *testing.T) {
 		t.Fatal(err)
 	}
 	cases := map[string][]string{
-		"/manage/people":   {`data-compose="member"`, `name="member-role"`},
-		"/manage/rules":    {`data-compose="memberInvites"`, `data-method="setretention"`},
-		"/manage/identity": {`data-method="changerelayicon"`, `data-compose="identity"`, `Banner URL`},
-		"/manage/owner":    {`data-compose="succession"`, `data-method="clearsuccession"`},
+		"/manage/people":   {`compose="member"`, `name="member-role"`},
+		"/manage/rules":    {`compose="memberInvites"`, `method="setretention"`},
+		"/manage/identity": {`method="changerelayicon"`, `compose="identity"`, `Banner URL`},
+		"/manage/owner":    {`compose="succession"`, `method="clearsuccession"`},
 		"/manage/data":     {`placeholder="64 hex pubkey"`, `placeholder="repository name"`},
 	}
 	for path, wants := range cases {
@@ -199,7 +199,7 @@ func TestGuidedFormsExposeSourceConsoleControls(t *testing.T) {
 	}
 	recorder = httptest.NewRecorder()
 	app.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/manage/owner", nil))
-	if strings.Contains(recorder.Body.String(), `data-method="deleterelay"><label>Type relay name to confirm <input name="param" value=`) {
+	if strings.Contains(recorder.Body.String(), `method="deleterelay"><label>Type relay name to confirm <input name="param" value=`) {
 		t.Fatal("delete confirmation was prefilled")
 	}
 }
@@ -335,7 +335,7 @@ func TestTenantPrefixRewritesUIEndpoints(t *testing.T) {
 	recorder := httptest.NewRecorder()
 	app.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/r/alice/manage/connect", nil))
 	body := recorder.Body.String()
-	for _, want := range []string{`src="/r/alice/fixi.js"`, `src="/r/alice/signer.js"`, `fx-action="/r/alice/connect/fragment"`, `localPath(form.dataset.endpoint||"/manage/rpc")`, `signedSession("/r/alice/session")`, `replace(/^http/,"ws")+root`} {
+	for _, want := range []string{`src="/r/alice/fixi.js"`, `src="/r/alice/signer.js"`, `fx-action="/r/alice/connect/fragment"`, `localPath(this.getAttribute("action")||"/manage/rpc")`, `signedSession("/r/alice/session")`, `replace(/^http/,"ws")+root`} {
 		if !strings.Contains(body, want) {
 			t.Errorf("tenant prefix missing %q", want)
 		}
