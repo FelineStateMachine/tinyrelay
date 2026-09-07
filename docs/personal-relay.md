@@ -1,6 +1,18 @@
 # Personal relay deployment
 
-The personal relay runs on a Linux Docker host and is available through Tailscale. Open [https://tiny](https://tiny) on this Mac, or use [https://tiny.tailbe516a.ts.net](https://tiny.tailbe516a.ts.net) on your phone with Tailscale connected.
+The personal relay runs on a Linux Docker host and is published through Tailscale Funnel at [https://tiny.tailbe516a.ts.net](https://tiny.tailbe516a.ts.net). The relay, Caddy and Tailscale containers share one network namespace, so only that node's port 443 is public; the host itself stays private.
+
+## Public access
+
+Funnel forwards raw TLS on port 443 to Caddy inside the relay's Tailscale node. Caddy keeps terminating TLS with the tailnet certificate, so nothing else changes. The setting persists in the Tailscale state directory across container restarts.
+
+```sh
+docker exec tiny-tailscale tailscale funnel --bg --tcp=443 tcp://127.0.0.1:443
+docker exec tiny-tailscale tailscale funnel status
+docker exec tiny-tailscale tailscale funnel --tcp=443 off
+```
+
+Public DNS for the relay name resolves to Tailscale's ingress only while Funnel is on; tailnet devices keep using the direct path. Writes stay restricted to members, so public visitors can read and sign in but cannot publish without an invitation. The relay sees the loopback address for every connection behind Caddy, so IP based blocks apply to the proxy rather than to individual clients.
 
 ## Storage
 
