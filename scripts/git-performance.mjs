@@ -248,8 +248,7 @@ async function benchmarkFixture(fixture, index) {
 try {
   const fixtures = (await readdir(reposDir,{withFileTypes:true})).filter(entry=>entry.isDirectory() && (!only.length || only.includes(entry.name.replace(/\.git$/,""))))
     .map(entry=>join(resolve(reposDir),entry.name));
-  const order=["nzip","bindws","diagramzip","strudel","doorbearer","atlas"];
-  fixtures.sort((a,b)=>order.indexOf(basename(a).replace(/\.git$/,""))-order.indexOf(basename(b).replace(/\.git$/,"")));
+  fixtures.sort((a,b)=>basename(a).localeCompare(basename(b)));
   for (let i=0;i<fixtures.length;i++) await benchmarkFixture(fixtures[i],i);
 } finally {
   control.close(); probes.close();

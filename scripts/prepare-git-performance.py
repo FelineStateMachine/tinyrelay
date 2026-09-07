@@ -1,15 +1,21 @@
 #!/usr/bin/env python3
 """Prepare immutable bare Git benchmark fixtures and inventory corpus metadata.
 
-Usage: prepare-git-performance.py --source-directory ~/Developer --out /tmp/tinyrelay-corpus
-The output directory must not already exist. Each selected repository is cloned
+Usage: prepare-git-performance.py --source-directory ~/Developer --out /tmp/tinyrelay-corpus [--repos a,b]
+Every Git repository directly under the source directory is selected unless
+--repos names a subset. The output directory must not already exist. Each selected repository is cloned
 with --bare --no-local; the source working trees are never modified.
 """
 from __future__ import annotations
 import argparse, json, os, shutil, subprocess, tempfile
 from pathlib import Path
 
-NAMES = ("nzip", "bindws", "diagramzip", "strudel", "doorbearer", "atlas")
+def is_repository(path: Path) -> bool:
+    return (path / ".git").exists() or (path / "HEAD").exists()
+
+def select(source: Path, names: list[str] | None) -> list[str]:
+    if names: return names
+    return sorted(p.name for p in source.iterdir() if p.is_dir() and is_repository(p))
 
 def run(*args: str, cwd: Path | None = None, input: str | None = None) -> str:
     p = subprocess.run(args, cwd=cwd, input=input, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
@@ -59,14 +65,16 @@ def inventory(repo: Path, name: str) -> dict:
         "blobs_over_10MiB": sum(size > 10 * 1024 * 1024 for size, _ in blob_sizes),
     }
 
-def prepare(source: Path, out: Path) -> list[dict]:
+def prepare(source: Path, out: Path, names: list[str] | None = None) -> list[dict]:
     if out.exists(): raise FileExistsError(f"refusing existing destination: {out}")
+    selected = select(source, names)
+    if not selected: raise FileNotFoundError(f"no repositories under {source}")
     out.mkdir(parents=True)
     rows = []
     try:
-        for name in NAMES:
+        for name in selected:
             src = source / name
-            if not (src / ".git").exists() and not (src / "HEAD").exists(): raise FileNotFoundError(f"missing source repository: {src}")
+            if not is_repository(src): raise FileNotFoundError(f"missing source repository: {src}")
             dest = out / (name + ".git")
             run("git", "clone", "--bare", "--no-local", str(src), str(dest))
             rows.append(inventory(dest, name))
@@ -82,24 +90,26 @@ def self_test() -> None:
         src.mkdir(); run("git", "init", "-b", "trunk", str(src)); run("git", "-C", str(src), "config", "user.email", "test@example.invalid"); run("git", "-C", str(src), "config", "user.name", "test")
         (src / "tracked").write_text("tracked\n"); run("git", "-C", str(src), "add", "tracked"); run("git", "-C", str(src), "commit", "-m", "one"); run("git", "-C", str(src), "branch", "feature"); run("git", "-C", str(src), "tag", "v1")
         (src / "uncommitted").write_text("must not be copied\n")
-        # Exercise prepare() itself without copying the real corpus: six source
-        # names all point at the same tiny synthetic repository.
-        for name in NAMES: os.symlink(src, root / name, target_is_directory=True)
-        rows = prepare(root, out)
-        assert len(rows) == len(NAMES)
+        # Exercise prepare() itself without copying a real corpus: three
+        # fixture names all point at the same tiny synthetic repository.
+        names = ("alpha", "beta", "gamma")
+        for name in names: os.symlink(src, root / name, target_is_directory=True)
+        rows = prepare(root, out, list(names))
+        assert len(rows) == len(names)
         row = rows[0]
         assert row["head_branch"] == "refs/heads/trunk" and row["head"] == run("git", "-C", str(src), "rev-parse", "HEAD")
         assert row["tags"] == 1 and row["all_commits"] == 1
-        assert "uncommitted" not in run("git", "--git-dir", str(out / "nzip.git"), "ls-tree", "-r", "--name-only", "HEAD")
+        assert "uncommitted" not in run("git", "--git-dir", str(out / "alpha.git"), "ls-tree", "-r", "--name-only", "HEAD")
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--source-directory", type=Path, default=Path.home() / "Developer")
     parser.add_argument("--out", type=Path)
+    parser.add_argument("--repos", help="comma-separated repository directory names to select")
     parser.add_argument("--self-test", action="store_true")
     args = parser.parse_args()
     if args.self_test: self_test()
     else:
         if args.out is None: parser.error("--out is required unless --self-test is used")
-        rows = prepare(args.source_directory.expanduser(), args.out.expanduser())
+        rows = prepare(args.source_directory.expanduser(), args.out.expanduser(), args.repos.split(",") if args.repos else None)
         print(json.dumps(rows, indent=2))
