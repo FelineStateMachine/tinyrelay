@@ -1,7 +1,10 @@
-// Benchmark-only NIP-98 signer for native Git's smart HTTP requests.
-// The ephemeral fixture secret never leaves this process. Both request and
-// response bodies stream through files/pipes rather than accumulating in RAM.
+// Local NIP-98 signing proxy for native Git's smart HTTP requests. Git talks
+// plain HTTP to this proxy; each request is hashed, signed as a kind 27235
+// proof by the supplied signer, and forwarded to the relay with the proof in
+// the Authorization header. Request and response bodies stream through
+// files and pipes rather than accumulating in memory.
 import http from "node:http";
+import https from "node:https";
 import { createHash, randomUUID } from "node:crypto";
 import { createReadStream, createWriteStream } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
@@ -11,7 +14,11 @@ import { Transform } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { finalizeEvent } from "nostr-tools/pure";
 
-export async function startGitSigningProxy(target, secret) {
+// startGitSigningProxy forwards to target (an http or https base URL). The
+// signer is either a secret key (Uint8Array) or an async function that takes
+// an event template and returns the signed event, such as a NIP-46 bunker.
+export async function startGitSigningProxy(target, signer) {
+  const sign = typeof signer === "function" ? signer : template => finalizeEvent(template, signer);
   const server = http.createServer(async (request, response) => {
     let directory;
     try {
@@ -25,14 +32,15 @@ export async function startGitSigningProxy(target, secret) {
       const url = new URL(target + request.url);
       const tags = [["u", url.href], ["method", request.method], ["nonce", randomUUID()]];
       if (size) tags.push(["payload", hash.digest("hex")]);
-      const proof = finalizeEvent({kind: 27235, created_at: Math.floor(Date.now()/1000), tags, content: ""}, secret);
+      const proof = await sign({kind: 27235, created_at: Math.floor(Date.now()/1000), tags, content: ""});
       const headers = {...request.headers, host: url.host, "content-length": String(size),
         authorization: "Nostr " + Buffer.from(JSON.stringify(proof)).toString("base64")};
       delete headers["transfer-encoding"];
       delete headers.connection;
+      const client = url.protocol === "https:" ? https : http;
       let upstream;
       const received = new Promise((resolve, reject) => {
-        upstream = http.request(url, {method: request.method, headers}, incoming => {
+        upstream = client.request(url, {method: request.method, headers}, incoming => {
           response.writeHead(incoming.statusCode, incoming.headers);
           pipeline(incoming, response).then(resolve, reject);
         });

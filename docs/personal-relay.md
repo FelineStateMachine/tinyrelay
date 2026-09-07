@@ -50,6 +50,18 @@ sudo systemctl restart tiny
 
 The owner is `npub1cq2s86qrtadf36eqq3epm38wmhdynrrcwxf84eldk3f94dkv7ttsrulrz5`. Sign in with that identity to manage the relay.
 
+## Repository hosting
+
+The relay hosts Git repositories over GRASP. Publishing needs the owner's signature on the repository announcement, on every ref state, and on each push, so pushes go through `scripts/publish-repository.mjs` rather than plain `git push`. The script signs with a bunker URL from Amber or with a local key and never sends a private key to the relay.
+
+```sh
+git remote add tiny https://tiny.tailbe516a.ts.net/<owner npub>/tinyrelay.git
+node scripts/publish-repository.mjs --remote tiny --sec bunker://... --name tiny --description "self-hosted Nostr relay"
+node scripts/publish-repository.mjs --remote tiny --sec bunker://... --state-only
+```
+
+Run the first form once to announce the repository. Run the second after new commits: it publishes the signed state for the local branches and tags, pushes them, and waits until the relay advertises the new refs. Anyone can clone from the remote URL without signing.
+
 ## Web operations
 
 Sign in at the relay URL with a Nostr signer before using owner controls. The Manage pages provide relay configuration, jobs, connections, backups, and file operations. Use Manage data or the browser tools page to start and inspect backups. The [WebMCP guide](webmcp.md) describes native browser-agent controls and their existing signer authorization path.

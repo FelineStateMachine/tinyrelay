@@ -2,17 +2,19 @@
 // A throwaway NIP-46 bunker for trying the Bunker URL sign-in flow locally.
 // It runs a minimal in-memory relay on 127.0.0.1:8789, answers connect,
 // ping, get_public_key and sign_event requests for a fresh user key, and
-// prints the bunker URL to paste into the sign-in page.
+// prints the bunker URL to paste into the sign-in page. Set BUNKER_USER_SECRET
+// to a hex secret to sign as a specific key.
 import { WebSocketServer, WebSocket } from "ws";
 import { finalizeEvent, generateSecretKey, getPublicKey } from "nostr-tools/pure";
 import * as nip44 from "nostr-tools/nip44";
+import { hexToBytes } from "@noble/hashes/utils.js";
 
 globalThis.WebSocket = WebSocket;
 
 const port = Number(process.env.BUNKER_PORT ?? 8789);
 const bunkerSecret = generateSecretKey();
 const bunkerPubkey = getPublicKey(bunkerSecret);
-const userSecret = generateSecretKey();
+const userSecret = process.env.BUNKER_USER_SECRET ? hexToBytes(process.env.BUNKER_USER_SECRET) : generateSecretKey();
 const userPubkey = getPublicKey(userSecret);
 const clients = new Map();
 const events = [];
