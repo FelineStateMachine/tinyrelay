@@ -27,7 +27,7 @@ func (b *siteBackend) Query(_ context.Context, method string, params []json.RawM
 
 func TestShellRendersRailPanelAndPrompt(t *testing.T) {
 	backend := &fakeBackend{policy: policy.Defaults(strings.Repeat("a", 64))}
-	app, err := New(backend, Options{})
+	app, err := New(backend, Options{Actor: func(*http.Request) (string, error) { return backend.policy.Owner, nil }})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -154,5 +154,21 @@ func TestFilePagePreviewsImages(t *testing.T) {
 	app.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/file?sha="+strings.Repeat("9", 64), nil))
 	if body := recorder.Body.String(); !strings.Contains(body, `<img src="/files/raw?hash=`+strings.Repeat("9", 64)+`"`) {
 		t.Fatalf("no image preview: %s", body)
+	}
+}
+
+func TestGuestsSeeSignInInsteadOfManagementPages(t *testing.T) {
+	backend := &fakeBackend{policy: policy.Defaults(strings.Repeat("a", 64))}
+	app, err := New(backend, Options{Actor: func(*http.Request) (string, error) { return "", nil }})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range []string{"/manage/people", "/manage/owner", "/manage/status", "/manage/data"} {
+		recorder := httptest.NewRecorder()
+		app.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, path, nil))
+		body := recorder.Body.String()
+		if recorder.Code != http.StatusOK || !strings.Contains(body, "Sign in to manage this relay.") || strings.Contains(body, `<rpc-form method="setmember"`) || strings.Contains(body, `id="rail"><div id="railbox"><header><span><a href="/">`) {
+			t.Fatalf("%s exposed management content to a guest: %d %s", path, recorder.Code, body[:min(600, len(body))])
+		}
 	}
 }

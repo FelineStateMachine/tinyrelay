@@ -18,11 +18,13 @@
 
 {{define "signin"}}<section>
 <h1>{{if .Actor}}Your account{{else}}Sign in{{end}}</h1>
+{{if .Notice}}<p role="status">{{.Notice}}</p>{{end}}
 {{if .Actor}}<p>Signed in as {{template "nostrKey" .Actor}}.</p>
-<p><a href="/manage/people">Manage relay</a> | <a href="/tools">Browser tools</a></p>
+<p><a href="/manage/people">Manage relay</a> | <a href="/tools">Browser tools</a> | <a href="/inbox">Inbox</a></p>
+<p>Use the sign out control in the footer to end this session.</p>
 {{else}}<p>Use a browser extension, or connect Amber on your phone. The relay never sees a private key.</p>
-{{end}}{{template "signerControls" .}}
-</section>
+{{template "signerControls" .}}
+{{end}}</section>
 {{end}}
 
 {{define "signerControls"}}<p><button id="session-login" type="button">Sign in with connected signer</button></p>

@@ -72,7 +72,7 @@ func TestBrowseRoutesUseObjectContractsAndRenderData(t *testing.T) {
 
 func TestConnectPublishesGRASPAndDeliveryKinds(t *testing.T) {
 	b := &fakeBackend{policy: policy.Defaults(strings.Repeat("a", 64))}
-	app, err := New(b, Options{})
+	app, err := New(b, Options{Actor: func(*http.Request) (string, error) { return b.policy.Owner, nil }})
 	if err != nil {
 		t.Fatal(err)
 	}

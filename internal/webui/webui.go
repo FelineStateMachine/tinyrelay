@@ -631,6 +631,12 @@ func (a *App) render(writer http.ResponseWriter, request *http.Request, data Pag
 	}
 	data.Path = strings.TrimPrefix(request.URL.Path, data.Base)
 	a.privatePageData(&data, request, actor)
+	if !data.Private && data.Actor == "" && railKind(data.Tab) == "manage" && data.Tab != "tools" {
+		// Management pages are for signed-in people only. Guests see the
+		// sign-in page at the same address and come back after signing in.
+		data.Tab, data.Notice = "signin", "Sign in to manage this relay."
+		data.Event, data.Feed, data.Error = nil, nil, ""
+	}
 	writer.Header().Set("Cache-Control", "private, no-store")
 	writer.Header().Set("content-type", "text/html; charset=utf-8")
 	var rendered bytes.Buffer

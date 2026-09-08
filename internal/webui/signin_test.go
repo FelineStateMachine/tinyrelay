@@ -23,8 +23,11 @@ func TestSignInNavigationAndAccount(t *testing.T) {
 			if actor != "" && (!strings.Contains(body, `title="`+actor+`"`) || strings.Count(body, `id="session-logout"`) != 1) {
 				t.Fatalf("%s missing account or unique sign-out control", path)
 			}
-			if path == "/signin" && (!strings.Contains(body, `id="nostrconnect"`) || strings.Contains(body, `method="setconnections"`)) {
+			if path == "/signin" && actor == "" && (!strings.Contains(body, `id="nostrconnect"`) || strings.Contains(body, `method="setconnections"`)) {
 				t.Fatal("sign-in page must show signer controls without connection settings")
+			}
+			if actor != "" && strings.Contains(body, `id="nostrconnect"`) {
+				t.Fatalf("%s shows signer controls to a signed-in account", path)
 			}
 		}
 	}

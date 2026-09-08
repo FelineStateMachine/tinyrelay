@@ -221,7 +221,7 @@ func TestRPCUsesVerifiedActorAndBackendContract(t *testing.T) {
 
 func TestSignerBundleAndDedicatedJourneysArePresent(t *testing.T) {
 	backend := &fakeBackend{policy: policy.Defaults(strings.Repeat("a", 64))}
-	app, err := New(backend, Options{Actor: func(*http.Request) (string, error) { return backend.policy.Owner, nil }})
+	app, err := New(backend, Options{Actor: func(*http.Request) (string, error) { return "", nil }})
 	if err != nil {
 		t.Fatal(err)
 	}

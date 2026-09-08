@@ -116,9 +116,9 @@
 <label>Blossom server URLs, one per line <textarea name="lines"></textarea></label>
 <button>Publish server list</button>
 </publish-list>
-<h3>Sign in</h3>
+{{if not .Actor}}<h3>Sign in</h3>
 {{template "signerControls" .}}
-</section>
+{{end}}</section>
 {{end}}
 
 {{define "data"}}<section>
