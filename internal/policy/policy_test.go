@@ -71,6 +71,21 @@ func TestGRASP08RequiresBaseGRASP(t *testing.T) {
 	}
 }
 
+func TestPrivateRepositoryRequiresGRASP08PrivateTenant(t *testing.T) {
+	e := event.Event{Kind: 30617, Tags: [][]string{{"private", "true"}}}
+	if CanRead(Policy{Reads: "open"}, e, Access{}) {
+		t.Fatal("private repository was readable on an open tenant")
+	}
+	p := Policy{Reads: "members"}
+	if !CanRead(p, event.Event{Kind: 1}, Access{Member: true}) {
+		t.Fatal("ordinary event became unreadable on a member tenant")
+	}
+	p.Features.Grasp08 = true
+	if !CanRead(p, e, Access{Member: true}) {
+		t.Fatal("private repository was unreadable on a GRASP-08 member tenant")
+	}
+}
+
 func TestGRASPHistoryExtensionsRequireGRASP02(t *testing.T) {
 	cases := []struct {
 		name string

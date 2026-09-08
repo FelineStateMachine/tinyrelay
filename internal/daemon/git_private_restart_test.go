@@ -33,6 +33,8 @@ func TestPrivateSignedGitStateRemainsHiddenAfterRestart(t *testing.T) {
 	}
 	p := tenant.Policy()
 	p.Features.Grasp = true
+	p.Features.Grasp08 = true
+	p.Reads = "members"
 	if err := tenant.applyPolicy(ctx, p); err != nil {
 		t.Fatal(err)
 	}
@@ -73,8 +75,8 @@ func TestPrivateSignedGitStateRemainsHiddenAfterRestart(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "http://relay.test/r/main"+path, nil)
 	denied := httptest.NewRecorder()
 	app.ServeHTTP(denied, req)
-	if denied.Code != http.StatusForbidden {
-		t.Fatalf("unsigned private Git read status=%d", denied.Code)
+	if denied.Code != http.StatusUnauthorized || denied.Body.Len() != 0 {
+		t.Fatalf("unsigned private Git read status=%d body=%q", denied.Code, denied.Body.String())
 	}
 	req = httptest.NewRequest(http.MethodGet, "http://relay.test/r/main"+path, nil)
 	signRequest(t, req, "")
@@ -98,7 +100,7 @@ func TestPrivateSignedGitStateRemainsHiddenAfterRestart(t *testing.T) {
 	signRequest(t, tampered, "0001")
 	rejected := httptest.NewRecorder()
 	app.ServeHTTP(rejected, tampered)
-	if rejected.Code != http.StatusForbidden || !strings.Contains(rejected.Body.String(), "payload hash") {
-		t.Fatalf("tampered Git payload reached protocol handling: %d %q", rejected.Code, rejected.Body.String())
+	if rejected.Code != http.StatusOK {
+		t.Fatalf("GRASP-08 reusable proof rejected body variation: %d %q", rejected.Code, rejected.Body.String())
 	}
 }

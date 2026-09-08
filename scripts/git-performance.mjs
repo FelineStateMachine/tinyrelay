@@ -5,6 +5,7 @@ import { appendFile, mkdtemp, mkdir, readdir, rm, writeFile, rename } from "node
 import { tmpdir } from "node:os";
 import { resolve, join, basename } from "node:path";
 import { promisify } from "node:util";
+import { randomUUID } from "node:crypto";
 import WebSocket from "ws";
 import { finalizeEvent, generateSecretKey, getPublicKey } from "nostr-tools/pure";
 import { npubEncode } from "nostr-tools/nip19";
@@ -19,6 +20,10 @@ const outDir = resolve(option("--out", "artifacts/git-performance/run"));
 const baseline = option("--baseline", "").replace(/\/$/, "");
 const only = option("--only", "").split(",").filter(Boolean);
 const privateRepos = args.includes("--private");
+const privateRunID = randomUUID().slice(0, 8);
+const privateOwnerSecretHex = option("--private-owner-secret", process.env.TINY_BENCHMARK_PRIVATE_OWNER_SECRET || "fc1d06a0fd5e622dcf448d0b3c2fccc891a5ecf74546a7675460d92441fecfdd");
+if (privateRepos && !/^[0-9a-fA-F]{64}$/.test(privateOwnerSecretHex)) throw Error("--private-owner-secret must be 64 hex characters");
+const privateOwnerSecret = privateRepos ? Uint8Array.from(Buffer.from(privateOwnerSecretHex, "hex")) : null;
 const repeats = Math.max(1, Number(option("--repeats", "3")));
 if (!reposDir) throw Error("--repos-dir is required");
 const httpURL = relay.replace(/^ws/, "http").replace(/\/$/, "");
@@ -154,16 +159,16 @@ async function benchmarkFixture(fixture, index) {
     const refs = await refsFor(fixture);
     result.head = head;
     result.refs = refs.length;
-    const sk = generateSecretKey(), pubkey = getPublicKey(sk), id = `${name.replace(/\.git$/, "")}-${index}`;
+    const sk = privateRepos ? privateOwnerSecret : generateSecretKey(), pubkey = getPublicKey(sk), id = `${name.replace(/\.git$/, "")}-${index}${privateRepos ? "-" + privateRunID : ""}`;
     const repositoryPath = `/${npubEncode(pubkey)}/${encodeURIComponent(id)}.git`;
     const canonicalURL = httpURL + repositoryPath;
     let url = canonicalURL;
     result.url = canonicalURL;
     if (privateRepos) {
       await control.authenticate(sk);
-      signingProxy = await startGitSigningProxy(httpURL, sk);
+      signingProxy = await startGitSigningProxy(httpURL, sk, {grasp08: true});
       url = signingProxy.url + repositoryPath;
-      result.transport = "local NIP-98 signing proxy; request hash spooled on client";
+      result.transport = "local GRASP-08 signing proxy; request body spooled on client";
     }
     const announceAt = Math.floor(Date.now()/1000);
     const announcement = finalizeEvent({kind: 30617, created_at: announceAt, content: "", tags: [["d", id], ["clone", canonicalURL], ["relays", relay], ["maintainers", pubkey], ...(privateRepos ? [["private", "true"]] : [])]}, sk);

@@ -112,6 +112,13 @@
 </details>
 <h3>Publish signed relay records</h3>
 <p>These actions open the configured signer and publish owner-authored Nostr records.</p>
+<private-services>
+<h3>Private Git relay list</h3>
+<p>GRASP-08 stores private relay URLs in your encrypted kind 10318 list. The relay URLs and any list entries are encrypted to your signer with NIP-44.</p>
+<form><label>Private relay URLs, one per line <textarea name="lines" placeholder="wss://private-relay.example"></textarea></label><button disabled>Publish encrypted list</button></form>
+<noscript><p>Connect a signer and enable JavaScript to encrypt your private service list.</p></noscript>
+<output role="status"></output>
+</private-services>
 <publish-list kind="10317" tag="g" scheme="ws">
 <label>GRASP relay URLs, one per line <textarea name="lines" placeholder="wss://relay.example&#10;wss://backup.example"></textarea></label>
 <button>Publish GRASP list</button>

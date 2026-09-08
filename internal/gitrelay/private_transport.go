@@ -14,11 +14,13 @@ import (
 	"net/url"
 	"os"
 	"strings"
+
+	"github.com/FelineStateMachine/tinyrelay/internal/auth"
 )
 
-// HTTPAuthSigner signs one complete HTTP request. The payload hash is empty
-// for requests without a body. It is deliberately a callback so GitRelay
-// never owns or handles a tenant's private key.
+// HTTPAuthSigner returns the authorization header for a private peer request.
+// GRASP-08 callers receive the repository root, GET and an empty payload hash;
+// it is deliberately a callback so GitRelay never owns private keys.
 type HTTPAuthSigner func(context.Context, string, string, string) (string, error)
 
 // ConfigurePrivatePeers refreshes operator-controlled private transport after
@@ -103,7 +105,7 @@ func (p *privateProxy) serve(w http.ResponseWriter, r *http.Request) {
 	}
 	u.Path = strings.TrimSuffix(p.base.Path, "/") + "/" + strings.TrimPrefix(suffix, "/")
 	u.RawQuery = r.URL.RawQuery
-	file, hash, size, err := spoolRequest(r.Body)
+	file, _, size, err := spoolRequest(r.Body)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadGateway)
 		return
@@ -111,11 +113,14 @@ func (p *privateProxy) serve(w http.ResponseWriter, r *http.Request) {
 	if file != nil {
 		defer func() { _ = os.Remove(file.Name()); _ = file.Close() }()
 	}
-	payload := ""
-	if size > 0 {
-		payload = hex.EncodeToString(hash[:])
+	signURL, ok := auth.GRASP08RepositoryRoot(u.String())
+	if !ok {
+		http.Error(w, "private peer: invalid Git repository URL", http.StatusBadGateway)
+		return
 	}
-	authorization, err := p.sign(r.Context(), r.Method, u.String(), payload)
+	// GRASP-08 uses one reusable GET proof for the repository root. The
+	// concrete Smart HTTP path and request body are deliberately out of scope.
+	authorization, err := p.sign(r.Context(), http.MethodGet, signURL, "")
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadGateway)
 		return
@@ -213,7 +218,10 @@ func (g *GitRelay) privatePeerBase(source string) string {
 	if err != nil {
 		return ""
 	}
-	for _, configured := range g.privatePeers {
+	g.mu.RLock()
+	peers := g.privatePeers
+	g.mu.RUnlock()
+	for _, configured := range peers {
 		peer, err := url.Parse(strings.TrimRight(strings.TrimSpace(configured), "/"))
 		if err != nil || normalizePeerScheme(peer.Scheme) != normalizePeerScheme(u.Scheme) || peer.Host != u.Host {
 			continue

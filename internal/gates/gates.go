@@ -465,6 +465,10 @@ func (g *Gate) CanSee(ctx context.Context, e event.Event, s relay.Session, f *ev
 			return false
 		}
 	}
+	private, err := privateRepositoryEvent(ctx, g.cfg.Store, e)
+	if err != nil || private && (!p.Features.Grasp08 || p.Reads != "members") {
+		return false
+	}
 	if g.cfg.Community != nil {
 		banned, err := g.cfg.Community.IsEventBanned(ctx, e.ID)
 		if err != nil || banned {
@@ -505,6 +509,19 @@ func (g *Gate) CanSee(ctx context.Context, e event.Event, s relay.Session, f *ev
 		return false
 	}
 	return true
+}
+
+// privateRepositoryEvent also protects legacy state events. Their privacy is
+// inherited from the corresponding replaceable announcement, so checking only
+// the state event's own tags would allow metadata to escape after a restart.
+func privateRepositoryEvent(ctx context.Context, store *storage.Store, e event.Event) (bool, error) {
+	if policy.IsPrivateRepository(e) {
+		return true, nil
+	}
+	if store == nil || e.Kind != event.KIND_REPO_STATE {
+		return false, nil
+	}
+	return store.IsPrivateRepository(ctx, e.PubKey, event.Tag(e, "d"))
 }
 
 func canSeeSignerMessage(e event.Event, s relay.Session, f *event.Filter) bool {

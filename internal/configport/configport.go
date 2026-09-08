@@ -65,6 +65,8 @@ type ConfigStore struct {
 	// integration point for replacing an in-memory policy and closing stale
 	// subscriptions.
 	OnApplied func(policy.Policy)
+	// ValidatePolicy runs before a config transaction is committed.
+	ValidatePolicy func(policy.Policy) error
 }
 
 type ApplyOptions struct {
@@ -339,6 +341,11 @@ func (s *ConfigStore) ApplyWithOptions(ctx context.Context, c Config, opts Apply
 	ch.FinalPolicy, err = finalPolicy(cur, c, opts.MigrationOwner)
 	if err != nil {
 		return Changes{}, err
+	}
+	if s.ValidatePolicy != nil {
+		if err := s.ValidatePolicy(ch.FinalPolicy); err != nil {
+			return Changes{}, err
+		}
 	}
 	if opts.DryRun {
 		return ch, nil

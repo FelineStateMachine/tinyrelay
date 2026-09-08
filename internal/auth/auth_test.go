@@ -57,6 +57,59 @@ func TestNIP98BindsSchemeQueryAndPath(t *testing.T) {
 	}
 }
 
+func TestGRASP08ReusesRepositoryRootProofAcrossSmartHTTP(t *testing.T) {
+	now := time.Unix(1_700_000_000, 0)
+	validator := NewValidator(func() time.Time { return now })
+	root := "https://relay.example/npub1owner/repo.git"
+	e := signedEvent(t, 27235, now.Unix(), "", [][]string{{"u", root}, {"method", "GET"}, {"payload", sha256Hex("different body")}})
+	header := token(t, e)
+	for _, request := range []string{root + "/info/refs?service=git-upload-pack", root + "/git-upload-pack"} {
+		if _, err := validator.VerifyGRASP08(header, request); err != nil {
+			t.Fatalf("verify reusable proof for %s: %v", request, err)
+		}
+	}
+}
+
+func TestGRASP08RepositoryRootHandlesGitSubstringInSlug(t *testing.T) {
+	got, ok := GRASP08RepositoryRoot("https://relay.example/npub1owner/foo.git-tools.git/info/refs?service=git-upload-pack")
+	if !ok || got != "https://relay.example/npub1owner/foo.git-tools.git" {
+		t.Fatalf("root=%q ok=%v", got, ok)
+	}
+}
+
+func TestGRASP08RejectsWrongRootMethodAndAgeWithUniformError(t *testing.T) {
+	now := time.Unix(1_700_000_000, 0)
+	validator := NewValidator(func() time.Time { return now })
+	for _, tc := range []struct {
+		name string
+		tags [][]string
+		at   int64
+		url  string
+	}{
+		{"wrong root", [][]string{{"u", "https://relay.example/npub1owner/other.git"}, {"method", "GET"}}, now.Unix(), "https://relay.example/npub1owner/repo.git/info/refs"},
+		{"wrong method", [][]string{{"u", "https://relay.example/npub1owner/repo.git"}, {"method", "POST"}}, now.Unix(), "https://relay.example/npub1owner/repo.git/info/refs"},
+		{"expired", [][]string{{"u", "https://relay.example/npub1owner/repo.git"}, {"method", "GET"}}, now.Add(-61 * time.Second).Unix(), "https://relay.example/npub1owner/repo.git/info/refs"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := validator.VerifyGRASP08(token(t, signedEvent(t, 27235, tc.at, "", tc.tags)), tc.url)
+			if err != ErrGRASP08Unauthorized {
+				t.Fatalf("error=%v, want uniform error", err)
+			}
+		})
+	}
+}
+
+func TestGRASP08RejectsUnsupportedGitEndpoint(t *testing.T) {
+	now := time.Unix(1_700_000_000, 0)
+	validator := NewValidator(func() time.Time { return now })
+	e := signedEvent(t, 27235, now.Unix(), "", [][]string{{"u", "https://relay.example/npub1owner/repo.git"}, {"method", "GET"}})
+	for _, path := range []string{"/objects/pack/a", "/info/refs/extra", "/"} {
+		if _, err := validator.VerifyGRASP08(token(t, e), "https://relay.example/npub1owner/repo.git"+path); err != ErrGRASP08Unauthorized {
+			t.Fatalf("endpoint %s accepted with error %v", path, err)
+		}
+	}
+}
+
 func TestBlossomTokenMayBeReusedAcrossHeadAndPut(t *testing.T) {
 	now := time.Unix(1_700_000_000, 0)
 	validator := NewValidator(func() time.Time { return now })
@@ -178,4 +231,18 @@ func token(t *testing.T, e event.Event) string {
 func sha256Hex(value string) string {
 	sum := sha256.Sum256([]byte(value))
 	return hex.EncodeToString(sum[:])
+}
+
+func TestGRASP08RepositoryRootKeepsClientEscaping(t *testing.T) {
+	now := time.Unix(1_700_000_000, 0)
+	validator := NewValidator(func() time.Time { return now })
+	root := "https://relay.example/npub1owner/a%3Ab.git"
+	got, ok := GRASP08RepositoryRoot(root + "/info/refs?service=git-upload-pack")
+	if !ok || got != root {
+		t.Fatalf("root=%q ok=%v", got, ok)
+	}
+	e := signedEvent(t, 27235, now.Unix(), "", [][]string{{"u", root}, {"method", "GET"}})
+	if _, err := validator.VerifyGRASP08(token(t, e), root+"/git-upload-pack"); err != nil {
+		t.Fatalf("verify proof for an escaped identifier: %v", err)
+	}
 }

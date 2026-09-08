@@ -20,10 +20,28 @@ func CanRead(p Policy, e event.Event, a Access) bool {
 	if !readRule(p, a) {
 		return false
 	}
+	if IsPrivateRepository(e) && (!p.Features.Grasp08 || p.Reads != "members") {
+		return false
+	}
 	if privateKind(e.Kind) {
 		return addressed(e, a)
 	}
 	return true
+}
+
+// IsPrivateRepository identifies a GRASP repository announcement carrying the
+// private=true marker. State events are associated with their announcement by
+// owner and identifier at the storage boundary.
+func IsPrivateRepository(e event.Event) bool {
+	if e.Kind != 30617 {
+		return false
+	}
+	for _, tag := range e.Tags {
+		if len(tag) >= 2 && tag[0] == "private" && strings.EqualFold(tag[1], "true") {
+			return true
+		}
+	}
+	return false
 }
 
 func CanWrite(p Policy, e event.Event, a Access) bool {

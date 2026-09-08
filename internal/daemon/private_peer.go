@@ -10,16 +10,24 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+
+	"github.com/FelineStateMachine/tinyrelay/internal/auth"
 )
 
 func (t *Tenant) privateHTTPAuth(ctx context.Context, method, rawURL, payloadHash string) (string, error) {
+	_ = method
+	_ = payloadHash
 	if t == nil || t.records == nil || !t.PrivateServiceEnabled() {
 		return "", fmt.Errorf("private peer: relay identity unavailable")
 	}
 	if !privatePeerMatch(rawURL, t.Policy().PrivatePeers) {
 		return "", fmt.Errorf("private peer: target is no longer configured")
 	}
-	proof, err := t.records.SignNIP98(ctx, method, rawURL, payloadHash, 0)
+	root, ok := auth.GRASP08RepositoryRoot(rawURL)
+	if !ok {
+		return "", fmt.Errorf("private peer: target is not a Git repository URL")
+	}
+	proof, err := t.records.SignNIP98(ctx, http.MethodGet, root, "", 0)
 	if err != nil {
 		return "", err
 	}

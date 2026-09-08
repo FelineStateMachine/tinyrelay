@@ -112,7 +112,7 @@ rpc-form label,signed-form label,publish-list label,file-tools label,file-worksp
 rpc-form label input,rpc-form label select,signed-form label input,file-tools label input,file-tools label select,file-workspace label input,#file-search label input{display:block;margin-top:2px;font:13px var(--mono);min-width:200px}
 file-tools label:has([data-share-url]),file-workspace label:has([data-tree-share]){display:block}file-tools input[data-share-url],file-workspace input[data-tree-share]{width:100%}
 rpc-form label:has(textarea),publish-list label:has(textarea){display:block}
-rpc-form output,signed-form output,publish-list output,file-tools output,file-workspace output,file-workspace-root output{display:block;font:12px var(--mono);color:var(--muted);margin-top:4px;overflow-wrap:anywhere}
+rpc-form output,signed-form output,publish-list output,file-tools output,file-workspace output,file-workspace-root output,private-services output{display:block;font:12px var(--mono);color:var(--muted);margin-top:4px;overflow-wrap:anywhere}
 rpc-form output[data-error],file-tools output[data-error],file-workspace output[data-error]{color:var(--alert)}
 file-workspace-root ul{list-style:none;margin:8px 0 0;padding:0 0 0 16px;border-left:1px solid var(--line)}file-workspace-root li{padding:3px 0}
 file-workspace-root button{background:transparent;border:0;padding:0;color:var(--accent);font:inherit;text-align:left}

@@ -23,7 +23,8 @@
 //   <file-tools [hash="…"] [type="…"]>
 //     Copies Blossom links, encrypts and uploads a file, decrypts a share
 //     link fragment and sends a random-key file as a NIP-17 message.
-//   <file-workspace> and <file-workspace-root> live in file-workspace.js.
+//   <file-workspace> and <file-workspace-root> live in file-workspace.js;
+//   <private-services> lives in private-services.js.
 (() => {
   "use strict";
 

@@ -82,21 +82,17 @@ func (t *Tenant) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if privatePolicy(p) && strings.TrimSpace(r.Header.Get("Authorization")) == "" {
-			http.Error(w, "auth-required: private Git hosting requires NIP-98", http.StatusUnauthorized)
+			writeGRASP08Challenge(w)
 			return
 		}
 		if privatePolicy(p) {
-			proof, authErr := t.auth.VerifyNIP98(r.Header.Get("Authorization"), t.requestURL(r), r.Method, "")
+			proof, authErr := t.auth.VerifyGRASP08(r.Header.Get("Authorization"), t.requestURL(r))
 			if authErr != nil {
-				http.Error(w, authErr.Error(), http.StatusUnauthorized)
+				writeGRASP08Challenge(w)
 				return
 			}
 			if accessErr := t.requirePrivateAccess(r.Context(), proof.PubKey); accessErr != nil {
-				http.Error(w, accessErr.Error(), http.StatusForbidden)
-				return
-			}
-			if spoolErr := spoolGitPayload(r, proof); spoolErr != nil {
-				http.Error(w, spoolErr.Error(), http.StatusUnauthorized)
+				writeGRASP08Challenge(w)
 				return
 			}
 			r = privateGitRequest(r, proof)
@@ -141,6 +137,11 @@ func (t *Tenant) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	http.NotFound(w, r)
+}
+
+func writeGRASP08Challenge(w http.ResponseWriter) {
+	w.Header().Set("WWW-Authenticate", `Nostr method="GET"`)
+	w.WriteHeader(http.StatusUnauthorized)
 }
 
 func (t *Tenant) webAddress(w http.ResponseWriter, r *http.Request) {
@@ -331,11 +332,8 @@ func (t *Tenant) information(w http.ResponseWriter, r *http.Request) {
 	if t.records != nil {
 		info["self"] = t.records.PublicKey()
 	}
-	if p.Features.Grasp && t.git != nil && !privatePolicy(p) {
+	if p.Features.Grasp && t.git != nil {
 		info["supported_grasps"] = t.git.SupportedGRASPs()
-	}
-	if privatePolicy(p) && t.git != nil {
-		info["supported_grasps"] = []string{"GRASP-01", "GRASP-08"}
 	}
 	if p.Features.Sites.Enabled && !privatePolicy(p) {
 		base, _ := url.Parse(t.publicURL)

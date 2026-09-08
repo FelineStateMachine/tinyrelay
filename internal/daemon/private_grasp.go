@@ -10,11 +10,11 @@ import (
 )
 
 type privateGitProofKey struct{}
-type privateGitSpoolKey struct{}
+type privateGitPayloadCheckedKey struct{}
 
 func privateGitRequest(r *http.Request, proof event.Event) *http.Request {
 	ctx := context.WithValue(r.Context(), privateGitProofKey{}, proof)
-	ctx = context.WithValue(ctx, privateGitSpoolKey{}, true)
+	ctx = context.WithValue(ctx, privateGitPayloadCheckedKey{}, struct{}{})
 	return r.WithContext(ctx)
 }
 

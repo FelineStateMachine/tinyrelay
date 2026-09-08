@@ -20,8 +20,8 @@ func TestPrivateProxySignsAndStreamsGitRequest(t *testing.T) {
 		_, _ = w.Write([]byte("pack-response"))
 	}))
 	t.Cleanup(remote.Close)
-	proxy, err := newPrivateProxy(context.Background(), remote.URL+"/r/private", func(_ context.Context, method, target, payload string) (string, error) {
-		if method != http.MethodPost || !strings.HasSuffix(target, "/r/private/info/refs") {
+	proxy, err := newPrivateProxy(context.Background(), remote.URL+"/r/owner/repo.git", func(_ context.Context, method, target, payload string) (string, error) {
+		if method != http.MethodGet || target != remote.URL+"/r/owner/repo.git" || payload != "" {
 			return "", &testError{"unexpected signed request"}
 		}
 		return "Nostr signed:" + payload, nil

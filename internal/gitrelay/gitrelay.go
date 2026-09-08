@@ -314,10 +314,12 @@ func repoFingerprint(r Repository, profile policy.Policy) string {
 	}
 	sort.Strings(refs)
 	profileJSON, _ := json.Marshal(struct {
+		Grasp   bool     `json:"grasp"`
+		Reads   string   `json:"reads"`
 		Grasp02 bool     `json:"grasp02"`
 		Grasp03 bool     `json:"grasp03"`
 		Peers   []string `json:"peers"`
-	}{profile.Features.Grasp02, profile.Features.Grasp03, profile.PrivatePeers})
+	}{profile.Features.Grasp, profile.Reads, profile.Features.Grasp02, profile.Features.Grasp03, profile.PrivatePeers})
 	parts := []string{r.Owner, r.Identifier, r.EventID, r.Head, strconv.FormatBool(r.Private), strings.Join(refs, "\x00"), strings.Join(r.Clone, "\x00"), strings.Join(r.Relays, "\x00"), strings.Join(r.Maintainers, "\x00"), string(profileJSON)}
 	sum := sha256.Sum256([]byte(strings.Join(parts, "\x01")))
 	return hex.EncodeToString(sum[:])
@@ -917,11 +919,20 @@ func (g *GitRelay) validateRefs(refs map[string]string) error {
 }
 
 // Capabilities returns only protocol surfaces that this instance can serve.
-// GRASP-02 is an operator-triggered fetch API; GRASP-06 is explicitly opt-in.
 func (g *GitRelay) Capabilities() []string {
+	p := g.policy()
 	c := []string{"GRASP-01"}
-	if g.grasp06 || g.policy().Features.Grasp06 {
+	if p.Features.Grasp02 && g.eventSync != nil {
+		c = append(c, "GRASP-02")
+		if p.Features.Grasp03 {
+			c = append(c, "GRASP-03")
+		}
+	}
+	if g.grasp06 || p.Features.Grasp06 {
 		c = append(c, "GRASP-06")
+	}
+	if p.Features.Grasp && p.Features.Grasp08 && p.Reads == "members" {
+		c = append(c, "GRASP-08")
 	}
 	return c
 }
@@ -1232,6 +1243,12 @@ func (g *GitRelay) FetchMissing(ctx context.Context, r Repository, sources []str
 		}
 	}
 	for _, raw := range sources {
+		// Private object IDs must never be requested from a public source.
+		private := r.Private || (g.policy != nil && g.policy().Reads == "members")
+		if private && !g.privatePeer(raw) {
+			lastErr = errors.New("blocked: private Git source is not a configured peer")
+			continue
+		}
 		source, ip, err := g.resolvedSource(ctx, raw)
 		if err != nil {
 			continue
@@ -1241,7 +1258,10 @@ func (g *GitRelay) FetchMissing(ctx context.Context, r Repository, sources []str
 			if err := probePrivatePeer(ctx, peerBase, g.allowPrivate); err != nil {
 				continue
 			}
-			proxy, err = newPrivateProxy(ctx, source, g.httpAuth, g.allowPrivate)
+			g.mu.RLock()
+			signer := g.httpAuth
+			g.mu.RUnlock()
+			proxy, err = newPrivateProxy(ctx, source, signer, g.allowPrivate)
 			if err != nil {
 				continue
 			}
@@ -1259,7 +1279,16 @@ func (g *GitRelay) FetchMissing(ctx context.Context, r Repository, sources []str
 				fetchSource = proxy.URL()
 				resolve = nil
 			}
-			args := []string{"-c", "http.followRedirects=false", "-c", "credential.helper=", "-c", "http.proxy=", "--git-dir", g.repoPath(r), "fetch", "--no-tags", fetchSource, "+" + ref + ":" + "refs/tinyrelay/source/" + safeRef(ref)}
+			fetchRef := ref
+			if strings.HasPrefix(ref, "refs/nostr/") {
+				// NIP-34 clone URLs may point to ordinary Git hosts. The
+				// signed commit is the source; refs/nostr is our local name.
+				if !isObjectID(oid) {
+					return errors.New("invalid: PR commit ID")
+				}
+				fetchRef = oid
+			}
+			args := []string{"-c", "http.followRedirects=false", "-c", "credential.helper=", "-c", "http.proxy=", "--git-dir", g.repoPath(r), "fetch", "--no-tags", fetchSource, "+" + fetchRef + ":" + "refs/tinyrelay/source/" + safeRef(ref)}
 			// Keep the resolve option before the subcommand; Git accepts config
 			// options only before the command name.
 			if len(resolve) > 0 {

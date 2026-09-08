@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"sort"
 	"strings"
@@ -66,8 +67,22 @@ type Tenant struct {
 }
 
 func newTenant(ctx context.Context, cfg tenantConfig) (*Tenant, error) {
-	t := &Tenant{app: cfg.app, meta: cfg.meta, store: cfg.store, policy: cfg.policy, publicURL: cfg.publicURL, auth: auth.NewValidator(time.Now), schedulerWake: make(chan struct{}, 1)}
-	var err error
+	p := cfg.policy
+	legacyPrivate, err := hasLegacyPrivateRepository(ctx, cfg.store)
+	if err != nil {
+		return nil, err
+	}
+	if legacyPrivate && (!p.Features.Grasp08 || p.Reads != "members") {
+		// Keep the private boundary durable even if an announcement is later
+		// removed while its repository or collaboration data remains.
+		p.Features.Grasp = true
+		p.Features.Grasp08 = true
+		p.Reads = "members"
+		if err := cfg.store.WithTx(ctx, func(tx *sql.Tx) error { return storage.PutSetting(ctx, tx, "policy", p) }); err != nil {
+			return nil, fmt.Errorf("preserve legacy repository privacy: %w", err)
+		}
+	}
+	t := &Tenant{app: cfg.app, meta: cfg.meta, store: cfg.store, policy: p, publicURL: cfg.publicURL, auth: auth.NewValidator(time.Now), schedulerWake: make(chan struct{}, 1)}
 	t.community, err = community.New(ctx, t.store, t.policy.Owner)
 	if err != nil {
 		return nil, err
@@ -147,6 +162,9 @@ func (t *Tenant) Publish(ctx context.Context, e event.Event, s relay.Session) (s
 	var gitRepo gitrelay.Repository
 	gitMetadata := false
 	if err := t.gate.Write(ctx, e, s, now); err != nil {
+		return "", err
+	}
+	if err := t.validatePrivateRepositoryPlacement(ctx, e); err != nil {
 		return "", err
 	}
 	if err := t.validatePushRegistration(ctx, e, s); err != nil {
@@ -567,8 +585,19 @@ func (t *Tenant) applyPolicy(ctx context.Context, next policy.Policy) error {
 	return t.persistPolicy(ctx, next)
 }
 
+func (t *Tenant) validatePolicyTransition(next policy.Policy) error {
+	previous := t.Policy()
+	if previous.Features.Grasp08 && previous.Reads == "members" && (!next.Features.Grasp08 || next.Reads != "members") {
+		return errors.New("blocked: opening a private GRASP-08 tenant requires an explicit data migration")
+	}
+	return nil
+}
+
 func (t *Tenant) persistPolicy(ctx context.Context, next policy.Policy) error {
 	previous := t.Policy()
+	if err := t.validatePolicyTransition(next); err != nil {
+		return err
+	}
 	err := t.store.WithTx(ctx, func(tx *sql.Tx) error {
 		if next.Owner != previous.Owner {
 			if err := t.community.ApplyOwnerTx(ctx, tx, previous.Owner, next.Owner); err != nil {

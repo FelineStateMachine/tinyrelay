@@ -111,8 +111,17 @@ func CapabilityRegistryWithServices(p policy.Policy, gitAvailable, blobsAvailabl
 	if gitAvailable && p.Features.Grasp {
 		setCapability(capabilities, "NIP-34", Capability{ID: "NIP-34", Status: "enabled", Reason: "Git repository support"})
 		profiles := []string{"GRASP-01"}
+		if p.Features.Grasp02 {
+			profiles = append(profiles, "GRASP-02")
+			if p.Features.Grasp03 {
+				profiles = append(profiles, "GRASP-03")
+			}
+		}
 		if p.Features.Grasp06 {
 			profiles = append(profiles, "GRASP-06")
+		}
+		if privatePolicy(p) {
+			profiles = append(profiles, "GRASP-08")
 		}
 		setCapability(capabilities, "GRASP", Capability{ID: "GRASP", Status: "enabled", Reason: "configured GRASP profiles", Profiles: profiles})
 	} else if gitAvailable {

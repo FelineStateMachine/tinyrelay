@@ -322,7 +322,7 @@ func TestConnectPageEditsConnectionsAsList(t *testing.T) {
 	recorder := httptest.NewRecorder()
 	app.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/manage/connect", nil))
 	body := recorder.Body.String()
-	for _, want := range []string{"<connect-list>", `<select name="template">`, `<button type="button" name="add">`, `method="setconnections"`} {
+	for _, want := range []string{"<connect-list>", `<select name="template">`, `<button type="button" name="add">`, `method="setconnections"`, "<private-services", "kind 10318", "NIP-44"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("connect page missing %q", want)
 		}

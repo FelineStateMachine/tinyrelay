@@ -17,7 +17,7 @@ import { finalizeEvent } from "nostr-tools/pure";
 // startGitSigningProxy forwards to target (an http or https base URL). The
 // signer is either a secret key (Uint8Array) or an async function that takes
 // an event template and returns the signed event, such as a NIP-46 bunker.
-export async function startGitSigningProxy(target, signer) {
+export async function startGitSigningProxy(target, signer, options = {}) {
   const sign = typeof signer === "function" ? signer : template => finalizeEvent(template, signer);
   const server = http.createServer(async (request, response) => {
     let directory;
@@ -30,8 +30,22 @@ export async function startGitSigningProxy(target, signer) {
         hash.update(chunk); size += chunk.length; done(null, chunk);
       }}), createWriteStream(path));
       const url = new URL(target + request.url);
-      const tags = [["u", url.href], ["method", request.method], ["nonce", randomUUID()]];
-      if (size) tags.push(["payload", hash.digest("hex")]);
+      let proofURL = url.href;
+      let proofMethod = request.method;
+      if (options.grasp08) {
+        const marker = url.pathname.lastIndexOf(".git");
+        if (marker < 0 || !["", "/"].includes(url.pathname.slice(marker + 4, marker + 5))) {
+          throw Error("GRASP08 signing requires a repository URL");
+        }
+        proofURL = new URL(url.href);
+        proofURL.pathname = url.pathname.slice(0, marker + 4);
+        proofURL.search = "";
+        proofURL.hash = "";
+        proofURL = proofURL.href;
+        proofMethod = "GET";
+      }
+      const tags = [["u", proofURL], ["method", proofMethod], ["nonce", randomUUID()]];
+      if (size && !options.grasp08) tags.push(["payload", hash.digest("hex")]);
       const proof = await sign({kind: 27235, created_at: Math.floor(Date.now()/1000), tags, content: ""});
       const headers = {...request.headers, host: url.host, "content-length": String(size),
         authorization: "Nostr " + Buffer.from(JSON.stringify(proof)).toString("base64")};

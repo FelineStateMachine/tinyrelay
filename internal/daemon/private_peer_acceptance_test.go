@@ -124,13 +124,20 @@ func TestPrivatePeerGitAndMetadataSyncAcrossTenants(t *testing.T) {
 	publicPolicy.Features.Grasp08 = false
 	publicPolicy.Reads = "open"
 	publicPolicy.PrivatePeers = []string{guardPeer.URL}
-	if err := source.applyPolicy(ctx, publicPolicy); err != nil {
+	if err := source.applyPolicy(ctx, publicPolicy); err == nil {
+		t.Fatal("private tenant policy was made public while private repository metadata existed")
+	}
+	_, publicTenant := testTenant(t)
+	publicPolicy = publicTenant.Policy()
+	publicPolicy.Features.Grasp = true
+	publicPolicy.PrivatePeers = []string{guardPeer.URL}
+	if err := publicTenant.applyPolicy(ctx, publicPolicy); err != nil {
 		t.Fatal(err)
 	}
 	publicCheckRepo := repo
 	publicCheckRepo.Identifier = "public-profile-peer"
 	publicCheckRepo.Clone = []string{guardPeer.URL + "/private.git"}
-	if err := source.gitSync(ctx, publicCheckRepo); err == nil {
+	if err := publicTenant.gitSync(ctx, publicCheckRepo); err == nil {
 		t.Fatal("public profile unexpectedly fetched from a private peer")
 	}
 	if publicAuth != "" {

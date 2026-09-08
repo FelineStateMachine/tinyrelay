@@ -100,7 +100,7 @@ func (t *Tenant) initServices(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	t.config = configport.New(configport.ConfigStore{Store: t.store, Community: t.community, Policy: t.Policy, OnApplied: func(p policy.Policy) { t.replacePolicy(p) }})
+	t.config = configport.New(configport.ConfigStore{Store: t.store, Community: t.community, Policy: t.Policy, ValidatePolicy: t.validatePolicyTransition, OnApplied: func(p policy.Policy) { t.replacePolicy(p) }})
 	transport := &replication.NostrTransport{Dialer: replication.WebsocketDialer{AllowPrivate: t.app.cfg.AllowPrivateRelays, MaxMessageBytes: t.app.cfg.MaxMessageBytes}}
 	t.replication, err = replication.NewService(replication.Config{Store: t.store, Owner: func() string { return t.Policy().Owner }, Policy: replication.Policy{Enabled: t.Policy().Delivery.Enabled, SelfPubKey: t.records.PublicKey()}, CurrentPolicy: func() replication.Policy {
 		p := t.Policy()
@@ -378,7 +378,7 @@ func (t *Tenant) authorizeGit(ctx context.Context, r *http.Request, repo gitrela
 			return errors.New("restricted: repository authorization required")
 		}
 	}
-	if _, spooled := r.Context().Value(privateGitSpoolKey{}).(bool); spooled {
+	if _, checked := r.Context().Value(privateGitPayloadCheckedKey{}).(struct{}); checked {
 		return nil
 	}
 	return spoolGitPayload(r, e)
@@ -603,6 +603,9 @@ func (t *Tenant) ingest(ctx context.Context, e event.Event, _ replication.Origin
 func (t *Tenant) commitImported(ctx context.Context, e event.Event, origin replication.Origin) error {
 	_ = origin
 	if err := t.gate.Import(ctx, e, time.Now().Unix()); err != nil {
+		return err
+	}
+	if err := t.validatePrivateRepositoryPlacement(ctx, e); err != nil {
 		return err
 	}
 	if t.sites != nil {

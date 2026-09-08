@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	"github.com/FelineStateMachine/tinyrelay/internal/event"
+	"github.com/FelineStateMachine/tinyrelay/internal/policy"
 	"github.com/FelineStateMachine/tinyrelay/internal/storage"
 )
 
@@ -29,7 +30,11 @@ func deliver(ctx context.Context, store *storage.Store, transport DeliveryTransp
 		return nil
 	}
 	e := result.Events[0]
-	if privateKind(e.Kind) || hasProtectedTag(e) {
+	private, privateErr := privateRepository(ctx, store, e)
+	if privateErr != nil {
+		return fmt.Errorf("replication: check repository privacy: %w", privateErr)
+	}
+	if privateKind(e.Kind) || hasProtectedTag(e) || private {
 		return nil
 	}
 	if e.Kind != 10002 {
@@ -42,6 +47,16 @@ func deliver(ctx context.Context, store *storage.Store, transport DeliveryTransp
 		}
 	}
 	return sendAccepted(ctx, transport, intent.Target, e)
+}
+
+func privateRepository(ctx context.Context, store *storage.Store, e event.Event) (bool, error) {
+	if policy.IsPrivateRepository(e) {
+		return true, nil
+	}
+	if store == nil || e.Kind != event.KIND_REPO_STATE {
+		return false, nil
+	}
+	return store.IsPrivateRepository(ctx, e.PubKey, event.Tag(e, "d"))
 }
 
 func authorRelayList(ctx context.Context, store *storage.Store, e event.Event) (*event.Event, error) {

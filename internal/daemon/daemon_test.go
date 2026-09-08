@@ -72,7 +72,11 @@ func TestTenantIsolationAndDurableHTTPPublish(t *testing.T) {
 func signRequest(t *testing.T, r *http.Request, body string) {
 	t.Helper()
 	hash := sha256.Sum256([]byte(body))
-	e := event.Event{Kind: 27235, CreatedAt: time.Now().Unix(), Content: "", Tags: [][]string{{"u", r.URL.String()}, {"method", r.Method}, {"payload", hex.EncodeToString(hash[:])}}}
+	tags := [][]string{{"u", r.URL.String()}, {"method", r.Method}, {"payload", hex.EncodeToString(hash[:])}}
+	if i := strings.Index(r.URL.Path, ".git/"); i >= 0 {
+		tags = [][]string{{"u", r.URL.Scheme + "://" + r.URL.Host + r.URL.Path[:i+4]}, {"method", http.MethodGet}}
+	}
+	e := event.Event{Kind: 27235, CreatedAt: time.Now().Unix(), Content: "", Tags: tags}
 	if err := event.Sign(&e, strings.Repeat("0", 63)+"1"); err != nil {
 		t.Fatal(err)
 	}
