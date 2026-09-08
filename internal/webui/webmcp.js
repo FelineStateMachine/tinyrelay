@@ -82,8 +82,19 @@
   register("tiny.read_repository", "Read a repository tree, source file, history, commit diff or activity. Use ref to select a branch, tag or commit.",
     object({...repository, offset: {type: "integer", minimum: 0}, limit}, ["owner", "repo"]), reads,
     (input, signal) => query("browserepo", input, signal));
+  const collaborationList = object({owner: pubkey, repo: id, cursor: text, limit, q: text, label: text,
+    state: {type: "string", enum: ["open", "resolved", "merged", "closed", "draft"]}}, ["owner", "repo"]);
+  const collaborationDetail = object({owner: pubkey, repo: id, event: hash, cursor: text, limit}, ["owner", "repo", "event"]);
+  register("tiny.list_issues", "List repository issues with search, status filters and pagination.",
+    collaborationList, reads, (input, signal) => query("browseissues", input, signal));
+  register("tiny.read_issue", "Read an issue, its replies and authorized status changes.",
+    collaborationDetail, reads, (input, signal) => query("browseissue", input, signal));
+  register("tiny.list_pull_requests", "List repository pull requests with search, status filters and pagination.",
+    collaborationList, reads, (input, signal) => query("browsepulls", input, signal));
+  register("tiny.read_pull_request", "Read a pull request, its replies, authorized updates and available diff.",
+    collaborationDetail, reads, (input, signal) => query("browsepull", input, signal));
   register("tiny.list_files", "List stored files visible to your account.",
-    object({cursor: text, limit}), reads, (input, signal) => query("browsefiles", input, signal));
+    object({cursor: text, limit, q: text}), reads, (input, signal) => query("browsefiles", input, signal));
   register("tiny.read_file", "Read a stored file's metadata and available preview by SHA-256 hash.",
     object({hash}, ["hash"]), reads, (input, signal) => query("browsefile", input, signal));
   register("tiny.read_status", "Read service health, storage and job status. Requires a signed-in owner or moderator session.",
@@ -108,13 +119,13 @@
   }
   function repoURL(input) {
     const params = new URLSearchParams();
-    for (const key of ["owner", "repo", "ref", "path", "view"]) {
+    for (const key of ["owner", "repo", "ref", "path", "view", "id"]) {
       if (input[key] !== undefined) params.set(key, input[key]);
     }
     return "/repo?" + params;
   }
   register("tiny.open_repository", "Open a repository in this tab for browsing code, history or activity.",
-    object(repository, ["owner", "repo"]), {}, input => open(repoURL(input)));
+    object({...repository, id: hash, view: {type: "string", enum: ["tree", "file", "history", "commit", "activity", "issues", "prs", "issue", "pr"]}}, ["owner", "repo"]), {}, input => open(repoURL(input)));
   register("tiny.open_file", "Open a stored file by its SHA-256 hash in this tab. For repository source, use tiny.open_repository with view=file.",
     object({hash}, ["hash"]), {}, input => open("/file?hash=" + encodeURIComponent(input.hash)));
   register("tiny.open_status", "Open the relay status page in this tab.", object(), {}, () => open("/manage/status"));

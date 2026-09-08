@@ -23,6 +23,9 @@
 //   <file-tools [hash="…"] [type="…"]>
 //     Copies Blossom links, encrypts and uploads a file, decrypts a share
 //     link fragment and sends a random-key file as a NIP-17 message.
+//   <nostr-compose kind="…" coordinate="30617:…" [root="…" root-pubkey="…" root-kind="…"] [parent="…" …]>
+//     Signs a NIP-34 issue, pull request, NIP-22 reply or status event and
+//     posts it to the relay.
 //   <file-workspace> and <file-workspace-root> live in file-workspace.js;
 //   <private-services> lives in private-services.js.
 (() => {
@@ -411,6 +414,64 @@
     }
   }
 
+  // NostrCompose signs NIP-34 issue, pull request and conversation events.
+  // The relay receives the signed event directly, so the same control works
+  // with NIP-07 and the existing NIP-46 bridge.
+  class NostrCompose extends FormElement {
+    async submit(form) {
+      if (!window.nostr?.signEvent) throw Error("Connect a signer first.");
+      const value = name => form.elements[name]?.value.trim() || "";
+      const mode = this.getAttribute("kind");
+      const kind = Number(mode === "status" ? value("status") : mode);
+      if (![1621, 1618, 1111, 1630, 1631, 1632, 1633].includes(kind)) throw Error("Choose a valid event type.");
+      const coordinate = this.getAttribute("coordinate") || "";
+      if (!/^30617:[0-9a-f]{64}:.+$/.test(coordinate)) throw Error("The repository address is missing.");
+      const tags = [["a", coordinate]];
+      if (kind === 1111 || kind >= 1630) {
+        const root = this.getAttribute("root"), pubkey = this.getAttribute("root-pubkey");
+        const rootKind = this.getAttribute("root-kind");
+        if (!isHex64(root) || !isHex64(pubkey) || !["1617", "1618", "1621"].includes(rootKind)) throw Error("The conversation address is missing.");
+        if (kind === 1111) {
+          const parent = this.getAttribute("parent") || root;
+          const parentPubkey = this.getAttribute("parent-pubkey") || pubkey;
+          const parentKind = this.getAttribute("parent-kind") || rootKind;
+          if (!isHex64(parent) || !isHex64(parentPubkey) || !["1111", rootKind].includes(parentKind)) throw Error("The reply address is invalid.");
+          tags.push(["E", root, "", pubkey], ["K", rootKind], ["P", pubkey], ["e", parent, "", parentPubkey], ["k", parentKind], ["p", parentPubkey]);
+        } else {
+          tags.push(["e", root, "", "root"], ["p", pubkey]);
+          if (coordinate.split(":")[1] !== pubkey) tags.push(["p", coordinate.split(":")[1]]);
+        }
+      }
+      if (kind === 1621 || kind === 1618) {
+        if (!value("title")) throw Error("Enter a title.");
+        tags.push(["p", coordinate.split(":")[1]], ["subject", value("title")]);
+        const labels = [...new Set(value("labels").split(",").map(label => label.trim()).filter(Boolean))];
+        labels.forEach(label => tags.push(["t", label]));
+      }
+      if (kind === 1618) {
+        const commit = value("commit"), base = value("merge-base");
+        if (!/^[0-9a-f]{40}$/.test(commit) || (base && !/^[0-9a-f]{40}$/.test(base))) throw Error("Enter a full Git commit ID.");
+        let clone; try { clone = new URL(value("clone")); } catch { throw Error("Enter a clone URL."); }
+        if (!["https:", "http:"].includes(clone.protocol) || clone.username || clone.password || clone.hash) throw Error("Enter an HTTP or HTTPS clone URL without credentials.");
+        tags.push(["c", commit], ["clone", clone.href]);
+        if (base) tags.push(["merge-base", base]);
+      }
+      const content = form.elements.content?.value || "";
+      if ((kind === 1621 || kind === 1111) && !content.trim()) throw Error("Enter a message.");
+      const unsigned = {kind, created_at: Math.floor(Date.now() / 1000), tags, content};
+      // Keep a separate copy: extensions may mutate their input while signing.
+      const expected = JSON.stringify(unsigned);
+      const event = await window.nostr.signEvent(JSON.parse(expected));
+      const actual = event && JSON.stringify({kind: event.kind, created_at: event.created_at, tags: event.tags, content: event.content});
+      if (actual !== expected || !window.NostrSigner?.verifyEvent(event)) throw Error("The signer returned an invalid or changed event.");
+      const response = await tiny.signedFetch("/events", "POST", JSON.stringify(event), {contentType: "application/json"});
+      const result = await response.json();
+      if (!response.ok || result.accepted !== true) throw Error(result.error || result.message || "The relay rejected the event.");
+      this.report("Published. Reload to see the update.");
+      form.reset();
+    }
+  }
+
   class NostrKey extends HTMLElement {
     static get observedAttributes() { return ["hex"]; }
 
@@ -775,6 +836,7 @@
   customElements.define("file-mirror", FileMirror);
   customElements.define("file-tools", FileTools);
   customElements.define("publish-list", PublishList);
+  customElements.define("nostr-compose", NostrCompose);
   customElements.define("nostr-key", NostrKey);
   customElements.define("json-view", JsonView);
 

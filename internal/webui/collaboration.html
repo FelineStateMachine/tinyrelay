@@ -1,0 +1,37 @@
+{{define "collaboration"}}{{$view := repoView .Query}}{{$data := asMap .Event}}{{$coordinate := printf "30617:%s:%s" (.Query.Get "owner") (.Query.Get "repo")}}{{$issues := or (eq $view "issues") (eq $view "issue")}}
+{{if or (eq $view "issues") (eq $view "prs")}}<section id="collaboration-list">
+<h1>{{if $issues}}Issues{{else}}Pull requests{{end}}</h1>
+<form method="get" action="/repo" id="collaboration-filter">
+<input type="hidden" name="owner" value="{{.Query.Get "owner"}}"><input type="hidden" name="repo" value="{{.Query.Get "repo"}}"><input type="hidden" name="view" value="{{$view}}">
+{{$states := strs "open" "merged" "closed" "draft"}}{{if $issues}}{{$states = strs "open" "resolved" "closed" "draft"}}{{end}}<label>Status <select name="status"><option value="">all</option>{{range $state := $states}}<option value="{{$state}}"{{if eq ($.Query.Get "status") $state}} selected{{end}}>{{$state}}</option>{{end}}</select></label>
+<label>Search <input name="q" value="{{.Query.Get "q"}}"></label><label>Label <input name="label" value="{{.Query.Get "label"}}"></label><button>Filter</button>
+</form>
+{{$items := collabItems .Event}}{{if $items}}<table id="rows">
+<thead><tr><th>status</th><th>title</th><th>author</th><th>opened</th></tr></thead>
+<tbody>{{range $item := $items}}{{$item := asMap $item}}<tr><td>{{index $item "status"}}</td><td><a href="{{if $issues}}{{repoURL $.Query "issue" (str (index $item "id"))}}{{else}}{{repoURL $.Query "pr" (str (index $item "id"))}}{{end}}">{{index $item "title"}}</a>{{with collabLabels $item}} <small>{{join . ", "}}</small>{{end}}</td><td>{{template "nostrKey" (str (index $item "author"))}}</td><td><time datetime="{{datetime (index $item "created_at")}}">{{when (index $item "created_at")}}</time></td></tr>
+{{end}}</tbody></table>{{else}}<p>No matching {{if $issues}}issues{{else}}pull requests{{end}}.</p>{{end}}
+{{with index $data "next_cursor"}}<p id="pages"><a href="{{browsePageURL "/repo" $.Query "cursor" .}}">next page</a></p>{{end}}
+{{if .Actor}}<details id="collaboration-new"><summary>{{if $issues}}New issue{{else}}New pull request{{end}}</summary>
+<nostr-compose kind="{{if $issues}}1621{{else}}1618{{end}}" coordinate="{{$coordinate}}">
+<label>Title <input name="title" required maxlength="300"></label><label>Labels <input name="labels" placeholder="bug, help wanted"></label>
+{{if not $issues}}<label>Commit <input name="commit" required pattern="[0-9a-f]{40}"></label><label>Clone URL <input name="clone" type="url" required placeholder="https://example.com/project.git"></label><label>Merge base <input name="merge-base" pattern="[0-9a-f]{40}"></label>{{end}}
+<label>Description <textarea name="content" required></textarea></label><button>Sign and publish</button>
+</nostr-compose><noscript><p>JavaScript and a connected signer are required to publish.</p></noscript></details>{{else}}<p><a href="/signin">Sign in</a> to start a conversation.</p>{{end}}
+</section>
+{{else}}{{$item := asMap (index $data "item")}}<section id="collaboration-detail">
+<p><a href="{{if $issues}}{{repoURL .Query "issues" ""}}{{else}}{{repoURL .Query "prs" ""}}{{end}}">{{if $issues}}All issues{{else}}All pull requests{{end}}</a></p>
+<h1>{{index $item "title"}}</h1>
+<p>{{index $item "status"}} by {{template "nostrKey" (str (index $item "author"))}} <time datetime="{{datetime (index $item "created_at")}}">{{when (index $item "created_at")}}</time></p>
+{{with collabLabels $item}}<p>Labels: {{join . ", "}}</p>{{end}}
+<article id="collaboration-body">{{markdown (str (index $item "content"))}}</article>
+{{if not $issues}}<h2>Changes</h2>{{if index $data "diff_unavailable"}}<p>{{index $data "diff_unavailable"}}. The diff will be available after the required commits have been synchronized.</p>{{else}}{{diffHTML .Event}}{{if index $data "diff_truncated"}}<p>This diff is truncated. Clone the repository to review the complete change.</p>{{end}}{{end}}{{end}}
+<h2>Conversation</h2>
+{{$replies := collabReplies .Event}}{{if $replies}}<ol id="events">
+{{range $reply := $replies}}{{$r := asMap $reply}}<li>{{template "nostrEvent" $reply}}
+{{if $.Actor}}<details><summary>Reply to this comment</summary><nostr-compose kind="1111" coordinate="{{$coordinate}}" root="{{index $item "id"}}" root-pubkey="{{index $item "author"}}" root-kind="{{index $item "kind"}}" parent="{{index $r "id"}}" parent-pubkey="{{index $r "pubkey"}}" parent-kind="1111"><label>Reply <textarea name="content" required></textarea></label><button>Sign and reply</button></nostr-compose></details>{{end}}</li>
+{{end}}</ol>{{else}}<p>No replies yet.</p>{{end}}
+{{with index $data "reply_cursor"}}<p id="pages"><a href="{{browsePageURL "/repo" $.Query "cursor" .}}">older replies</a></p>{{end}}
+{{if .Actor}}<h2>Reply</h2><nostr-compose kind="1111" coordinate="{{$coordinate}}" root="{{index $item "id"}}" root-pubkey="{{index $item "author"}}" root-kind="{{index $item "kind"}}"><label>Comment <textarea name="content" required></textarea></label><button>Sign and reply</button></nostr-compose>
+{{if index $data "can_status"}}<details id="status-controls"><summary>Change status</summary><nostr-compose kind="status" coordinate="{{$coordinate}}" root="{{index $item "id"}}" root-pubkey="{{index $item "author"}}" root-kind="{{index $item "kind"}}"><label>Status <select name="status"><option value="1630">Reopen</option><option value="1631">{{if $issues}}Resolve{{else}}Mark merged{{end}}</option><option value="1632">Close</option><option value="1633">Draft</option></select></label><label>Comment <textarea name="content"></textarea></label><button>Sign and update</button></nostr-compose></details>{{end}}
+<noscript><p>JavaScript and a connected signer are required to publish.</p></noscript>{{else}}<p><a href="/signin">Sign in</a> to reply.</p>{{end}}
+</section>{{end}}{{end}}

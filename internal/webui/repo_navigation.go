@@ -12,7 +12,11 @@ type repoCrumb struct{ Label, URL string }
 func repoURL(query url.Values, view, path string) string {
 	values := url.Values{"owner": {query.Get("owner")}, "repo": {query.Get("repo")}, "ref": {query.Get("ref")}, "view": {view}}
 	if path != "" {
-		values.Set("path", path)
+		if view == "issue" || view == "pr" {
+			values.Set("id", path)
+		} else {
+			values.Set("path", path)
+		}
 	}
 	return "/repo?" + values.Encode()
 }

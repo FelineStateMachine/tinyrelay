@@ -13,7 +13,7 @@ import (
 // templateFS holds every page template. page.html owns the shell and the
 // shared partials; the other files each define one group of tabs.
 //
-//go:embed page.html public.html manage.html browse.html repo.html
+//go:embed page.html public.html manage.html browse.html repo.html collaboration.html
 var templateFS embed.FS
 
 // styleCSS is inlined into every page so the UI needs no extra request and
@@ -162,6 +162,7 @@ func parseTemplates() (*template.Template, error) {
 		"relayItems":      func() []navItem { return relayNav },
 		"manageItems":     func() []navItem { return manageNav },
 		"add":             func(a, b int) int { return a + b },
+		"strs":            func(values ...string) []string { return values },
 		"repoCommitURL":   repoCommitURL,
 		"hasNextOffset":   hasNextOffset,
 		"repoURL":         repoURL,
@@ -171,6 +172,9 @@ func parseTemplates() (*template.Template, error) {
 		"repoDate":        repoDate,
 		"sourceHTML":      sourceHTML,
 		"diffHTML":        diffHTML,
+		"collabItems":     collaborationItems,
+		"collabReplies":   collaborationReplies,
+		"collabLabels":    collaborationLabels,
 	}
 	tmpl, err := template.New("webui").Funcs(funcs).ParseFS(templateFS, "*.html")
 	if err != nil {

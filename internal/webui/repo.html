@@ -29,6 +29,7 @@
 {{end}}</ol>
 {{else}}<p>No repository activity.</p>
 {{end}}</section>
+{{else if or (eq $view "issues") (eq $view "prs") (eq $view "issue") (eq $view "pr")}}{{template "collaboration" .}}
 {{end}}{{end}}{{end}}
 
 {{define "repoTree"}}{{$repo := asMap .Event}}{{$entries := index $repo "entries"}}{{if .Tree}}{{$entries = .Tree}}{{end}}<ul>

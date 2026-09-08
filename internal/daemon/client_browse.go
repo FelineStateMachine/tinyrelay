@@ -23,10 +23,14 @@ type clientBrowseRequest struct {
 	Cursor string `json:"cursor"`
 	Query  string `json:"q"`
 	Hash   string `json:"hash"`
+	Event  string `json:"event"`
+	ID     string `json:"id"`
+	State  string `json:"state"`
+	Label  string `json:"label"`
 }
 
 func clientBrowseMethod(method string) bool {
-	return containsString([]string{"browserepos", "browserepo", "browsefiles", "browsefile", "browsestatus"}, method)
+	return containsString([]string{"browserepos", "browserepo", "browsefiles", "browsefile", "browsestatus", "browseissues", "browsepulls", "browseissue", "browsepull"}, method)
 }
 
 func (t *Tenant) browseRead(ctx context.Context, actor string) error {
@@ -70,6 +74,20 @@ func (t *Tenant) executeBrowse(ctx context.Context, actor, method string, params
 		return t.browseFile(ctx, actor, q.Hash)
 	case "browsestatus":
 		return t.browseStatus(ctx, actor)
+	case "browseissues":
+		return t.browseCollaboration(ctx, actor, q, event.KIND_GIT_ISSUE)
+	case "browsepulls":
+		return t.browseCollaboration(ctx, actor, q, event.KIND_GIT_PR)
+	case "browseissue":
+		if q.Event == "" {
+			q.Event = q.ID
+		}
+		return t.browseCollaborationDetail(ctx, actor, q, event.KIND_GIT_ISSUE)
+	case "browsepull":
+		if q.Event == "" {
+			q.Event = q.ID
+		}
+		return t.browseCollaborationDetail(ctx, actor, q, event.KIND_GIT_PR)
 	default:
 		return nil, errors.New("unsupported: browse operation")
 	}

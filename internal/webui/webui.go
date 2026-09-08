@@ -489,7 +489,28 @@ func (a *App) browse(writer http.ResponseWriter, request *http.Request) {
 		if parsed, parseErr := strconv.Atoi(request.URL.Query().Get("offset")); parseErr == nil && parsed >= 0 {
 			offset = parsed
 		}
-		query = map[string]any{"owner": request.URL.Query().Get("owner"), "repo": request.URL.Query().Get("repo"), "ref": request.URL.Query().Get("ref"), "path": request.URL.Query().Get("path"), "view": view, "offset": offset, "limit": 50}
+		backendView := view
+		if view == "issues" {
+			method = "browseissues"
+			backendView = ""
+		}
+		if view == "prs" {
+			method = "browsepulls"
+			backendView = ""
+		}
+		if view == "issue" {
+			method = "browseissue"
+			backendView = ""
+		}
+		if view == "pr" {
+			method = "browsepull"
+			backendView = ""
+		}
+		eventID := request.URL.Query().Get("id")
+		if eventID == "" && (view == "issue" || view == "pr") {
+			eventID = request.URL.Query().Get("path")
+		}
+		query = map[string]any{"owner": request.URL.Query().Get("owner"), "repo": request.URL.Query().Get("repo"), "event": eventID, "q": request.URL.Query().Get("q"), "state": request.URL.Query().Get("status"), "label": request.URL.Query().Get("label"), "cursor": request.URL.Query().Get("cursor"), "ref": request.URL.Query().Get("ref"), "path": request.URL.Query().Get("path"), "view": backendView, "offset": offset, "limit": 100}
 	case "browsefile":
 		query = map[string]any{"hash": request.URL.Query().Get("hash")}
 		if query["hash"] == "" {

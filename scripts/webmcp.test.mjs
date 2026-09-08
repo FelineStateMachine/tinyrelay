@@ -107,3 +107,26 @@ test("cancellation reaches the fetch request", async () => {
   await tools.get("tiny.list_files").execute({}, {signal: controller.signal});
   assert.equal(received, controller.signal);
 });
+
+test("collaboration tools preserve repository, event and filter scope", async () => {
+  const requests = [];
+  const {tools} = await browser({path: "/r/work/tools", fetch: async url => {
+    requests.push(new URL(url, "https://tiny.example"));
+    return new Response(JSON.stringify({items: [], item: {title: "Issue"}}));
+  }});
+  const repo = {owner: "a".repeat(64), repo: "notes"};
+  for (const [name, method, extra] of [
+    ["tiny.list_issues", "browseissues", {q: "bug", state: "resolved", limit: 5}],
+    ["tiny.read_issue", "browseissue", {event: "b".repeat(64)}],
+    ["tiny.list_pull_requests", "browsepulls", {state: "merged"}],
+    ["tiny.read_pull_request", "browsepull", {event: "c".repeat(64)}]
+  ]) {
+    const tool = tools.get(name);
+    assert.equal(tool.annotations.readOnlyHint, true);
+    await tool.execute({...repo, ...extra});
+    const url = requests.at(-1);
+    assert.equal(url.pathname, "/r/work/webmcp/query");
+    assert.equal(url.searchParams.get("method"), method);
+    assert.deepEqual(JSON.parse(url.searchParams.get("params")), [{...repo, ...extra}]);
+  }
+});

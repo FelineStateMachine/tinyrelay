@@ -112,6 +112,10 @@ const entries = new Map([
 for (const [path, content] of entries) { const full = join(repo, path); await mkdir(join(full, ".."), { recursive: true }); await writeFile(full, content); }
 await git(repo, "add", ".");
 try { await git(repo, "commit", "-m", "UX fixture paths"); } catch (error) { if (!String(error.stdout).includes("nothing to commit")) throw error; }
+const mergeBase = await git(repo, "rev-parse", "HEAD");
+await writeFile(join(repo, "README UX fixture.md"), "UX fixture repository\nPaths and refs contain awkward URL characters.\nPR fixture change.\n");
+await git(repo, "add", "."); await git(repo, "commit", "-m", "PR fixture change");
+const pullTip = await git(repo, "rev-parse", "HEAD");
 await git(repo, "tag", "-f", "release/1.0"); await git(repo, "branch", "-f", "feature/café");
 // GRASP identifiers are intentionally conservative; awkward characters live
 // in the display name and tracked paths, where viewers must still URL-escape.
@@ -121,8 +125,17 @@ const announcement = event(30617, "", [["d", repoId], ["name", "UX space/#/?/% c
 await relay.publish(announcement);
 const state = event(30618, "", [["d", repoId], ["HEAD", "ref: refs/heads/main"], ...refs.map(([ref, oid]) => [ref, oid])]);
 await relay.publish(state);
+// Seed NIP-34 collaboration roots and their signed thread events so browser
+// checks cover issue filtering, PR detail rendering and status transitions.
+const coordinate = `30617:${owner}:${repoId}`;
+const issue = event(1621, "Fixture issue body with a [link](https://example.com) and escaped <markup>.", [["a", coordinate], ["subject", "Fixture issue: awkward paths"], ["t", "bug"], ["t", "ux"]], created + 4);
+const pull = event(1618, "Fixture pull request body", [["a", coordinate], ["subject", "Fixture PR: add nested path"], ["t", "enhancement"], ["c", pullTip], ["clone", cloneURL], ["merge-base", mergeBase]], created + 5);
+const patch = event(1617, "diff --git a/README UX fixture.md b/README UX fixture.md\n@@\n+fixture change\n", [["a", coordinate], ["e", pull.id, "", "root"], ["E", pull.id, "", owner], ["K", "1618"], ["P", owner]], created + 6);
+const reply = event(1111, "Signed fixture reply", [["a", coordinate], ["E", issue.id, "", owner], ["K", "1621"], ["P", owner], ["e", issue.id, "", owner], ["k", "1621"], ["p", owner]], created + 7);
+const closed = event(1632, "", [["a", coordinate], ["e", issue.id, "", "root"], ["p", owner]], created + 8);
+for (const collaboration of [issue, pull, patch, reply, closed]) await relay.publish(collaboration);
 try { await git(repo, "remote", "set-url", "origin", cloneURL); } catch { await git(repo, "remote", "add", "origin", cloneURL); }
 await git(repo, "push", "origin", "--all"); await git(repo, "push", "origin", "--tags");
-const manifest = { schema: 1, fixture: "tinyrelay-ux", relay: http, owner, npub: npubEncode(owner), dataDir, notes: notes.map(e => ({ id: e.id, kind: e.kind, tags: e.tags })), articles: articles.map(e => ({ id: e.id, tags: e.tags })), files, repository: { id: repoId, clone: cloneURL, path: repo, refs } };
+const manifest = { schema: 1, fixture: "tinyrelay-ux", relay: http, owner, npub: npubEncode(owner), dataDir, notes: notes.map(e => ({ id: e.id, kind: e.kind, tags: e.tags })), articles: articles.map(e => ({ id: e.id, tags: e.tags })), collaboration: [issue, pull, patch, reply, closed].map(e => ({ id: e.id, kind: e.kind, tags: e.tags })), files, repository: { id: repoId, clone: cloneURL, path: repo, refs } };
 await writeFile(join(outDir, "fixture.json"), json(manifest) + "\n");
 relay.close(); console.log(json({ ok: true, manifest: join(outDir, "fixture.json"), notes: notes.length, articles: articles.length, files: files.length, repository: repoId }));
