@@ -14,7 +14,7 @@ fly certs check 012.run
 fly certs check "*.012.run"
 ```
 
-DNS at the registrar, all DNS-only records: A and AAAA for `012.run` and `*.012.run` pointing at the app's addresses from `fly ips list`, and a `_acme-challenge.012.run` CNAME from `fly certs setup "*.012.run"` for the wildcard certificate. The relay host's Caddyfile serves `012.run:8080` and `*.012.run:8080` over plain HTTP for the edge; see `deploy/edge/slate.Caddyfile.snippet`. After the certificates issue, set `--public-url https://012.run` on the relay so signed requests, NIP-11 and site hosts use the public name. The ts.net name stays tailnet only.
+DNS at the registrar, all DNS-only records with Cloudflare's Universal SSL turned off so its challenge records do not shadow Fly's: A and AAAA for `012.run` and `*.012.run` pointing at the app's addresses from `fly ips list`, and a `_acme-challenge.012.run` CNAME from `fly certs setup "*.012.run"` for the wildcard certificate. The relay host's Caddyfile, `deploy/tiny.Caddyfile`, serves `012.run:8080` and `*.012.run:8080` over plain HTTP for the edge. After the certificates issue, set `--public-url https://012.run` on the relay so signed requests, NIP-11 and site hosts use the public name. The ts.net name stays tailnet only.
 
 ## Repository hosting
 
@@ -22,13 +22,13 @@ The relay hosts Git repositories over GRASP. Use [ngit](https://ngit.dev) so the
 
 ```sh
 ngit account login
-ngit init --name tiny --identifier tinyrelay --grasp-server tiny.tailbe516a.ts.net \
+ngit init --name tiny --identifier tinyrelay --grasp-server 012.run \
   --description "self-hosted, multitenant Nostr relay"
-git remote add tiny nostr://<owner npub>/tiny.tailbe516a.ts.net/tinyrelay
+git remote add tiny nostr://<owner npub>/012.run/tinyrelay
 git push tiny main --tags
 ```
 
-Later pushes are plain `git push tiny`. Anyone can clone the repository with `git clone nostr://<owner npub>/tiny.tailbe516a.ts.net/tinyrelay`, or with plain Git from `https://tiny.tailbe516a.ts.net/<owner npub>/tinyrelay.git`.
+Later pushes are plain `git push tiny`. `ngit init` rewrites `origin` to the nostr address each time it runs; set it back to GitHub afterwards. Anyone can clone the repository with `git clone nostr://<owner npub>/012.run/tinyrelay`, or with plain Git from `https://012.run/<owner npub>/tinyrelay.git`.
 
 ## Web operations
 
