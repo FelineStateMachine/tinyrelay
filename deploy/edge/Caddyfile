@@ -1,0 +1,18 @@
+{
+  auto_https off
+  admin off
+  servers {
+    enable_full_duplex
+  }
+}
+
+# Fly's proxy terminates TLS and forwards HTTP here with the original Host
+# and X-Forwarded-Proto. Upstream traffic reaches the relay host over the
+# tailnet through tailscaled's local CONNECT proxy.
+:8080 {
+  reverse_proxy http://{$RELAY_TAILNET_HOST}:8080 {
+    transport http {
+      network_proxy http://127.0.0.1:1055
+    }
+  }
+}
