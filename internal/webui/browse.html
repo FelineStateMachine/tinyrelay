@@ -18,7 +18,7 @@
 {{else if .Feed}}<table id="rows">
 <thead><tr><th>hash</th><th>type</th><th>uploaded</th></tr></thead>
 <tbody>
-{{range .Feed}}{{$f := asMap .}}<tr><td><a href="/file?sha={{str (index $f "sha256")}}">{{shortID (index $f "sha256")}}</a></td><td>{{str (index $f "type")}} <small>{{str (index $f "size")}} B</small></td><td>{{when (index $f "uploaded")}}</td></tr>
+{{range .Feed}}{{$f := asMap .}}<tr><td><a href="/file?sha={{urlquery (str (index $f "sha256"))}}">{{shortID (index $f "sha256")}}</a></td><td>{{str (index $f "type")}} <small>{{str (index $f "size")}} B</small></td><td>{{when (index $f "uploaded")}}</td></tr>
 {{end}}</tbody>
 </table>
 {{else}}<p>No files were reported.</p>
@@ -27,23 +27,23 @@
 {{end}}
 
 {{define "file"}}{{if .Error}}<section><h1>File</h1>{{template "alert" .Error}}</section>
-{{else}}{{$file := asMap .Event}}{{$hash := or (.Query.Get "hash") (.Query.Get "sha")}}<section>
+{{else}}{{$file := asMap .Event}}{{$hash := or (.Query.Get "hash") (.Query.Get "sha")}}<section id="file-view">
 <h1>File</h1>
 <table id="facts">
 <tr><th>sha256</th><td><code>{{str (index $file "sha256")}}</code></td></tr>
 <tr><th>type</th><td>{{str (index $file "type")}}</td></tr>
 <tr><th>size</th><td>{{str (index $file "size")}} bytes</td></tr>
 {{with index $file "blossom_uri"}}<tr><th>blossom</th><td><code>{{.}}</code></td></tr>{{end}}
-<tr><th>download</th><td><a href="/files/raw?hash={{str (index $file "sha256")}}">raw</a></td></tr>
+<tr><th>download</th><td><a fx-ignore href="/files/raw?hash={{urlquery (str (index $file "sha256"))}}">raw</a></td></tr>
 </table>
-</section>
-{{$type := str (index $file "type")}}{{$raw := printf "/files/raw?hash=%s" (str (index $file "sha256"))}}{{if hasPrefix $type "image/"}}<section id="media"><img src="{{$raw}}" alt=""></section>
-{{else if hasPrefix $type "video/"}}<section id="media"><video controls src="{{$raw}}"></video></section>
-{{else if hasPrefix $type "audio/"}}<section id="media"><audio controls src="{{$raw}}"></audio></section>
-{{else if eq $type "application/pdf"}}<section id="media"><a href="{{$raw}}">Open the PDF</a></section>
-{{else if index $file "binary"}}<section><p>This is a binary file. Download it to view its contents.</p></section>
-{{else}}{{sourceHTML .Event}}
-{{end}}{{if .Actor}}<section><details><summary>Manage file</summary><rpc-form method="deleteblob"><input type="hidden" name="param" value="{{$hash}}"><button>Delete file</button></rpc-form></details></section>{{end}}
+{{$type := str (index $file "type")}}{{$raw := printf "/files/raw?hash=%s" (urlquery (str (index $file "sha256")))}}{{if hasPrefix $type "image/"}}<div id="media"><img src="{{$raw}}" alt=""></div>
+{{else if hasPrefix $type "video/"}}<div id="media"><video controls src="{{$raw}}"></video></div>
+{{else if hasPrefix $type "audio/"}}<div id="media"><audio controls src="{{$raw}}"></audio></div>
+{{else if eq $type "application/pdf"}}<div id="media"><a fx-ignore href="{{$raw}}">Open the PDF</a></div>
+{{else if index $file "binary"}}<p id="media">This is a binary file. Download it to view its contents.</p>
+{{else if index $file "content"}}{{sourceHTML .Event}}
+{{else}}<p id="media">This file is empty.</p>
+{{end}}{{if .Actor}}<details id="manage-file"><summary>Manage file</summary><rpc-form method="deleteblob"><input type="hidden" name="param" value="{{$hash}}"><button>Delete file</button></rpc-form></details>{{end}}</section>
 {{end}}{{end}}
 
 {{define "sites"}}<section>

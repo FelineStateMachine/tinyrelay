@@ -81,6 +81,23 @@ func TestSitesPageListsHostedSites(t *testing.T) {
 	}
 }
 
+func TestSitesPagePreservesRelayPortInHostedURL(t *testing.T) {
+	backend := &portSiteBackend{siteBackend: &siteBackend{fakeBackend: fakeBackend{policy: policy.Defaults(strings.Repeat("a", 64))}}}
+	app, err := New(backend, Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	recorder := httptest.NewRecorder()
+	app.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/sites", nil))
+	if !strings.Contains(recorder.Body.String(), ".relay.example:8787") {
+		t.Fatalf("hosted URL lost relay port: %s", recorder.Body.String())
+	}
+}
+
+type portSiteBackend struct{ *siteBackend }
+
+func (*portSiteBackend) URL() string { return "http://relay.example:8787" }
+
 func TestFeedFiltersNarrowTheQuery(t *testing.T) {
 	filter := map[string]any{"kinds": []int{1, 30023}, "limit": 12}
 	applyFeedFilters(filter, url.Values{"kinds": {"7"}, "author": {strings.Repeat("b", 64)}, "since": {"2026-09-01"}})

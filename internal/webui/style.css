@@ -82,6 +82,7 @@ scroll-box th,json-view th,scroll-box td code,scroll-box td nostr-key,scroll-box
 dl{margin:.5rem 0}dt{font-weight:600}dd{margin:0 0 .35rem 1rem}
 #facts{border-collapse:collapse;font:13px var(--mono);width:auto}
 #facts th{text-align:left;font-weight:normal;color:var(--muted);width:9em;padding:3px 0;border:0}#facts td{padding:3px 0;border:0}
+#facts td{overflow-wrap:anywhere}
 
 /* Identity: the relay entry page. */
 #identity{max-width:720px}#identity>header{border-bottom:1px solid var(--line);padding-bottom:12px;margin-bottom:12px}

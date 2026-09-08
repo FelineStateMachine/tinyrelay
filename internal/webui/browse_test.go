@@ -104,6 +104,32 @@ func TestBrowseRendersTypedGitRelayPage(t *testing.T) {
 	}
 }
 
+func TestFileViewerEscapesHashAndExplainsEmptyFiles(t *testing.T) {
+	b := &emptyFileBackend{browseBackend: &browseBackend{fakeBackend: fakeBackend{policy: policy.Defaults(strings.Repeat("a", 64))}}}
+	app, err := New(b, Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	recorder := httptest.NewRecorder()
+	app.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/file?hash=a%26b", nil))
+	body := recorder.Body.String()
+	if recorder.Code != http.StatusOK || !strings.Contains(body, `fx-ignore href="/files/raw?hash=a%26b"`) {
+		t.Fatalf("file hash was not URL encoded: status=%d body=%s", recorder.Code, body)
+	}
+	if !strings.Contains(body, "This file is empty.") {
+		t.Fatalf("empty file did not get an explanatory preview: %s", body)
+	}
+}
+
+type emptyFileBackend struct{ *browseBackend }
+
+func (b *emptyFileBackend) Query(ctx context.Context, method string, params []json.RawMessage, actor string) (any, error) {
+	if method == "browsefile" {
+		return map[string]any{"sha256": "a&b", "type": "text/plain", "content": ""}, nil
+	}
+	return b.browseBackend.Query(ctx, method, params, actor)
+}
+
 type typedBrowseBackend struct {
 	*browseBackend
 	page gitrelay.BrowsePage

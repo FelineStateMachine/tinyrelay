@@ -4,7 +4,7 @@
 </section>
 {{else if or (eq $view "tree") (eq $view "file")}}<table id="split"><tbody><tr><td id="tree"><header><a href="{{repoURL .Query "tree" ""}}">{{str (index $repo "identifier")}}/</a>{{range $index, $crumb := repoBreadcrumbs .Query}}{{if $index}}{{if $crumb.URL}}<a href="{{$crumb.URL}}">{{$crumb.Label}}</a>{{else}}<b>{{$crumb.Label}}</b>{{end}}/{{end}}{{end}}</header>
 {{template "repoTree" .}}</td>
-<td id="preview">{{if eq $view "file"}}<header>{{.Query.Get "path"}} <a href="/repo/raw?owner={{urlquery (.Query.Get "owner")}}&amp;repo={{urlquery (.Query.Get "repo")}}&amp;ref={{urlquery (.Query.Get "ref")}}&amp;path={{urlquery (.Query.Get "path")}}">raw</a></header>
+<td id="preview">{{if eq $view "file"}}<header>{{.Query.Get "path"}} <a fx-ignore href="/repo/raw?owner={{urlquery (.Query.Get "owner")}}&amp;repo={{urlquery (.Query.Get "repo")}}&amp;ref={{urlquery (.Query.Get "ref")}}&amp;path={{urlquery (.Query.Get "path")}}">raw</a></header>
 {{if index $repo "binary"}}<p>This is a binary file. Download it to view its contents.</p>
 {{else if index $repo "content"}}{{sourceHTML .Event}}
 {{else}}<p>This file is empty.</p>

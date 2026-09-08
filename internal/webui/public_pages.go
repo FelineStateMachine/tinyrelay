@@ -111,7 +111,7 @@ func (a *App) siteRows(feed []any) []any {
 		} else if scheme == "wss" {
 			scheme = "https"
 		}
-		rows = append(rows, map[string]any{"id": e.ID, "kind": e.Kind, "author": e.PubKey, "label": label, "paths": len(sites.SitePaths(e)), "created_at": e.CreatedAt, "url": scheme + "://" + label + "." + base.Hostname()})
+		rows = append(rows, map[string]any{"id": e.ID, "kind": e.Kind, "author": e.PubKey, "label": label, "paths": len(sites.SitePaths(e)), "created_at": e.CreatedAt, "url": scheme + "://" + label + "." + base.Host})
 	}
 	return rows
 }

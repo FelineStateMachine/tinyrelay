@@ -445,6 +445,7 @@ func (a *App) eventPage(writer http.ResponseWriter, request *http.Request) {
 		return
 	}
 	data := PageData{Event: result, View: identifier, Tab: "event"}
+	data.Title = "Event " + shortID(identifier) + " | " + a.backend.Slug()
 	if address {
 		data.Feed = browseRows(result)
 	}
@@ -535,11 +536,30 @@ func (a *App) browse(writer http.ResponseWriter, request *http.Request) {
 		pageQuery.Set("view", "tree")
 	}
 	data := PageData{Tab: browseTab(path), Feed: browseRows(result), Event: result, Query: pageQuery}
+	data.Title = browseTitle(path, pageQuery, result, a.backend.Slug())
 	if method == "browserepo" && pageQuery.Get("view") == "home" {
 		data.Readme = a.readme(request.Context(), actor, pageQuery)
 	}
 	data.Tree = tree
 	a.render(writer, request, data)
+}
+
+func browseTitle(path string, query url.Values, result any, slug string) string {
+	label := map[string]string{"/repos": "Repositories", "/files": "Files", "/file": "File"}[path]
+	if path == "/repo" {
+		label = query.Get("repo")
+		if label == "" {
+			label = plainString(valueMap(result)["identifier"])
+		}
+		if label == "" {
+			label = "Repository"
+		}
+		label += " | " + repoView(query)
+	}
+	if label == "" {
+		label = "Browse"
+	}
+	return label + " | " + slug
 }
 
 // readme renders README.md from the requested ref for the repository entry
