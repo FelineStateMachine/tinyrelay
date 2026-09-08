@@ -1893,7 +1893,10 @@ func (g *GitRelay) cgi(req *http.Request, w http.ResponseWriter, r Repository, s
 	pathInfo := prefix + "/" + r.Owner + "/" + r.Identifier + ".git" + suffix
 	ctx, cancel := context.WithCancel(req.Context())
 	defer cancel()
-	cmd := exec.CommandContext(ctx, "git", "http-backend")
+	// Browser clients such as gitworkshop.dev fetch one commit at a time with
+	// a filter, and refuse servers that do not advertise filter and
+	// sha1-in-want. The -c settings reach upload-pack through the environment.
+	cmd := exec.CommandContext(ctx, "git", "-c", "uploadpack.allowFilter=true", "-c", "uploadpack.allowAnySHA1InWant=true", "http-backend")
 	cmd.Dir = g.root
 	cmd.WaitDelay = 5 * time.Second
 	stdin, contentLength, cleanup, err := cgiInput(req)

@@ -710,8 +710,15 @@ func TestSmartHTTPServesBareRepository(t *testing.T) {
 	if res.Code != http.StatusOK {
 		t.Fatalf("smart HTTP status = %d: %s", res.Code, res.Body.String())
 	}
-	if body, _ := io.ReadAll(res.Result().Body); len(body) == 0 {
+	body, _ := io.ReadAll(res.Result().Body)
+	if len(body) == 0 {
 		t.Fatal("smart HTTP returned an empty advertisement")
+	}
+	// gitworkshop.dev and other browser clients require these capabilities.
+	for _, capability := range []string{" filter", " allow-tip-sha1-in-want", " allow-reachable-sha1-in-want", " object-format=sha1"} {
+		if !strings.Contains(string(body), capability) {
+			t.Errorf("advertisement lacks %q: %s", strings.TrimSpace(capability), body)
+		}
 	}
 }
 
