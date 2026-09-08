@@ -13,12 +13,19 @@
     pubkey: storagePrefix + ".identity",
     remote: storagePrefix + ".remote"
   };
-  const status = document.getElementById("signer-status") || document.getElementById("session-status");
-  const say = text => { if (status) status.textContent = text; };
+  const say = text => {
+    const status = document.getElementById("signer-status") || document.getElementById("session-status");
+    if (status) status.textContent = text;
+  };
+  const errorText = err => err instanceof Error ? err.message : String(err);
   const hex = bytes => Array.from(bytes, b => b.toString(16).padStart(2, "0")).join("");
   const sha256hex = async bytes => hex(new Uint8Array(await crypto.subtle.digest("SHA-256", bytes)));
   const randomHex = () => { const b = new Uint8Array(32); crypto.getRandomValues(b); return hex(b); };
   const toBytes = body => body instanceof ArrayBuffer ? new Uint8Array(body) : body instanceof Uint8Array ? body : new TextEncoder().encode(body || "");
+  const validRelay = value => {
+    try { const parsed = new URL(value); return (parsed.protocol === "ws:" || parsed.protocol === "wss:") && parsed.hostname !== ""; } catch { return false; }
+  };
+  const validBunker = pointer => pointer && /^[0-9a-f]{64}$/i.test(pointer.pubkey || "") && Array.isArray(pointer.relays) && pointer.relays.length > 0 && pointer.relays.every(validRelay);
 
   // authorization builds a NIP-98 header for one request body. The body is
   // hashed exactly once and the same bytes must be sent.
@@ -52,31 +59,48 @@
 
   // Shell: theme toggle, the phone menu, and the installable app worker.
   const root_ = document.documentElement;
-  const themeButton = document.getElementById("theme");
   const currentTheme = () => root_.dataset.theme || (matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
   const savedTheme = localStorage.getItem("tiny.theme");
   if (savedTheme) root_.dataset.theme = savedTheme;
   // The installed app's title bar follows the theme-color meta, so keep it
   // in step with the rail colour of whichever theme is active.
-  const themeMeta = document.querySelector('meta[name="theme-color"]');
   const paintChrome = () => {
     const rail = getComputedStyle(root_).getPropertyValue("--rail").trim();
+    const themeMeta = document.querySelector('meta[name="theme-color"]');
     if (themeMeta && rail) themeMeta.content = rail;
   };
   paintChrome();
   matchMedia("(prefers-color-scheme: dark)").addEventListener("change", paintChrome);
-  if (themeButton) {
-    const label = () => { themeButton.textContent = currentTheme() === "dark" ? "light" : "dark"; };
-    label();
-    themeButton.addEventListener("click", () => {
-      root_.dataset.theme = currentTheme() === "dark" ? "light" : "dark";
-      localStorage.setItem("tiny.theme", root_.dataset.theme);
+  const setMenu = open => {
+    const menu = document.getElementById("nav-menu");
+    if (menu) menu.open = open;
+  };
+  const shellBindings = new WeakSet();
+  const bindShell = () => {
+    const rail = document.getElementById("rail");
+    const themeButton = document.getElementById("theme");
+    if (rail && !shellBindings.has(rail)) {
+      shellBindings.add(rail);
+      rail.addEventListener("click", event => { if (event.target.closest("a")) setMenu(false); });
+    }
+    if (themeButton && !shellBindings.has(themeButton)) {
+      shellBindings.add(themeButton);
+      const label = () => { themeButton.textContent = currentTheme() === "dark" ? "light" : "dark"; };
       label();
-      paintChrome();
-    });
-  }
-  document.getElementById("menu")?.addEventListener("click", () => { root_.dataset.menu = root_.dataset.menu === "open" ? "" : "open"; });
-  document.getElementById("rail")?.addEventListener("click", event => { if (event.target.closest("a")) root_.dataset.menu = ""; });
+      themeButton.addEventListener("click", () => {
+        root_.dataset.theme = currentTheme() === "dark" ? "light" : "dark";
+        localStorage.setItem("tiny.theme", root_.dataset.theme);
+        label();
+        paintChrome();
+      });
+    }
+  };
+  bindShell();
+  document.addEventListener("keydown", event => {
+    if (event.key !== "Escape" || !document.getElementById("nav-menu")?.open) return;
+    setMenu(false);
+    document.getElementById("menu")?.focus();
+  });
   if ("serviceWorker" in navigator) navigator.serviceWorker.register(localPath("/sw.js")).catch(() => {});
   window.tiny = {root, localPath, sha256hex, authorization, signedFetch};
   window.tinySignedFetch = signedFetch;
@@ -108,69 +132,96 @@
     }
   };
 
-  document.getElementById("session-login")?.addEventListener("click", async () => {
-    try { await signIn(); } catch (err) { say("Sign-in error: " + err.message); }
-  });
+  // Fixi can morph the content column without reloading this script. Bind
+  // controls by element identity so navigation can safely discover new ones.
+  const boundControls = new WeakSet();
+  const bindControl = (id, event, handler) => {
+    const element = document.getElementById(id);
+    if (!element || boundControls.has(element)) return;
+    boundControls.add(element);
+    element.addEventListener(event, handler);
+  };
+  const busy = new WeakSet();
+  const once = (element, action) => {
+    if (busy.has(element)) return;
+    busy.add(element);
+    const button = element.matches?.("button, input[type=submit]") ? element : element.querySelector?.("button, input[type=submit]");
+    if (button) button.disabled = true;
+    return Promise.resolve().then(action).finally(() => { busy.delete(element); if (button) button.disabled = false; });
+  };
 
-  document.getElementById("session-logout")?.addEventListener("click", async () => {
-    try {
-      say("Signing out…");
-      const response = await fetch(localPath("/session/logout"), {method: "POST", credentials: "same-origin"});
-      if (!response.ok) throw Error(await response.text());
-      forgetRemote();
-      say("Signed out.");
-      location.reload();
-    } catch (err) {
-      say("Sign-out error: " + err.message);
-    }
-  });
+  const bindControls = () => {
+    bindControl("session-login", "click", event => once(event.currentTarget, async () => {
+      try { await signIn(); } catch (err) { say("Sign-in error: " + errorText(err)); }
+    }));
 
-  // Nostr Connect: show a QR code and wait for a phone signer such as Amber.
-  document.getElementById("nostrconnect")?.addEventListener("click", async ev => {
-    ev.preventDefault();
-    const key = window.NostrSigner.generateSecretKey();
-    const uri = window.NostrSigner.createNostrConnectURI({
-      clientPubkey: window.NostrSigner.getPublicKey(key),
-      relays: [location.origin.replace(/^http/,"ws")+root],
-      secret: randomHex(),
-      name: "tiny",
-      url: location.origin,
-      perms: ["sign_event:27235"]
+    bindControl("session-logout", "click", event => once(event.currentTarget, async () => {
+      try {
+        say("Signing out…");
+        const response = await fetch(localPath("/session/logout"), {method: "POST", credentials: "same-origin"});
+        if (!response.ok) throw Error(await response.text());
+        forgetRemote();
+        say("Signed out.");
+        location.reload();
+      } catch (err) {
+        say("Sign-out error: " + errorText(err));
+      }
+    }));
+
+    // Nostr Connect: show a QR code and wait for a phone signer such as Amber.
+    bindControl("nostrconnect", "click", event => {
+      event.preventDefault();
+      return once(event.currentTarget, async () => {
+        try {
+          const key = window.NostrSigner.generateSecretKey();
+          const uri = window.NostrSigner.createNostrConnectURI({
+            clientPubkey: window.NostrSigner.getPublicKey(key),
+            relays: [location.origin.replace(/^http/,"ws")+root],
+            secret: randomHex(),
+            name: "tiny",
+            url: location.origin,
+            perms: ["sign_event:27235"]
+          });
+          const open = document.getElementById("nostrconnect-open");
+          if (open) { open.href = uri; open.hidden = false; }
+          const qr = document.getElementById("signer-qr");
+          if (qr) { qr.src = root + "/qr.svg?text=" + encodeURIComponent(uri); qr.hidden = false; }
+          navigator.clipboard?.writeText(uri).catch(() => {});
+          say("Scan the QR code or open the link in your signer.");
+          window.tinyConnect = {key, uri};
+          const signer = await window.NostrSigner.BunkerSigner.fromURI(key, uri);
+          setSigner(signer);
+          await rememberRemote(uri, key, signer);
+          await signIn();
+        } catch (err) {
+          say("Nostr Connect error: " + errorText(err));
+        }
+      });
     });
-    const open = document.getElementById("nostrconnect-open");
-    if (open) { open.href = uri; open.hidden = false; }
-    const qr = document.getElementById("signer-qr");
-    if (qr) { qr.src = root + "/qr.svg?text=" + encodeURIComponent(uri); qr.hidden = false; }
-    navigator.clipboard?.writeText(uri).catch(() => {});
-    say("Scan the QR code or open the link in your signer.");
-    window.tinyConnect = {key, uri};
-    try {
-      const signer = await window.NostrSigner.BunkerSigner.fromURI(key, uri);
-      setSigner(signer);
-      await rememberRemote(uri, key, signer);
-      await signIn();
-    } catch (err) {
-      say("Nostr Connect error: " + err.message);
-    }
-  });
 
-  // Bunker URL: connect to a remote signer the user pastes in.
-  document.getElementById("bunker")?.addEventListener("submit", async ev => {
-    ev.preventDefault();
-    const value = document.getElementById("bunker-url").value.trim();
-    if (!value) return;
-    try {
-      const secret = window.NostrSigner.generateSecretKey();
-      const pointer = await window.NostrSigner.parseBunkerInput(value);
-      const signer = window.NostrSigner.BunkerSigner.fromBunker(secret, pointer);
-      await signer.connect();
-      setSigner(signer);
-      await rememberRemote(value, secret, signer);
-      await signIn();
-    } catch (err) {
-      say("Remote signer error: " + err.message);
-    }
-  });
+    // Bunker URL: connect to a remote signer the user pastes in.
+    bindControl("bunker", "submit", event => {
+      event.preventDefault();
+      return once(event.currentTarget, async () => {
+        const value = document.getElementById("bunker-url")?.value.trim();
+        if (!value) return;
+        try {
+          const secret = window.NostrSigner.generateSecretKey();
+          const pointer = await window.NostrSigner.parseBunkerInput(value);
+          if (!validBunker(pointer)) throw Error("Enter a valid bunker URL with at least one relay.");
+          const signer = window.NostrSigner.BunkerSigner.fromBunker(secret, pointer);
+          await signer.connect();
+          setSigner(signer);
+          await rememberRemote(value, secret, signer);
+          await signIn();
+        } catch (err) {
+          say("Remote signer error: " + errorText(err));
+        }
+      });
+    });
+  };
+  bindControls();
+  document.addEventListener("tiny:navigation", () => { bindShell(); bindControls(); });
 
   // Resume a remote signer stored for this tab so page loads keep working.
   (async () => {
@@ -189,7 +240,7 @@
       setSigner(signer);
     } catch (err) {
       forgetRemote();
-      say("Remote signer resume error: " + err.message);
+      say("Remote signer resume error: " + errorText(err));
     }
   })();
 })();

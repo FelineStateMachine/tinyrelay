@@ -43,12 +43,15 @@
       this.append(form, this.output);
       form.addEventListener("submit", async event => {
         event.preventDefault();
+        if (this.submitting) return;
+        this.submitting = true;
         this.busy(true);
         try {
           await this.submit(form);
         } catch (err) {
           this.report("Error: " + err.message, true);
         } finally {
+          this.submitting = false;
           this.busy(false);
         }
       });
@@ -298,4 +301,158 @@
   customElements.define("publish-list", PublishList);
   customElements.define("nostr-key", NostrKey);
   customElements.define("json-view", JsonView);
+
+  // Fixi normally swaps a small target. Internal page links return the full
+  // shell, so use one shared swap that keeps the shell's live nodes and makes
+  // navigation behave like a normal document request. The links retain their
+  // hrefs, which is the no-JavaScript fallback and keeps them bookmarkable.
+  (() => {
+    document.documentElement.setAttribute("data-js", "yes");
+    const navTargets = ["#topbar", "#railbox", "#content", "#panel", "#footer"];
+    const status = () => document.querySelector("#navigation-status");
+    const sameDocument = href => {
+      let url;
+      try { url = new URL(href, location.href); } catch { return false; }
+      if (url.origin !== location.origin || url.hash || url.protocol !== location.protocol) return false;
+      if (!allowedRoute(routePath(url))) return false;
+      return !/\.(?:json|xml|rss|atom|txt|svg|ico|webmanifest|js|css|png|jpg|jpeg|gif|webp|zip|tar)$/i.test(url.pathname);
+    };
+    const setBusy = busy => {
+      document.querySelector("#content")?.setAttribute("aria-busy", busy ? "true" : "false");
+      const node = status();
+      if (node && (busy || node.textContent === "loading")) node.textContent = busy ? "loading" : "";
+    };
+    const routePath = url => {
+      const root = (location.pathname.match(/^\/r\/[^/]+/) || [""])[0];
+      if (root && !(url.pathname === root || url.pathname.startsWith(root + "/"))) return null;
+      return root ? url.pathname.slice(root.length) || "/" : url.pathname;
+    };
+    const allowedRoute = path => /^(?:\/(?:inbox|outbox|search|articles|private|chat|media|sites|marmot|grasp|terms|signin|connect|tools|repo|repos|file|files)?\/?|\/manage(?:\/(?:people|moderation|rules|identity|connect|data|sync|views|health|owner|status))?\/?|\/(?:invite|e|a)\/.+)$/.test(path || "");
+    let navigationSerial = 0, activeAbort;
+    const streams = new Set();
+    const closeStreams = () => {
+      streams.forEach(cfg => cfg.sse.close());
+      streams.clear();
+    };
+    document.addEventListener("fx:sse:open", event => {
+      const cfg = event.detail.cfg;
+      if (!cfg.target.isConnected) { cfg.sse.close(); event.preventDefault(); return; }
+      streams.add(cfg);
+    });
+    document.addEventListener("fx:sse:close", event => streams.delete(event.detail.cfg));
+    window.addEventListener("pagehide", closeStreams);
+    const repairComponents = () => {
+      document.querySelectorAll("rpc-form,signed-form,publish-list").forEach(node => {
+        if (node.form?.isConnected) return;
+        node.form = null;
+        node.output = null;
+        node.connectedCallback();
+        if (node.result && !node.result.isConnected) node.result = null;
+      });
+      document.querySelectorAll("json-view").forEach(node => {
+        if (!node.rendered || !node.querySelector(":scope > pre")) return;
+        node.rendered = false;
+        node.connectedCallback();
+      });
+    };
+    const swapShell = (text, url, push) => {
+      if (url.__tinyNavigationSerial && url.__tinyNavigationSerial !== navigationSerial) return false;
+      const parsed = new DOMParser().parseFromString(text, "text/html");
+      const incoming = new Map(navTargets.map(selector => [selector, parsed.querySelector(selector)]));
+      if ([...incoming.values()].some(node => !node)) return false;
+      const focusID = document.activeElement?.id;
+      closeStreams();
+      navTargets.forEach(selector => morph(document.querySelector(selector), incoming.get(selector).outerHTML));
+      repairComponents();
+      document.title = parsed.title || document.title;
+      if (push) history.pushState({}, "", url.href);
+      const focus = focusID && document.getElementById(focusID);
+      if (focus && typeof focus.focus === "function") focus.focus({preventScroll: true});
+      else document.querySelector("#content")?.focus({preventScroll: true});
+      document.dispatchEvent(new CustomEvent("tiny:navigation", {detail: {url: url.href}}));
+      decorate();
+      decorateForms();
+      document.dispatchEvent(new CustomEvent("fx:process", {detail: {url: url.href}, bubbles: false}));
+      return true;
+    };
+    const load = async (url, push) => {
+      const serial = ++navigationSerial, controller = new AbortController();
+      activeAbort?.();
+      activeAbort = () => controller.abort();
+      url.__tinyNavigationSerial = serial;
+      setBusy(true);
+      try {
+        const response = await fetch(url.href, {headers: {"FX-Request": "true", Accept: "text/html"}, credentials: "same-origin", signal: controller.signal});
+        if (!response.ok) throw Error("Navigation failed (" + response.status + ")");
+        if (!swapShell(await response.text(), url, push)) throw Error("Page response did not contain the UI shell");
+      } catch (error) {
+        const node = status();
+        if (serial === navigationSerial && node) node.textContent = "Unable to load page: " + error.message;
+        throw error;
+      } finally { if (serial === navigationSerial) setBusy(false); }
+    };
+    document.addEventListener("fx:config", event => {
+      const cfg = event.detail.cfg, elt = cfg.trigger?.target?.closest?.("a[data-fixi-nav], form[data-fixi-nav]");
+      if (!elt?.matches?.("a[data-fixi-nav], form[data-fixi-nav]")) return;
+      if ((cfg.trigger.type === "click" && cfg.trigger.button !== 0) || cfg.trigger.metaKey || cfg.trigger.ctrlKey || cfg.trigger.shiftKey || cfg.trigger.altKey) { cfg.drop = 1; cfg.preventTrigger = false; return; }
+      const serial = ++navigationSerial;
+      activeAbort?.();
+      activeAbort = cfg.abort;
+      cfg.__tinyNavigationSerial = serial;
+      cfg.target = document.querySelector("#content");
+      cfg.transition = false;
+      cfg.swap = async current => {
+        if (serial !== navigationSerial) return;
+        const url = new URL(cfg.action, location.href);
+        url.__tinyNavigationSerial = serial;
+        if (!cfg.response.ok || !swapShell(cfg.text, url, true)) {
+          const node = status();
+          if (node) node.textContent = "Unable to load page";
+        }
+      };
+    });
+    document.addEventListener("fx:before", event => {
+      if (event.detail.cfg.trigger?.target?.closest?.("a[data-fixi-nav], form[data-fixi-nav]")) setBusy(true);
+    });
+    document.addEventListener("fx:finally", event => {
+      if (event.detail.cfg.__tinyNavigationSerial === navigationSerial) setBusy(false);
+    });
+    document.addEventListener("fx:after", event => {
+      const cfg = event.detail.cfg;
+      if (cfg.__tinyNavigationSerial || cfg.response.ok) return;
+      event.preventDefault();
+      const node = status();
+      if (node) node.textContent = cfg.response.status === 401 ? "Sign in again to load this preview." : "Unable to load preview (" + cfg.response.status + ").";
+    });
+    document.addEventListener("fx:error", event => {
+      const cfg = event.detail.cfg;
+      if (cfg.__tinyNavigationSerial && cfg.__tinyNavigationSerial !== navigationSerial) return;
+      const node = status();
+      if (node) node.textContent = "Unable to load page: " + event.detail.error;
+    });
+    const decorate = () => document.querySelectorAll("a[href]").forEach(link => {
+      if (link.hasAttribute("fx-action") || link.closest("[fx-ignore]") || link.target || link.hasAttribute("download") || !sameDocument(link.href)) return;
+      link.setAttribute("data-fixi-nav", "");
+      link.setAttribute("fx-action", link.href);
+      link.setAttribute("fx-method", "get");
+      link.setAttribute("fx-trigger", "click");
+    });
+    const decorateForms = () => document.querySelectorAll("form[method=get][action]").forEach(form => {
+      if (form.hasAttribute("fx-action") || !sameDocument(form.action)) return;
+      form.setAttribute("data-fixi-nav", "");
+      form.setAttribute("fx-action", form.action);
+      form.setAttribute("fx-method", "get");
+      form.setAttribute("fx-trigger", "submit");
+    });
+    const prepare = () => {
+      decorate();
+      decorateForms();
+      // Fixi's DOMContentLoaded handler runs before this footer script. Ask
+      // it to initialize the attributes added after the initial scan.
+      document.dispatchEvent(new CustomEvent("fx:process"));
+    };
+    if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", prepare, {once: true});
+    else prepare();
+    window.addEventListener("popstate", () => load(new URL(location.href), false).catch(() => {}));
+  })();
 })();

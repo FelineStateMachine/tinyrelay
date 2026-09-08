@@ -9,6 +9,8 @@ import (
 	"strings"
 	"testing"
 
+	"golang.org/x/net/html"
+
 	"github.com/FelineStateMachine/tinyrelay/internal/policy"
 )
 
@@ -48,6 +50,123 @@ func TestShellRendersRailPanelAndPrompt(t *testing.T) {
 			t.Errorf("%s carries a class attribute", path)
 		}
 	}
+}
+
+func TestShellNavigationIsProgressiveAndAccessible(t *testing.T) {
+	backend := &fakeBackend{policy: policy.Defaults(strings.Repeat("a", 64))}
+	app, err := New(backend, Options{Actor: func(*http.Request) (string, error) { return backend.policy.Owner, nil }})
+	if err != nil {
+		t.Fatal(err)
+	}
+	recorder := httptest.NewRecorder()
+	app.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/", nil))
+	body := recorder.Body.String()
+	for _, want := range []string{
+		`data-js="no"`, `id="content" tabindex="-1"`,
+		`id="navigation-status" role="status" aria-live="polite"`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("shell missing progressive navigation marker %q", want)
+		}
+	}
+	assertSharedNativeMenu(t, body, "/")
+
+	// The menu is part of the shell, so each viewer and rail context retains
+	// one native control and one shared navigation container.
+	for _, path := range []string{"/search", "/articles", "/files", "/repo?owner=alice&repo=notes&view=history", "/e/" + strings.Repeat("1", 64), "/manage/rules"} {
+		recorder := httptest.NewRecorder()
+		app.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, path, nil))
+		if recorder.Code != http.StatusOK {
+			t.Fatalf("%s: status=%d", path, recorder.Code)
+		}
+		assertSharedNativeMenu(t, recorder.Body.String(), path)
+	}
+
+	privatePolicy := policy.Defaults(strings.Repeat("b", 64))
+	privatePolicy.Reads = "members"
+	private := &privateFakeBackend{fakeBackend: &fakeBackend{policy: privatePolicy}, allowed: map[string]bool{}}
+	privateApp, err := New(private, Options{Actor: func(*http.Request) (string, error) { return "", nil }})
+	if err != nil {
+		t.Fatal(err)
+	}
+	recorder = httptest.NewRecorder()
+	privateApp.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/manage/identity", nil))
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("private shell: status=%d", recorder.Code)
+	}
+	assertSharedNativeMenu(t, recorder.Body.String(), "private")
+}
+
+func assertSharedNativeMenu(t *testing.T, body, path string) {
+	t.Helper()
+	doc, err := html.Parse(strings.NewReader(body))
+	if err != nil {
+		t.Fatalf("%s: parse shell: %v", path, err)
+	}
+	var details, summary, rail *html.Node
+	detailsCount, summaryCount, railCount := 0, 0, 0
+	var walk func(*html.Node)
+	walk = func(node *html.Node) {
+		if node.Type == html.ElementNode {
+			switch node.Data {
+			case "details":
+				if attr(node, "id") != "nav-menu" {
+					break
+				}
+				detailsCount++
+				if details == nil {
+					details = node
+				}
+			case "summary":
+				if attr(node, "id") != "menu" {
+					break
+				}
+				summaryCount++
+				if summary == nil {
+					summary = node
+				}
+			case "td":
+				if attr(node, "id") == "rail" {
+					railCount++
+					rail = node
+				}
+			}
+		}
+		for child := node.FirstChild; child != nil; child = child.NextSibling {
+			walk(child)
+		}
+	}
+	walk(doc)
+	if detailsCount != 1 || summaryCount != 1 || railCount != 1 {
+		t.Fatalf("%s: expected one details, summary and rail; got %d, %d, %d", path, detailsCount, summaryCount, railCount)
+	}
+	if hasAttr(details, "open") {
+		t.Errorf("%s: menu details must be nav-menu without open", path)
+	}
+	if summary.Parent != details || attr(summary, "id") != "menu" || attr(summary, "aria-controls") != "rail" {
+		t.Errorf("%s: summary must be the menu details child controlling rail", path)
+	}
+	if attr(rail, "id") != "rail" {
+		t.Errorf("%s: menu target must be the rail", path)
+	}
+}
+
+func attr(node *html.Node, name string) string {
+	for _, attribute := range node.Attr {
+		if attribute.Key == name {
+			return attribute.Val
+		}
+	}
+	return ""
+}
+
+func hasAttr(node *html.Node, name string) bool {
+	for _, attribute := range node.Attr {
+		if attribute.Key == name {
+			return true
+		}
+	}
+	return false
 }
 
 func TestRepositoryHomeRendersReadmeAsMarkdown(t *testing.T) {
