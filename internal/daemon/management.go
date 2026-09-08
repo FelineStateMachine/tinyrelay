@@ -110,7 +110,7 @@ func managementAdapterMethod(method string) bool {
 // are intentionally separate from the NIP-86 management methods so a public
 // page cannot accidentally gain access to privileged search or export APIs.
 func PublicMethods() []string {
-	return []string{"queryevents", "eventdetail", "feed", "listview", "claiminvite"}
+	return []string{"queryevents", "eventdetail", "feed", "listview", "claiminvite", "connections"}
 }
 
 func publicManagementMethod(method string) bool {
@@ -151,6 +151,9 @@ func roleName(role string) string {
 }
 
 func (t *Tenant) executePublicManagement(ctx context.Context, actor, method string, params []json.RawMessage) (any, bool, error) {
+	if method == "connections" {
+		return t.visibleConnections(ctx, actor)
+	}
 	if method == "claiminvite" {
 		if strings.TrimSpace(actor) == "" {
 			return nil, true, errors.New("auth-required: claiminvite")
@@ -485,6 +488,57 @@ func featureEnabled(p policy.Policy, name string) bool {
 	default:
 		return false
 	}
+}
+
+// visibleConnections lists configured connections the viewer may see, each
+// merged with its template so pages can render titles, links and QR codes.
+// Visibility "public" shows to everyone, "members" or "auth" to members,
+// moderators and the owner, and "owner" to the owner alone. Connections
+// whose feature is off are left out.
+func (t *Tenant) visibleConnections(ctx context.Context, actor string) (any, bool, error) {
+	rows, _, err := t.connections(ctx)
+	if err != nil {
+		return nil, true, err
+	}
+	role := ""
+	if strings.TrimSpace(actor) != "" {
+		if role, err = t.community.Role(ctx, actor); err != nil {
+			return nil, true, err
+		}
+	}
+	catalog := map[string]templates.Connection{}
+	for _, c := range templates.Connections() {
+		catalog[c.Name] = c
+	}
+	p := t.Policy()
+	result := make([]map[string]any, 0)
+	for _, row := range rows.([]map[string]any) {
+		name, _ := row["template"].(string)
+		if name == "" {
+			name, _ = row["name"].(string)
+		}
+		c, ok := catalog[name]
+		if !ok || (c.Feature != "" && !featureEnabled(p, c.Feature)) {
+			continue
+		}
+		visibility, _ := row["visibility"].(string)
+		if visibility == "" {
+			visibility = c.Visibility
+		}
+		switch visibility {
+		case "public":
+		case "members", "member", "auth":
+			if role != "member" && role != "moderator" && role != "owner" {
+				continue
+			}
+		default:
+			if role != "owner" {
+				continue
+			}
+		}
+		result = append(result, map[string]any{"template": c.Name, "title": c.Title, "about": c.About, "app": c.App, "where": c.Where, "icon": c.Icon, "feature": c.Feature, "visibility": visibility, "qr": c.QR, "inputs": c.Inputs, "links": c.Links})
+	}
+	return result, true, nil
 }
 
 func (t *Tenant) connections(ctx context.Context) (any, bool, error) {
