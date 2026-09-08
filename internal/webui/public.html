@@ -11,6 +11,13 @@
 </table>
 {{if .Policy.Description}}<h2>About</h2>
 {{markdown .Policy.Description}}
+{{end}}{{if .Connections}}<h2>Connections</h2>
+<table id="rows">
+<thead><tr><th>connection</th><th>relay</th><th>status</th></tr></thead>
+<tbody>
+{{range .Connections}}{{$c := asMap .}}<tr><td>{{or (str (index $c "label")) (str (index $c "title")) (str (index $c "name")) (str (index $c "template"))}}</td><td><code>{{or (str (index $c "url")) (str (index $c "href")) (str (index $c "relay"))}}</code></td><td>{{or (str (index $c "status")) (str (index $c "visibility")) "configured"}}</td></tr>
+{{end}}</tbody>
+</table>
 {{end}}<h2>Recent activity</h2>
 {{if .Error}}{{template "alert" .Error}}{{else}}{{template "eventList" .}}{{end}}
 </section>
@@ -22,6 +29,19 @@
 {{if .Actor}}<p>Signed in as {{template "nostrKey" .Actor}}.</p>
 <p><a href="/manage/people">Manage relay</a> | <a href="/tools">Browser tools</a> | <a href="/inbox">Inbox</a></p>
 <p>Use the sign out control in the footer to end this session.</p>
+<h2>Your relay lists</h2>
+<p>Clients find your relays through these lists. Add this relay to each so they use it. What is already listed stays.</p>
+<relay-lists relay="{{wsURL .URL}}" server="{{.URL}}" pubkey="{{.Actor}}">
+<table id="rows">
+<tbody>
+<tr data-kind="10002" data-tag="r"><td>Relay list <small>NIP-65</small></td><td>where clients read your notes and send you mentions</td><td><button type="button" name="check">check</button> <button type="button" name="add">add this relay</button></td></tr>
+<tr data-kind="10050" data-tag="relay"><td>DM inbox <small>NIP-17</small></td><td>where people send you private messages</td><td><button type="button" name="check">check</button> <button type="button" name="add">add this relay</button></td></tr>
+<tr data-kind="10007" data-tag="relay"><td>Search relays <small>NIP-51</small></td><td>where clients run your searches</td><td><button type="button" name="check">check</button> <button type="button" name="add">add this relay</button></td></tr>
+<tr data-kind="10063" data-tag="server" data-value="server"><td>Blossom servers <small>BUD-03</small></td><td>where clients upload and look for your files</td><td><button type="button" name="check">check</button> <button type="button" name="add">add this relay</button></td></tr>
+</tbody>
+</table>
+<output role="status"></output>
+</relay-lists>
 {{else}}<p>Use a browser extension, or connect Amber on your phone. The relay never sees a private key.</p>
 {{template "signerControls" .}}
 {{end}}</section>

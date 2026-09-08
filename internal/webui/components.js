@@ -296,7 +296,102 @@
     }
   }
 
+  // RelayLists reads the signed-in key's relay lists from this relay, says
+  // whether this relay is on each, and republishes a list with this relay
+  // added. Lists are replaceable events, so the new one carries every
+  // existing entry plus this relay. Each publish goes to this relay and to
+  // the relays already on the list so other clients find the update.
+  class RelayLists extends HTMLElement {
+    connectedCallback() {
+      if (this.bound) return;
+      this.bound = true;
+      this.output = this.querySelector("output");
+      this.addEventListener("click", event => {
+        const button = event.target.closest("button[name]");
+        const row = button?.closest("tr[data-kind]");
+        if (!button || !row) return;
+        button.disabled = true;
+        const action = button.name === "add" ? this.add(row) : this.check(row);
+        action.catch(err => this.say(row, "error: " + err.message)).finally(() => { button.disabled = false; });
+      });
+    }
+
+    say(row, text) {
+      let note = row.querySelector("output");
+      if (!note) { note = el("output"); row.lastElementChild.append(" ", note); }
+      note.textContent = text;
+    }
+
+    value(row) { return row.dataset.value === "server" ? this.getAttribute("server") : this.getAttribute("relay"); }
+
+    normal(value) { return String(value || "").trim().replace(/\/+$/, "").toLowerCase(); }
+
+    // socket opens one websocket, runs fn with send and a message queue, then closes.
+    socket(url, fn, timeout = 8000) {
+      return new Promise((resolve, reject) => {
+        let ws;
+        try { ws = new WebSocket(url); } catch (err) { reject(err); return; }
+        const timer = setTimeout(() => { ws.close(); reject(Error("timed out talking to " + url)); }, timeout);
+        const done = (value, err) => { clearTimeout(timer); ws.close(); err ? reject(err) : resolve(value); };
+        ws.addEventListener("error", () => done(null, Error("could not reach " + url)));
+        ws.addEventListener("open", () => fn(message => ws.send(JSON.stringify(message)), handler => ws.addEventListener("message", e => handler(JSON.parse(e.data))), done));
+      });
+    }
+
+    current(row) {
+      const kind = Number(row.dataset.kind);
+      return this.socket(this.getAttribute("relay"), (send, onMessage, done) => {
+        let latest = null;
+        onMessage(message => {
+          if (message[0] === "EVENT" && message[2]?.kind === kind && (!latest || message[2].created_at > latest.created_at)) latest = message[2];
+          if (message[0] === "EOSE") done(latest);
+        });
+        send(["REQ", "lists", {kinds: [kind], authors: [this.getAttribute("pubkey")], limit: 1}]);
+      });
+    }
+
+    entries(event, tag) {
+      return (event?.tags || []).filter(t => t[0] === tag).map(t => t[1]);
+    }
+
+    async check(row) {
+      this.say(row, "checking…");
+      const event = await this.current(row);
+      if (!event) { this.say(row, "no list published here yet"); return; }
+      const listed = this.entries(event, row.dataset.tag).some(v => this.normal(v) === this.normal(this.value(row)));
+      this.say(row, listed ? "listed" : "not listed, " + this.entries(event, row.dataset.tag).length + " other entries");
+    }
+
+    async add(row) {
+      if (!window.nostr?.signEvent) throw Error("connect a signer first");
+      this.say(row, "reading…");
+      const existing = await this.current(row);
+      const value = this.value(row);
+      const tags = (existing?.tags || []).filter(t => t.length);
+      if (!this.entries(existing, row.dataset.tag).some(v => this.normal(v) === this.normal(value))) tags.push([row.dataset.tag, value]);
+      const event = await window.nostr.signEvent({kind: Number(row.dataset.kind), created_at: Math.floor(Date.now() / 1000), content: existing?.content || "", tags});
+      const targets = [this.getAttribute("relay")];
+      for (const t of tags) if ((t[0] === "r" || t[0] === "relay") && /^wss?:\/\//i.test(t[1]) && !targets.includes(t[1])) targets.push(t[1]);
+      let accepted = 0;
+      const failures = [];
+      for (const url of targets) {
+        try {
+          await this.socket(url, (send, onMessage, done) => {
+            onMessage(message => { if (message[0] === "OK" && message[1] === event.id) message[2] ? done(true) : done(null, Error(message[3] || "rejected")); });
+            send(["EVENT", event]);
+          }, 6000);
+          accepted++;
+        } catch (err) {
+          failures.push(url.replace(/^wss?:\/\//, ""));
+        }
+      }
+      if (!accepted) throw Error("no relay accepted the list: " + failures.join(", "));
+      this.say(row, "listed, published to " + accepted + " of " + targets.length + " relays" + (failures.length ? " (failed: " + failures.join(", ") + ")" : ""));
+    }
+  }
+
   customElements.define("rpc-form", RpcForm);
+  customElements.define("relay-lists", RelayLists);
   customElements.define("signed-form", SignedForm);
   customElements.define("publish-list", PublishList);
   customElements.define("nostr-key", NostrKey);

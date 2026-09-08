@@ -110,6 +110,8 @@ rpc-form output,signed-form output,publish-list output{display:block;font:12px v
 rpc-form output[data-error]{color:var(--alert)}
 #content>section>h3{border-bottom:0;margin-top:22px;font-size:15px}
 
+relay-lists{display:block}relay-lists #rows td{height:auto;padding:8px 10px;white-space:normal;vertical-align:middle}relay-lists #rows td:last-child{width:230px;text-align:left;color:var(--ink);white-space:nowrap}relay-lists #rows td:first-child{width:170px;color:var(--ink);font-family:var(--sans)}relay-lists output{display:block;font:12px var(--mono);color:var(--muted);white-space:normal}relay-lists button{font-size:12px}
+
 /* json-view: structured rendering of any JSON payload. */
 json-view{display:block;font:12px var(--mono)}
 json-view>details>summary{cursor:pointer;color:var(--muted)}

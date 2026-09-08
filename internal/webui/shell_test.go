@@ -308,3 +308,43 @@ func TestGuestsSeeSignInInsteadOfManagementPages(t *testing.T) {
 		}
 	}
 }
+
+type connectionsBackend struct{ fakeBackend }
+
+func (b *connectionsBackend) Query(_ context.Context, method string, _ []json.RawMessage, _ string) (any, error) {
+	if method == "listconnections" {
+		return []any{map[string]any{"label": "Upstream", "url": "wss://upstream.example", "status": "syncing"}}, nil
+	}
+	return nil, nil
+}
+
+func TestAccountPageOffersRelayListsAndHomeShowsConnections(t *testing.T) {
+	backend := &connectionsBackend{fakeBackend{policy: policy.Defaults(strings.Repeat("a", 64))}}
+	app, err := New(backend, Options{Actor: func(*http.Request) (string, error) { return backend.policy.Owner, nil }})
+	if err != nil {
+		t.Fatal(err)
+	}
+	recorder := httptest.NewRecorder()
+	app.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/signin", nil))
+	body := recorder.Body.String()
+	for _, want := range []string{`<relay-lists relay="ws://relay.example" server="http://relay.example" pubkey="` + backend.policy.Owner + `">`, `data-kind="10002" data-tag="r"`, `data-kind="10050"`, `data-kind="10007"`, `data-kind="10063" data-tag="server"`, `customElements.define("relay-lists"`} {
+		if !strings.Contains(body, want) {
+			t.Errorf("account page missing %q", want)
+		}
+	}
+	recorder = httptest.NewRecorder()
+	app.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/", nil))
+	body = recorder.Body.String()
+	if !strings.Contains(body, "<h2>Connections</h2>") || !strings.Contains(body, "wss://upstream.example") || !strings.Contains(body, "syncing") {
+		t.Fatalf("home page did not show configured connections: %s", body[:min(400, len(body))])
+	}
+	guest, err := New(backend, Options{Actor: func(*http.Request) (string, error) { return "", nil }})
+	if err != nil {
+		t.Fatal(err)
+	}
+	recorder = httptest.NewRecorder()
+	guest.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/", nil))
+	if strings.Contains(recorder.Body.String(), "<h2>Connections</h2>") {
+		t.Fatal("guests must not see configured connections")
+	}
+}

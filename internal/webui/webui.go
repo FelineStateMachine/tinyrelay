@@ -79,6 +79,9 @@ type PageData struct {
 	Path     string
 	Readme   template.HTML
 	Tree     []any
+	// Connections lists the relay's configured connections for signed-in
+	// owners and moderators; it stays nil for everyone else.
+	Connections []any
 }
 
 func New(backend Backend, options Options) (*App, error) {
@@ -767,6 +770,11 @@ func (a *App) page(writer http.ResponseWriter, request *http.Request) {
 			data.Feed = a.siteRows(feed)
 		} else {
 			data.Feed = feed
+		}
+	}
+	if tab == "home" && actor != "" {
+		if result, err := a.backend.Query(request.Context(), "listconnections", nil, actor); err == nil {
+			data.Connections = browseRows(result)
 		}
 	}
 	if tab != "" {

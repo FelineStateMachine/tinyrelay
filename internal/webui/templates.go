@@ -82,6 +82,17 @@ func promptPath(path string, query url.Values) string {
 	return path
 }
 
+// wsURL turns the relay's public http(s) URL into its websocket form.
+func wsURL(base string) string {
+	switch {
+	case strings.HasPrefix(base, "https://"):
+		return "wss://" + strings.TrimPrefix(base, "https://")
+	case strings.HasPrefix(base, "http://"):
+		return "ws://" + strings.TrimPrefix(base, "http://")
+	}
+	return base
+}
+
 // short renders a Unix timestamp as a compact UTC stamp for list rows.
 func short(value any) string {
 	seconds := unixSeconds(value)
@@ -125,6 +136,7 @@ func parseTemplates() (*template.Template, error) {
 		"markdown":        renderMarkdown,
 		"hasPrefix":       strings.HasPrefix,
 		"npub":            identityNpub,
+		"wsURL":           wsURL,
 		"short":           short,
 		"prompt":          promptPath,
 		"railKind":        railKind,
