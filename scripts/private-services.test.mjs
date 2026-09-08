@@ -18,8 +18,9 @@ const sandbox = {
   NostrSigner: {verifyEvent: () => true}
 };
 sandbox.window = sandbox;
+ sandbox.tiny = {files: {}};
 vm.runInNewContext(source, sandbox);
-const api = sandbox.PrivateServices;
+const api = sandbox.tiny.files.privateServices;
 
 test("accepts tenant paths while rejecting unsafe relay URLs", () => {
   assert.equal(api.validURL("wss://Relay.Example/r/Private"), true);

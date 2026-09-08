@@ -56,6 +56,7 @@
 <td id="aside"><div id="panel">{{template "panel" .}}</div></td>
 </tr></tbody></table>
 <footer id="footer"><table><tr><td><span id="prompt"><b>{{.Slug}}</b> &raquo; {{prompt .Path .Query}}</span></td><td><span id="who">{{if .Private}}private relay{{else if .Actor}}signed in as {{template "nostrKey" .Actor}} (<button id="session-logout" type="button">sign out</button>){{else}}browsing as guest (<a href="/signin">Sign in</a>){{end}}</span> <span id="session-status" role="status"></span><span id="navigation-status" role="status" aria-live="polite"></span><button id="theme" type="button" aria-label="Switch theme">theme</button></td></tr></table></footer>
+<script>{{script "tiny.js"}}</script>
 <script>{{script "bridge.js"}}</script>
 <script>{{script "blossom-encryption.js"}}</script>
 <script>{{script "blossom-manifests.js"}}</script>

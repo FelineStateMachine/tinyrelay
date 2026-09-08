@@ -50,13 +50,14 @@ const parse = (html, parent) => {
 const load = (workspace = false) => {
   const document = new Node("document"); document.documentElement = new Node("html"); document.body = new Node("body"); document.createElement = name => name === "form" ? new Form() : new Node(name); document.addEventListener = () => {}; document.dispatchEvent = () => {};
   const customElements = {registry: {}, define(name, ctor) { this.registry[name] = ctor; }};
-  const window = {document, customElements, tiny: {}, location: {href: "https://relay.test/files", origin: "https://relay.test", pathname: "/files", hash: ""}, addEventListener: () => {}, matchMedia: () => ({matches: false, addEventListener: () => {}})};
+  const window = {document, customElements, tiny: {blossom: {}, files: {}}, location: {href: "https://relay.test/files", origin: "https://relay.test", pathname: "/files", hash: ""}, addEventListener: () => {}, matchMedia: () => ({matches: false, addEventListener: () => {}})};
   class HTMLElement extends Node {}
   Object.assign(globalThis, {window, document, customElements, HTMLElement, location: window.location, Blob, URL, CustomEvent: class {}});
   globalThis.tiny = window.tiny;
   Object.defineProperty(globalThis, "navigator", {configurable: true, value: {clipboard: {writeText: async () => { throw Error("clipboard unavailable"); }}}});
   globalThis.btoa = value => Buffer.from(value, "binary").toString("base64"); globalThis.atob = value => Buffer.from(value, "base64").toString("binary");
-  if (workspace) { vm.runInThisContext(fs.readFileSync("internal/webui/blossom-manifests.js", "utf8")); vm.runInThisContext(fs.readFileSync("internal/webui/blossom-encryption.js", "utf8")); vm.runInThisContext(fs.readFileSync("internal/webui/blossom-upload.js", "utf8")); vm.runInThisContext(fs.readFileSync("internal/webui/file-workspace.js", "utf8")); } else { delete globalThis.TinyBlossomUpload; }
+  vm.runInThisContext(fs.readFileSync("internal/webui/tiny.js", "utf8"));
+  if (workspace) { vm.runInThisContext(fs.readFileSync("internal/webui/blossom-manifests.js", "utf8")); vm.runInThisContext(fs.readFileSync("internal/webui/blossom-encryption.js", "utf8")); vm.runInThisContext(fs.readFileSync("internal/webui/blossom-upload.js", "utf8")); vm.runInThisContext(fs.readFileSync("internal/webui/file-workspace.js", "utf8")); } else { delete globalThis.tiny.blossom.upload; }
   vm.runInThisContext(fs.readFileSync("internal/webui/components.js", "utf8"));
   return {document, window, FileTools: customElements.registry["file-tools"], FileMirror: customElements.registry["file-mirror"]};
 };
@@ -187,7 +188,7 @@ test("sharing a newly uploaded file uses its current key, hash and ciphertext si
   shareForm.querySelector("input").value = "b".repeat(64);
   globalThis.nostr = {signEvent: async value => value};
   let input;
-  globalThis.TinyFileMessages = {share: async (value, options) => { input = value; assert.equal(options.signer, globalThis.nostr); return {}; }};
+  globalThis.tiny.files.messages = {share: async (value, options) => { input = value; assert.equal(options.signer, globalThis.nostr); return {}; }};
   await element.share(shareForm);
   assert.ok(input, element.output.textContent);
   assert.equal(input.ciphertextHash, await window.tiny.sha256hex(uploaded));
@@ -241,7 +242,7 @@ test("retry keeps the original ciphertext and key after interrupted encrypted up
   window.tiny.localPath = path => path;
   window.tiny.sha256hex = async bytes => Buffer.from(await webcrypto.subtle.digest("SHA-256", bytes)).toString("hex");
   const sent = [];
-  globalThis.TinyBlossomUpload = {upload: async (bytes, options) => {
+  globalThis.tiny.blossom.upload = {upload: async (bytes, options) => {
     assert.equal(options.url, "https://relay.test/");
     sent.push(bytes.slice());
     if (sent.length === 1) throw Error("connection interrupted");

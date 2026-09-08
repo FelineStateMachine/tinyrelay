@@ -5,6 +5,7 @@ import test from "node:test";
 import vm from "node:vm";
 
 const bridge = await readFile(new URL("../internal/webui/bridge.js", import.meta.url), "utf8");
+const shared = await readFile(new URL("../internal/webui/tiny.js", import.meta.url), "utf8");
 
 async function page({signedIn = false, bunkerResult = null} = {}) {
   const elements = new Map();
@@ -15,6 +16,7 @@ async function page({signedIn = false, bunkerResult = null} = {}) {
   const requests = [];
   const signer = {bp: {pubkey: "a".repeat(64), relays: ["wss://tiny.example/r/work"]}, getPublicKey: async () => "a".repeat(64), signEvent: async event => ({...event, pubkey: "a".repeat(64), sig: "test"})};
   const sandbox = {
+    tiny: {},
     document: {getElementById: id => elements.get(id), querySelector: () => null, addEventListener() {}, documentElement: {dataset: {}}},
     crypto: webcrypto, TextEncoder, URL, Uint8Array, ArrayBuffer,
     btoa: value => Buffer.from(value).toString("base64"),
@@ -32,7 +34,7 @@ async function page({signedIn = false, bunkerResult = null} = {}) {
     fetch: async (url, options) => { requests.push({url, options}); return new Response("{}"); }
   };
   sandbox.window = sandbox;
-  vm.runInNewContext(bridge, sandbox);
+  vm.runInNewContext(shared + bridge, sandbox);
   await new Promise(resolve => setTimeout(resolve, 0));
   return {elements, saved, requests, sandbox};
 }

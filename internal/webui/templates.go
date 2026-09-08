@@ -29,6 +29,9 @@ var styleCSS string
 //go:embed bridge.js
 var bridgeJS string
 
+//go:embed tiny.js
+var tinyJS string
+
 //go:embed components.js
 var componentsJS string
 
@@ -128,7 +131,7 @@ func repoView(query url.Values) string {
 }
 
 func parseTemplates() (*template.Template, error) {
-	scripts := map[string]string{"bridge.js": bridgeJS, "components.js": componentsJS, "blossom-encryption.js": blossomEncryptionJS, "blossom-manifests.js": blossomManifestsJS, "blossom-upload.js": blossomUploadJS, "file-messages.js": fileMessagesJS, "private-services.js": privateServicesJS, "file-workspace.js": fileWorkspaceJS}
+	scripts := map[string]string{"bridge.js": bridgeJS, "tiny.js": tinyJS, "components.js": componentsJS, "blossom-encryption.js": blossomEncryptionJS, "blossom-manifests.js": blossomManifestsJS, "blossom-upload.js": blossomUploadJS, "file-messages.js": fileMessagesJS, "private-services.js": privateServicesJS, "file-workspace.js": fileWorkspaceJS}
 	funcs := template.FuncMap{
 		"stylesheet": func() template.CSS { return template.CSS(styleCSS) },
 		"script": func(name string) (template.JS, error) {

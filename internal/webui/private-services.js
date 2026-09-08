@@ -3,21 +3,32 @@
 (() => {
   "use strict";
 
-  const validURL = value => {
+  const validURL = (value) => {
     try {
       const parsed = new URL(String(value).trim());
-      return (parsed.protocol === "ws:" || parsed.protocol === "wss:") &&
-        parsed.hostname !== "" && !parsed.username && !parsed.password &&
-        parsed.search === "" && parsed.hash === "";
-    } catch { return false; }
+      return (
+        (parsed.protocol === "ws:" || parsed.protocol === "wss:") &&
+        parsed.hostname !== "" &&
+        !parsed.username &&
+        !parsed.password &&
+        parsed.search === "" &&
+        parsed.hash === ""
+      );
+    } catch {
+      return false;
+    }
   };
-  const relay = value => {
+  const relay = (value) => {
     const parsed = new URL(String(value || "").trim());
     parsed.hostname = parsed.hostname.toLowerCase();
-    if (parsed.pathname.length > 1) parsed.pathname = parsed.pathname.replace(/\/+$/, "");
+    if (parsed.pathname.length > 1)
+      parsed.pathname = parsed.pathname.replace(/\/+$/, "");
     return parsed.toString().replace(/\/$/, "");
   };
-  const mergeRows = (rows, urls) => rows.filter(row => !(Array.isArray(row) && row[0] === "g")).concat(urls.map(value => ["g", value]));
+  const mergeRows = (rows, urls) =>
+    rows
+      .filter((row) => !(Array.isArray(row) && row[0] === "g"))
+      .concat(urls.map((value) => ["g", value]));
   const signer = () => window.tinySigner || window.nostr;
   const publicKey = async () => {
     const active = signer();
@@ -29,39 +40,76 @@
     const active = signer();
     if (active?.nip44Encrypt) return active.nip44Encrypt(pubkey, text);
     if (active?.nip44?.encrypt) return active.nip44.encrypt(pubkey, text);
-    if (window.tiny?.nip44Encrypt) return window.tiny.nip44Encrypt(pubkey, text);
+    if (window.tiny?.nip44Encrypt)
+      return window.tiny.nip44Encrypt(pubkey, text);
     throw Error("The connected signer does not support NIP-44.");
   };
   const decrypt = async (pubkey, text) => {
     const active = signer();
     if (active?.nip44Decrypt) return active.nip44Decrypt(pubkey, text);
     if (active?.nip44?.decrypt) return active.nip44.decrypt(pubkey, text);
-    if (window.tiny?.nip44Decrypt) return window.tiny.nip44Decrypt(pubkey, text);
+    if (window.tiny?.nip44Decrypt)
+      return window.tiny.nip44Decrypt(pubkey, text);
     throw Error("The connected signer does not support NIP-44.");
   };
-  const readList = async pubkey => {
-    const body = JSON.stringify([{kinds: [10318], authors: [pubkey], limit: 1}]);
-    const response = await window.tiny.signedFetch("/query", "POST", body, {contentType: "application/json"});
-    if (!response || response.ok === false) throw Error("Could not read the private relay list.");
+  const readList = async (pubkey) => {
+    const body = JSON.stringify([
+      { kinds: [10318], authors: [pubkey], limit: 1 },
+    ]);
+    const response = await window.tiny.signedFetch("/query", "POST", body, {
+      contentType: "application/json",
+    });
+    if (!response || response.ok === false)
+      throw Error("Could not read the private relay list.");
     const rows = await response.json();
-    if (!Array.isArray(rows) || rows.length > 1) throw Error("The private relay list response is malformed.");
+    if (!Array.isArray(rows) || rows.length > 1)
+      throw Error("The private relay list response is malformed.");
     const event = rows[0];
-    if (rows.length && !acceptEvent(event, pubkey)) throw Error("The private relay list event is invalid.");
+    if (rows.length && !acceptEvent(event, pubkey))
+      throw Error("The private relay list event is invalid.");
     return event;
   };
   const acceptEvent = (event, expectedPubkey) => {
-    if (!event || event.kind !== 10318 || event.pubkey !== expectedPubkey || !Array.isArray(event.tags) || typeof event.content !== "string") return false;
+    if (
+      !event ||
+      event.kind !== 10318 ||
+      event.pubkey !== expectedPubkey ||
+      !Array.isArray(event.tags) ||
+      typeof event.content !== "string"
+    )
+      return false;
     if (typeof window.NostrSigner?.verifyEvent !== "function") return false;
-    try { return window.NostrSigner.verifyEvent(event) === true; } catch { return false; }
+    try {
+      return window.NostrSigner.verifyEvent(event) === true;
+    } catch {
+      return false;
+    }
   };
-  const publish = async event => {
-    const response = await window.tiny.signedFetch("/events", "POST", JSON.stringify(event), {contentType: "application/json"});
+  const publish = async (event) => {
+    const response = await window.tiny.signedFetch(
+      "/events",
+      "POST",
+      JSON.stringify(event),
+      { contentType: "application/json" },
+    );
     const text = await response.text();
     let value;
-    try { value = JSON.parse(text); } catch { value = undefined; }
-    if (value?.error || value?.accepted === false) throw Error(value.error || value.message || "The relay rejected the event.");
+    try {
+      value = JSON.parse(text);
+    } catch {
+      value = undefined;
+    }
+    if (value?.error || value?.accepted === false)
+      throw Error(
+        value.error || value.message || "The relay rejected the event.",
+      );
   };
-  const wireEvent = content => ({kind: 10318, created_at: Math.floor(Date.now() / 1000), tags: [], content});
+  const wireEvent = (content) => ({
+    kind: 10318,
+    created_at: Math.floor(Date.now() / 1000),
+    tags: [],
+    content,
+  });
 
   class PrivateServices extends HTMLElement {
     connectedCallback() {
@@ -70,23 +118,33 @@
       this.form = this.querySelector("form");
       this.lines = this.querySelector("textarea[name=lines]");
       this.output = this.querySelector("output");
-      this.form?.addEventListener("submit", event => {
+      this.form?.addEventListener("submit", (event) => {
         event.preventDefault();
         if (this.busy) return;
         this.busy = true;
         this.form.querySelector("button").disabled = true;
-        this.save().catch(error => this.say("Error: " + error.message, true)).finally(() => {
-          this.busy = false;
-          this.form.querySelector("button").disabled = false;
-        });
+        this.save()
+          .catch((error) => this.say("Error: " + error.message, true))
+          .finally(() => {
+            this.busy = false;
+            this.form.querySelector("button").disabled = false;
+          });
       });
-      this.whenSigned(() => this.load().then(() => { this.form.querySelector("button").disabled = false; }).catch(error => this.say("Error: " + error.message, true)));
+      this.whenSigned(() =>
+        this.load()
+          .then(() => {
+            this.form.querySelector("button").disabled = false;
+          })
+          .catch((error) => this.say("Error: " + error.message, true)),
+      );
     }
 
-    whenSigned(fn, tries = 20) {
+    // whenSigned runs once a signer is available. The bridge announces a
+    // connected or resumed remote signer with the tiny:signer event.
+    whenSigned(fn) {
       if (signer()?.signEvent || window.nostr?.signEvent) return fn();
-      if (tries <= 0) { this.say("Connect a signer, then reload this page."); return; }
-      setTimeout(() => this.whenSigned(fn, tries - 1), 500);
+      this.say("Connect a signer to edit this list.");
+      document.addEventListener("tiny:signer", () => fn(), { once: true });
     }
 
     say(text, error) {
@@ -99,17 +157,37 @@
       this.say("Reading encrypted list…");
       const pubkey = await publicKey();
       const event = await readList(pubkey);
-      if (!event) { this.say("No private relay list published yet."); return; }
+      if (!event) {
+        this.say("No private relay list published yet.");
+        return;
+      }
       const rows = JSON.parse(await decrypt(pubkey, event.content));
-      if (!Array.isArray(rows)) throw Error("The encrypted list is not a JSON array.");
-      const urls = rows.filter(row => Array.isArray(row) && row[0] === "g" && validURL(row[1])).map(row => relay(row[1]));
+      if (!Array.isArray(rows))
+        throw Error("The encrypted list is not a JSON array.");
+      const urls = rows
+        .filter(
+          (row) => Array.isArray(row) && row[0] === "g" && validURL(row[1]),
+        )
+        .map((row) => relay(row[1]));
       this.lines.value = urls.join("\n");
-      this.say("Loaded " + urls.length + " private relay" + (urls.length === 1 ? "" : "s") + ".");
+      this.say(
+        "Loaded " +
+          urls.length +
+          " private relay" +
+          (urls.length === 1 ? "" : "s") +
+          ".",
+      );
     }
 
     async save() {
-      const rawURLs = this.lines.value.split(/\r?\n/).map(value => value.trim()).filter(Boolean);
-      if (rawURLs.some(value => !validURL(value))) throw Error("Use ws:// or wss:// URLs without credentials, queries or fragments.");
+      const rawURLs = this.lines.value
+        .split(/\r?\n/)
+        .map((value) => value.trim())
+        .filter(Boolean);
+      if (rawURLs.some((value) => !validURL(value)))
+        throw Error(
+          "Use ws:// or wss:// URLs without credentials, queries or fragments.",
+        );
       const urls = rawURLs.map(relay);
       const unique = [...new Set(urls)];
       const pubkey = await publicKey();
@@ -117,19 +195,42 @@
       let rows = [];
       if (existing) {
         rows = JSON.parse(await decrypt(pubkey, existing.content));
-        if (!Array.isArray(rows)) throw Error("The encrypted list is not a JSON array.");
+        if (!Array.isArray(rows))
+          throw Error("The encrypted list is not a JSON array.");
       }
       rows = mergeRows(rows, unique);
       const content = await encrypt(pubkey, JSON.stringify(rows));
       const active = signer();
       if (!active?.signEvent) throw Error("Connect a signer first.");
       const event = await active.signEvent(wireEvent(content));
-      if (!acceptEvent(event, pubkey) || event.content !== content || event.tags.length !== 0) throw Error("The signer returned an invalid private relay list event.");
+      if (
+        !acceptEvent(event, pubkey) ||
+        event.content !== content ||
+        event.tags.length !== 0
+      )
+        throw Error("The signer returned an invalid private relay list event.");
       await publish(event);
-      this.say("Published " + unique.length + " private relay" + (unique.length === 1 ? "" : "s") + ".");
+      this.say(
+        "Published " +
+          unique.length +
+          " private relay" +
+          (unique.length === 1 ? "" : "s") +
+          ".",
+      );
     }
   }
 
-  window.PrivateServices = {validURL, canonicalURL: relay, mergeRows, encrypt, decrypt, wireEvent, acceptEvent, readList};
+  const api = Object.freeze({
+    validURL,
+    canonicalURL: relay,
+    mergeRows,
+    encrypt,
+    decrypt,
+    wireEvent,
+    acceptEvent,
+    readList,
+  });
+  window.tiny = window.tiny || {};
+  window.tiny.files = { ...window.tiny.files, privateServices: api };
   customElements.define("private-services", PrivateServices);
 })();

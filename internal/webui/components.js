@@ -244,7 +244,7 @@
     blossomURI() {
       const params = new URLSearchParams(this.fileFragment || location.hash.slice(1));
       const extension = params.has("manifest") ? (["2", "3"].includes(params.get("node") || "2") ? "bdir" : params.get("node") === "1" ? "bfile" : "bin") : "bin";
-      const uri = (params.get("enc") === "chk-v1" || params.has("manifest")) && params.get("key") ? TinyBlossomEncryption.createURI(this.hash(), extension, params.get("key")) : "blossom:" + this.hash();
+      const uri = (params.get("enc") === "chk-v1" || params.has("manifest")) && params.get("key") ? tiny.blossom.encryption.createURI(this.hash(), extension, params.get("key")) : "blossom:" + this.hash();
       return tiny.root ? uri : uri + (uri.includes("?") ? "&" : "?") + "xs=" + encodeURIComponent(new URL(location.href).host);
     }
     shareLink() {
@@ -280,8 +280,8 @@
         const plaintextHash = await tiny.sha256hex(plaintext);
         let ciphertext, fragment;
         if (scheme === "chk") {
-          if (!globalThis.TinyBlossomEncryption) throw Error("CHK encryption is unavailable. Reload this page.");
-          const encrypted = await TinyBlossomEncryption.encryptCHK(plaintext);
+          if (!tiny.blossom.encryption) throw Error("CHK encryption is unavailable. Reload this page.");
+          const encrypted = await tiny.blossom.encryption.encryptCHK(plaintext);
           ciphertext = encrypted.ciphertext;
           fragment = "enc=chk-v1&key=" + encrypted.key;
         } else {
@@ -313,8 +313,8 @@
       const actualHash = await tiny.sha256hex(ciphertext);
       this.uploadController = new AbortController();
       let descriptor;
-      if (globalThis.TinyBlossomUpload?.upload) {
-        const task = TinyBlossomUpload.upload(ciphertext, {
+      if (tiny.blossom.upload?.upload) {
+        const task = tiny.blossom.upload.upload(ciphertext, {
           url: new URL(tiny.localPath("/"), location.href).href, hash: actualHash,
           type: "application/octet-stream", state, signal: this.uploadController.signal,
           authorize: (url, verb, body) => tiny.authorization(url, verb, body),
@@ -362,7 +362,7 @@
         const encrypted = new Uint8Array(await response.arrayBuffer());
         if (await tiny.sha256hex(encrypted) !== this.hash()) throw Error("ciphertext hash mismatch");
         let plain;
-        if (params.get("enc") === "chk-v1") plain = await TinyBlossomEncryption.decryptCHK(encrypted, params.get("key"), this.hash());
+        if (params.get("enc") === "chk-v1") plain = await tiny.blossom.encryption.decryptCHK(encrypted, params.get("key"), this.hash());
         else {
           const key = await crypto.subtle.importKey("raw", fromB64url(params.get("key")), "AES-GCM", false, ["decrypt"]);
           plain = await crypto.subtle.decrypt({name: "AES-GCM", iv: fromB64url(params.get("iv"))}, key, encrypted);
@@ -379,15 +379,15 @@
       if (!recipient) { this.say("Enter a public key or npub.", true); return; }
       const params = new URLSearchParams(this.fileFragment || location.hash.slice(1));
       const signer = globalThis.tinySigner || globalThis.nostr;
-      if (!globalThis.TinyFileMessages || !signer) { this.say("Connect a NIP-44 signer first. Use the encrypted link, which keeps its key in the URL fragment.", true); return; }
+      if (!tiny.files.messages || !signer) { this.say("Connect a NIP-44 signer first. Use the encrypted link, which keeps its key in the URL fragment.", true); return; }
       if (!params.get("key") || !params.get("iv")) { this.say("NIP-17 sharing currently requires a random AES-GCM encrypted file.", true); return; }
       this.sharing = true;
       try {
         const key = fromB64url(params.get("key")), nonce = fromB64url(params.get("iv"));
         if (key.length !== 32 || nonce.length !== 12) throw Error("Invalid file key or nonce.");
-        const hex = bytes => Array.from(bytes, value => value.toString(16).padStart(2, "0")).join("");
+        const {hex} = tiny.util;
         this.say("Preparing sealed NIP-17 delivery…");
-        await TinyFileMessages.share({recipient, fileURL: new URL(tiny.localPath("/files/raw?hash=" + this.hash()), location.href).href, ciphertextHash: this.hash(), plaintextHash: params.get("ox") || undefined, key: hex(key), nonce: hex(nonce), mimeType: params.get("type") || this.type(), size: Number(this.getAttribute("size") || 0) || undefined}, {signer});
+        await tiny.files.messages.share({recipient, fileURL: new URL(tiny.localPath("/files/raw?hash=" + this.hash()), location.href).href, ciphertextHash: this.hash(), plaintextHash: params.get("ox") || undefined, key: hex(key), nonce: hex(nonce), mimeType: params.get("type") || this.type(), size: Number(this.getAttribute("size") || 0) || undefined}, {signer});
         this.say("Encrypted message delivered; sender copy saved.");
       } catch (error) { this.say("NIP-17 delivery failed: " + error.message, true); } finally { this.sharing = false; }
     }
@@ -467,8 +467,11 @@
       const response = await tiny.signedFetch("/events", "POST", JSON.stringify(event), {contentType: "application/json"});
       const result = await response.json();
       if (!response.ok || result.accepted !== true) throw Error(result.error || result.message || "The relay rejected the event.");
-      this.report("Published. Reload to see the update.");
+      this.report("Published.");
       form.reset();
+      // Refresh through the shared navigation so the thread shows the new
+      // event without a full reload.
+      await tiny.navigate?.(globalThis.location?.href);
     }
   }
 
@@ -708,11 +711,12 @@
       this.whenSigned(() => this.load().catch(err => this.say("error: " + err.message, true)));
     }
 
-    // whenSigned waits briefly for a signer, since a remote one resumes async.
-    whenSigned(fn, tries = 20) {
+    // whenSigned runs once a signer is available; the bridge announces a
+    // connected or resumed remote signer with the tiny:signer event.
+    whenSigned(fn) {
       if (window.nostr?.signEvent) return fn();
-      if (tries <= 0) { this.say("connect a signer, then reload this page"); return; }
-      setTimeout(() => this.whenSigned(fn, tries - 1), 500);
+      this.say("connect a signer to load this list");
+      document.addEventListener("tiny:signer", () => fn(), {once: true});
     }
 
     say(text, error) {
@@ -929,6 +933,8 @@
         throw error;
       } finally { if (serial === navigationSerial) setBusy(false); }
     };
+    // navigate re-requests a page in place; components use it after a publish.
+    tiny.navigate = href => load(new URL(href, location.href), false);
     document.addEventListener("fx:config", event => {
       const cfg = event.detail.cfg, elt = cfg.trigger?.target?.closest?.("a[data-fixi-nav], form[data-fixi-nav]");
       if (!elt?.matches?.("a[data-fixi-nav], form[data-fixi-nav]")) return;

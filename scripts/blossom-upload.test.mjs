@@ -6,10 +6,11 @@ import test from "node:test";
 import vm from "node:vm";
 
 const source = await readFile(new URL("../internal/webui/blossom-upload.js", import.meta.url), "utf8");
+const shared = await readFile(new URL("../internal/webui/tiny.js", import.meta.url), "utf8");
 const sandbox = {crypto: webcrypto, Blob, ArrayBuffer, Uint8Array, AbortController, Map, setTimeout, clearTimeout, URL};
 sandbox.globalThis = sandbox;
-vm.runInNewContext(source, sandbox);
-const upload = sandbox.TinyBlossomUpload.upload;
+vm.runInNewContext(shared + source, sandbox);
+const upload = sandbox.tiny.blossom.upload.upload;
 const digest = async bytes => Buffer.from(await webcrypto.subtle.digest("SHA-256", bytes)).toString("hex");
 const response = (status, headers = {}, body = null) => ({
   status, ok: status >= 200 && status < 300,

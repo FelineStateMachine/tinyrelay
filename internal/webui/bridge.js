@@ -18,8 +18,8 @@
     if (status) status.textContent = text;
   };
   const errorText = err => err instanceof Error ? err.message : String(err);
-  const hex = bytes => Array.from(bytes, b => b.toString(16).padStart(2, "0")).join("");
-  const sha256hex = async bytes => hex(new Uint8Array(await crypto.subtle.digest("SHA-256", bytes)));
+  const {hex, sha256} = window.tiny.util;
+  const sha256hex = async bytes => hex(await sha256(bytes));
   const randomHex = () => { const b = new Uint8Array(32); crypto.getRandomValues(b); return hex(b); };
   const toBytes = body => body instanceof ArrayBuffer ? new Uint8Array(body) : body instanceof Uint8Array ? body : new TextEncoder().encode(body || "");
   const validRelay = value => {
@@ -102,7 +102,7 @@
     document.getElementById("menu")?.focus();
   });
   if ("serviceWorker" in navigator) navigator.serviceWorker.register(localPath("/sw.js")).catch(() => {});
-  window.tiny = {root, localPath, sha256hex, authorization, signedFetch};
+  Object.assign(window.tiny, {root, localPath, sha256hex, authorization, signedFetch});
   window.tinySignedFetch = signedFetch;
 
   const signIn = async () => {
@@ -127,6 +127,7 @@
   const setSigner = signer => {
     window.tinySigner = signer;
     window.nostr = {signEvent: event => window.tinySigner.signEvent(event)};
+    document.dispatchEvent(new CustomEvent("tiny:signer"));
     if (document.getElementById("signer-status")) {
       say(document.getElementById("session-logout") ? "Signer connected." : "Signer connected. Choose Sign in with connected signer to continue.");
     }

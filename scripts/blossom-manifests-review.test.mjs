@@ -4,10 +4,11 @@ import test from "node:test";
 import vm from "node:vm";
 
 const source = await readFile(new URL("../internal/webui/blossom-manifests.js", import.meta.url), "utf8");
+const shared = await readFile(new URL("../internal/webui/tiny.js", import.meta.url), "utf8");
 const sandbox = {TextEncoder, TextDecoder, Uint8Array, ArrayBuffer, crypto: (await import("node:crypto")).webcrypto};
 sandbox.globalThis = sandbox;
-vm.runInNewContext(source, sandbox);
-const api = sandbox.TinyBlossomManifests;
+vm.runInNewContext(shared + source, sandbox);
+const api = sandbox.tiny.blossom.manifests;
 const hash = value => value.repeat(64);
 const bytes = hex => Uint8Array.from(hex.match(/../g), value => parseInt(value, 16));
 
