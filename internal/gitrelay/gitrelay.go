@@ -1233,6 +1233,15 @@ func privateIP(ip net.IP) bool {
 // verifies pack checksums and object connectivity; refs are installed only
 // after every expected object exists locally.
 func (g *GitRelay) FetchMissing(ctx context.Context, r Repository, sources []string, expected map[string]string) error {
+	return g.fetchMissing(ctx, r, sources, expected, 0, 0)
+}
+
+// fetchMissing is shared by ordinary branch repair and the more restrictive
+// PR repair path. A non-zero depth keeps an untrusted PR clone from making the
+// hosted repository walk arbitrary history. maxBytes bounds transfer traffic
+// across all sources and the isolated destination after each fetch. These
+// limits apply only to isolated repositories, never the hosted branch repo.
+func (g *GitRelay) fetchMissing(ctx context.Context, r Repository, sources []string, expected map[string]string, depth int, maxBytes int64) error {
 	if err := g.ensureRepo(r); err != nil {
 		return err
 	}
@@ -1242,6 +1251,10 @@ func (g *GitRelay) FetchMissing(ctx context.Context, r Repository, sources []str
 		return g.installFetchedRefs(r, expected)
 	}
 	missing := make(map[string]struct{}, len(expected))
+	var budget *byteBudget
+	if maxBytes > 0 {
+		budget = &byteBudget{}
+	}
 	var lastErr error
 	for ref, oid := range expected {
 		if oid != "" {
@@ -1249,6 +1262,15 @@ func (g *GitRelay) FetchMissing(ctx context.Context, r Repository, sources []str
 		}
 	}
 	for _, raw := range sources {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if budget != nil && len(missing) == 0 {
+			break
+		}
+		if budget != nil && budget.used.Load() >= maxBytes {
+			return errRepairByteLimit
+		}
 		// Private object IDs must never be requested from a public source.
 		private := r.Private || (g.policy != nil && g.policy().Reads == "members")
 		if private && !g.privatePeer(raw) {
@@ -1257,6 +1279,7 @@ func (g *GitRelay) FetchMissing(ctx context.Context, r Repository, sources []str
 		}
 		source, ip, err := g.resolvedSource(ctx, raw)
 		if err != nil {
+			lastErr = err
 			continue
 		}
 		var proxy *privateProxy
@@ -1273,16 +1296,59 @@ func (g *GitRelay) FetchMissing(ctx context.Context, r Repository, sources []str
 			}
 			defer proxy.Close(context.Background())
 		}
+		fetchSource := source
+		if proxy != nil {
+			fetchSource = proxy.URL()
+		}
+		var budgetProxy *repairProxy
+		if budget != nil {
+			targetIP := ip
+			if proxy != nil {
+				if parsed, parseErr := url.Parse(proxy.URL()); parseErr == nil {
+					targetIP = parsed.Hostname()
+				}
+			}
+			parsedSource, parseErr := url.Parse(fetchSource)
+			if parseErr != nil {
+				lastErr = parseErr
+				continue
+			}
+			targetHost := parsedSource.Hostname()
+			targetPort := parsedSource.Port()
+			if targetPort == "" {
+				targetPort = "443"
+				if parsedSource.Scheme == "http" {
+					targetPort = "80"
+				}
+			}
+			budgetProxy, err = newRepairProxy(ctx, targetIP, targetHost, targetPort, budget, maxBytes)
+			if err != nil {
+				lastErr = err
+				continue
+			}
+			defer budgetProxy.Close()
+		}
 		for ref, oid := range expected {
+			if err := ctx.Err(); err != nil {
+				return err
+			}
+			if budget != nil && budget.used.Load() >= maxBytes {
+				return errRepairByteLimit
+			}
+			if _, needed := missing[ref]; budget != nil && !needed {
+				continue
+			}
 			if oid == "" {
 				delete(missing, ref)
 				continue
 			}
 			port := uPort(source)
-			fetchSource := source
 			resolve := []string{"-c", "http.curloptResolve=" + urlHost(source) + ":" + port + ":" + ip}
 			if proxy != nil {
 				fetchSource = proxy.URL()
+				resolve = nil
+			}
+			if budgetProxy != nil {
 				resolve = nil
 			}
 			fetchRef := ref
@@ -1294,17 +1360,52 @@ func (g *GitRelay) FetchMissing(ctx context.Context, r Repository, sources []str
 				}
 				fetchRef = oid
 			}
-			args := []string{"-c", "http.followRedirects=false", "-c", "credential.helper=", "-c", "http.proxy=", "--git-dir", g.repoPath(r), "fetch", "--no-tags", fetchSource, "+" + fetchRef + ":" + "refs/tinyrelay/source/" + safeRef(ref)}
+			proxySetting := ""
+			if budgetProxy != nil {
+				proxySetting = budgetProxy.URL()
+			}
+			args := []string{"-c", "http.followRedirects=false", "-c", "credential.helper=", "-c", "http.proxy=" + proxySetting, "--git-dir", g.repoPath(r), "fetch", "--no-tags"}
+			if depth > 0 {
+				args = append(args, "--depth", strconv.Itoa(depth))
+			}
+			args = append(args, fetchSource, "+"+fetchRef+":"+"refs/tinyrelay/source/"+safeRef(ref))
 			// Keep the resolve option before the subcommand; Git accepts config
 			// options only before the command name.
 			if len(resolve) > 0 {
 				args = append([]string{"-c", "http.curloptResolve=" + urlHost(source) + ":" + port + ":" + ip}, args...)
 			}
 			cmd := exec.CommandContext(ctx, "git", args...)
-			cmd.Env = append(os.Environ(), "HTTP_PROXY=", "HTTPS_PROXY=", "ALL_PROXY=", "http_proxy=", "https_proxy=", "all_proxy=", "GIT_CONFIG_NOSYSTEM=1")
+			if depth > 0 && maxBytes > 0 {
+				// Git receives pack data in a child process and does not expose a
+				// portable receive-byte limit. Apply the shell's file-size limit
+				// to the isolated fetch process so an oversized pack is stopped
+				// while it is being written. The unit is 512 bytes in dash and
+				// 1024 in bash, so this is a coarse guard; the proxy budget and
+				// the cumulative size check below enforce the exact bound.
+				limitBlocks := (maxBytes + 511) / 512
+				limited := []string{"ulimit -f \"$1\"; shift; exec \"$@\"", "gitfetch", strconv.FormatInt(limitBlocks, 10), "git"}
+				limited = append(limited, args...)
+				cmd = exec.CommandContext(ctx, "sh", append([]string{"-c"}, limited...)...)
+			}
+			cmd.Env = append(os.Environ(), "HTTP_PROXY=", "HTTPS_PROXY=", "ALL_PROXY=", "http_proxy=", "https_proxy=", "all_proxy=", "NO_PROXY=", "no_proxy=", "GIT_CONFIG_NOSYSTEM=1")
+			if budget != nil {
+				// A URL-specific proxy or rewrite in the user's Git config must
+				// not bypass the bounded transport selected for this repair.
+				cmd.Env = append(cmd.Env, "GIT_CONFIG_GLOBAL="+os.DevNull)
+			}
 			if out, err := cmd.CombinedOutput(); err != nil {
 				lastErr = fmt.Errorf("fetch %s: %w: %s", fetchSource, err, strings.TrimSpace(string(out)))
 				continue
+			}
+			if maxBytes > 0 {
+				size, err := gitDirSize(g.repoPath(r))
+				if err != nil {
+					lastErr = fmt.Errorf("inspect isolated Git repository: %w", err)
+					continue
+				}
+				if size > maxBytes {
+					return fmt.Errorf("Git source exceeded isolated repair budget: %d bytes", size)
+				}
 			}
 			if !g.objectsPresent(ctx, r, []string{oid}) {
 				continue
@@ -1354,6 +1455,31 @@ func uPort(raw string) string {
 
 func safeRef(ref string) string {
 	return strings.NewReplacer("/", "_", "\\", "_").Replace(strings.TrimPrefix(ref, "refs/"))
+}
+
+func gitDirSize(root string) (int64, error) {
+	var total int64
+	err := filepath.WalkDir(root, func(path string, entry os.DirEntry, err error) error {
+		if err != nil {
+			if os.IsNotExist(err) {
+				return nil
+			}
+			return err
+		}
+		if entry.IsDir() {
+			return nil
+		}
+		info, err := entry.Info()
+		if err != nil {
+			if os.IsNotExist(err) {
+				return nil
+			}
+			return err
+		}
+		total += info.Size()
+		return nil
+	})
+	return total, err
 }
 
 func (g *GitRelay) updateRef(r Repository, ref, oid string) error {

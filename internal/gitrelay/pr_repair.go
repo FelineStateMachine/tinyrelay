@@ -1,11 +1,25 @@
 package gitrelay
 
 import (
+	"bufio"
 	"context"
 	"errors"
 	"fmt"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
+	"time"
 
 	"github.com/FelineStateMachine/tinyrelay/internal/event"
+)
+
+const (
+	// PR repair is fed by clone URLs carried in signed events. Keep its
+	// temporary object graph finite while leaving ordinary branch repair
+	// compatible with complete repositories.
+	prRepairDepth    = 128
+	prRepairMaxBytes = 256 << 20
 )
 
 // PullRequestRepair groups a PR with its later tip updates. The event store
@@ -33,6 +47,7 @@ func (g *GitRelay) RepairPullRequestObjects(ctx context.Context, hosted Reposito
 	// contribute temporary refs and clone sources.
 	root = hosted
 	root.Alternative = false
+	root.EventID = set.Root.ID
 	sources := cloneURLs(set.Root)
 	refs := map[string]string{"refs/nostr/" + set.Root.ID: event.Tag(set.Root, "c")}
 	for _, update := range set.Updates {
@@ -50,10 +65,157 @@ func (g *GitRelay) RepairPullRequestObjects(ctx context.Context, hosted Reposito
 		return errors.New("GRASP-02: pull request has no clone source")
 	}
 	sources = uniqueStrings(sources)
-	if err := g.FetchMissing(ctx, root, sources, refs); err != nil {
+	if err := g.stagePullRequestObjects(ctx, root, sources, refs); err != nil {
 		return fmt.Errorf("GRASP-02 pull request repair: %w", err)
 	}
 	return nil
+}
+
+// stagePullRequestObjects admits an untrusted PR clone into a quarantine bare
+// repository first. Only after every expected object is present do we import
+// the temporary refs into the hosted repository and install the signed refs.
+// The quarantine is removed on return, and failed repairs never alter hosted
+// refs. In particular, its shallow boundary is never copied to the host.
+func (g *GitRelay) stagePullRequestObjects(ctx context.Context, hosted Repository, sources []string, expected map[string]string) error {
+	if err := g.ensureRepo(hosted); err != nil {
+		return err
+	}
+	// Keep the quarantine outside the hosted repository namespace. A clone URL
+	// is signed input and can be processed concurrently with another repair.
+	quarantineRoot, err := os.MkdirTemp("", "tinyrelay-pr-repair-")
+	if err != nil {
+		return fmt.Errorf("create PR repair quarantine: %w", err)
+	}
+	defer os.RemoveAll(quarantineRoot)
+	stage := Repository{Owner: hosted.Owner, Identifier: "objects", Private: hosted.Private}
+	g.mu.RLock()
+	stageRelay := &GitRelay{
+		root: quarantineRoot, policy: g.policy, serviceURL: g.serviceURL,
+		allowPrivate: g.allowPrivate, privatePeers: append([]string(nil), g.privatePeers...),
+		httpAuth: g.httpAuth, configured: make(map[string]struct{}),
+	}
+	g.mu.RUnlock()
+	if err := stageRelay.ensureRepo(stage); err != nil {
+		return fmt.Errorf("create PR repair quarantine: %w", err)
+	}
+	stagePath := stageRelay.repoPath(stage)
+	// Let a PR build on objects already admitted to the hosted repository, but
+	// never copy the quarantine's shallow boundary into that repository.
+	alternates := filepath.Join(stagePath, "objects", "info", "alternates")
+	hostObjects, err := filepath.Abs(filepath.Join(g.repoPath(hosted), "objects"))
+	if err != nil {
+		return fmt.Errorf("locate hosted PR base objects: %w", err)
+	}
+	if err := os.WriteFile(alternates, []byte(hostObjects+"\n"), 0600); err != nil {
+		return fmt.Errorf("configure PR repair quarantine: %w", err)
+	}
+	if err := stageRelay.fetchMissing(ctx, stage, sources, expected, prRepairDepth, prRepairMaxBytes); err != nil {
+		return err
+	}
+	if err := validatePRQuarantine(ctx, stagePath, nonEmptyObjectIDs(expected)); err != nil {
+		return err
+	}
+
+	// Import into disposable refs. If a later refspec fails, clean them up and
+	// leave the signed hosted refs untouched.
+	cleanup := make([]string, 0, len(expected))
+	defer func() {
+		if len(cleanup) == 0 {
+			return
+		}
+		var commands strings.Builder
+		for _, ref := range cleanup {
+			fmt.Fprintf(&commands, "delete %s\n", ref)
+		}
+		cleanupCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		cmd := exec.CommandContext(cleanupCtx, "git", "--git-dir", g.repoPath(hosted), "update-ref", "--stdin")
+		cmd.Stdin = strings.NewReader(commands.String())
+		_ = cmd.Run()
+	}()
+	for ref, oid := range expected {
+		if oid == "" {
+			continue
+		}
+		staged := "refs/tinyrelay/pr-repair/" + filepath.Base(quarantineRoot) + "/" + safeRef(ref)
+		cleanup = append(cleanup, staged)
+		cmd := exec.CommandContext(ctx, "git", "--git-dir", g.repoPath(hosted), "fetch", "--no-tags", stagePath, "+"+oid+":"+staged)
+		cmd.Env = append(os.Environ(), "GIT_CONFIG_NOSYSTEM=1")
+		if out, err := cmd.CombinedOutput(); err != nil {
+			return fmt.Errorf("import PR repair object %s: %w: %s", oid, err, strings.TrimSpace(string(out)))
+		}
+	}
+	updates := make([]string, 0, len(expected))
+	for ref, oid := range expected {
+		if oid != "" {
+			updates = append(updates, "update "+ref+" "+oid+"\n")
+		}
+	}
+	cmd := exec.CommandContext(ctx, "git", "--git-dir", g.repoPath(hosted), "update-ref", "--stdin")
+	cmd.Stdin = strings.NewReader("start\n" + strings.Join(updates, "") + "prepare\ncommit\n")
+	if out, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("promote PR repair refs: %w: %s", err, strings.TrimSpace(string(out)))
+	}
+	return nil
+}
+
+// validatePRQuarantine checks the complete object graph after removing the
+// shallow marker. rev-list reports missing commits, trees and blobs through
+// its --missing output; alternates make hosted base objects visible here.
+func validatePRQuarantine(ctx context.Context, gitDir string, oids []string) error {
+	if len(oids) == 0 {
+		return errors.New("PR repair has no expected objects")
+	}
+	if err := os.Remove(filepath.Join(gitDir, "shallow")); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("remove PR repair shallow boundary: %w", err)
+	}
+	args := append([]string{"--git-dir", gitDir, "rev-list", "--objects", "--missing=print"}, oids...)
+	cmd := exec.CommandContext(ctx, "git", args...)
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		return fmt.Errorf("validate PR repair object graph: create pipe: %w", err)
+	}
+	if err := cmd.Start(); err != nil {
+		return fmt.Errorf("validate PR repair object graph: %w", err)
+	}
+	scanner := bufio.NewScanner(stdout)
+	scanner.Buffer(make([]byte, 4096), 1<<20)
+	for scanner.Scan() {
+		line := scanner.Text()
+		if strings.HasPrefix(line, "?") {
+			_ = cmd.Process.Kill()
+			_ = cmd.Wait()
+			return fmt.Errorf("PR repair object graph is incomplete: %s", strings.TrimSpace(line))
+		}
+	}
+	if err := scanner.Err(); err != nil {
+		_ = cmd.Process.Kill()
+		_ = cmd.Wait()
+		return fmt.Errorf("validate PR repair object graph: read output: %w", err)
+	}
+	if err := cmd.Wait(); err != nil {
+		return fmt.Errorf("validate PR repair object graph: %w", err)
+	}
+	// Ensure each advertised tip is an actual commit, rather than accepting a
+	// tree or blob object under a commit-shaped event tag.
+	for _, oid := range oids {
+		check := exec.CommandContext(ctx, "git", "--git-dir", gitDir, "cat-file", "-t", oid)
+		kind, err := check.Output()
+		if err != nil || strings.TrimSpace(string(kind)) != "commit" {
+			return fmt.Errorf("PR repair tip %s is not a complete commit", oid)
+		}
+	}
+	return nil
+}
+
+func nonEmptyObjectIDs(refs map[string]string) []string {
+	ids := make([]string, 0, len(refs))
+	for _, oid := range refs {
+		if oid != "" {
+			ids = append(ids, oid)
+		}
+	}
+	return ids
 }
 
 func hasRepositoryCoordinate(pr event.Event, repo Repository) bool {

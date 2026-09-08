@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/x509"
 	"encoding/pem"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -144,6 +145,132 @@ func TestPullRequestRepairUsesHostedRepositoryRefs(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(gitDir, "tinyrelay.refs")); !os.IsNotExist(err) {
 		t.Fatalf("PR repair wrote signed state file: %v", err)
+	}
+	quarantines, err := filepath.Glob(filepath.Join(rootDir, "git", "prs", owner, "repo.repair-"+root.ID+"-*.git"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(quarantines) != 0 {
+		t.Fatalf("PR repair quarantine was not removed: %v", quarantines)
+	}
+	blockedRoot := root
+	blockedRoot.CreatedAt = 3
+	if err := event.Sign(&blockedRoot, secret); err != nil {
+		t.Fatal(err)
+	}
+	blockedUpdate := event.Event{Kind: event.KIND_GIT_PR_UPDATE, CreatedAt: 4, Tags: [][]string{{"E", blockedRoot.ID}, {"P", owner}, {"c", second}, {"clone", clone}}}
+	if err := event.Sign(&blockedUpdate, secret); err != nil {
+		t.Fatal(err)
+	}
+	// A ref-directory collision makes one update fail. The other signed ref
+	// must not appear, regardless of map iteration or transaction order.
+	blocker := "refs/nostr/" + blockedRoot.ID + "/child"
+	prGitRun(t, "--git-dir", gitDir, "update-ref", blocker, first)
+	if err := g.RepairPullRequestObjects(context.Background(), hosted, PullRequestRepair{Root: blockedRoot, Updates: []event.Event{blockedUpdate}}); err == nil {
+		t.Fatal("repair ignored conflicting ref")
+	}
+	if err := exec.Command("git", "--git-dir", gitDir, "show-ref", "--verify", "--quiet", "refs/nostr/"+blockedUpdate.ID).Run(); err == nil {
+		t.Fatal("failed repair partially promoted its signed refs")
+	}
+	if got := strings.TrimSpace(prGitOutput(t, "--git-dir", gitDir, "rev-parse", blocker)); got != first {
+		t.Fatalf("repair changed blocking ref: %s", got)
+	}
+	if out := prGitOutput(t, "--git-dir", gitDir, "for-each-ref", "refs/tinyrelay/pr-repair/"); strings.TrimSpace(out) != "" {
+		t.Fatalf("failed repair left temporary refs: %s", out)
+	}
+}
+
+func TestPullRequestRepairFailureLeavesHostedRefsUnchanged(t *testing.T) {
+	secret := strings.Repeat("0", 63) + "1"
+	owner, err := event.PublicKey(secret)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rootDir := t.TempDir()
+	hosted := Repository{Owner: owner, Identifier: "repo", Refs: map[string]string{
+		"refs/heads/main": strings.Repeat("a", 40),
+	}}
+	g := &GitRelay{root: rootDir, allowPrivate: true, configured: make(map[string]struct{})}
+	root := event.Event{Kind: event.KIND_GIT_PR, CreatedAt: 1, PubKey: owner,
+		Tags: [][]string{{"a", "30617:" + owner + ":repo"}, {"c", strings.Repeat("b", 40)}, {"clone", "http://127.0.0.1:1/repo.git"}}}
+	if err := event.Sign(&root, secret); err != nil {
+		t.Fatal(err)
+	}
+	err = g.RepairPullRequestObjects(context.Background(), hosted, PullRequestRepair{Root: root})
+	if err == nil {
+		t.Fatal("repair unexpectedly succeeded from unavailable source")
+	}
+	if _, err := os.Stat(g.repoPath(hosted)); !os.IsNotExist(err) {
+		// ensureRepo is allowed to create the host, but no signed ref may be
+		// installed after a failed quarantine admission.
+		got, _ := exec.Command("git", "--git-dir", g.repoPath(hosted), "show-ref", "refs/nostr/"+root.ID).CombinedOutput()
+		if len(got) != 0 {
+			t.Fatalf("failed repair installed hosted PR ref: %s", got)
+		}
+	}
+}
+
+func TestPRQuarantineRejectsHistoryBeyondDepth(t *testing.T) {
+	root := t.TempDir()
+	work := filepath.Join(root, "work")
+	remote := filepath.Join(root, "remote.git")
+	prGitRun(t, "init", work)
+	prGitRun(t, "-C", work, "config", "user.email", "pr@example.test")
+	prGitRun(t, "-C", work, "config", "user.name", "PR")
+	for i := 0; i < prRepairDepth+1; i++ {
+		if err := os.WriteFile(filepath.Join(work, "history"), []byte(fmt.Sprintf("%d\n", i)), 0600); err != nil {
+			t.Fatal(err)
+		}
+		prGitRun(t, "-C", work, "add", "history")
+		prGitRun(t, "-C", work, "commit", "-m", fmt.Sprintf("commit %d", i))
+	}
+	tip := strings.TrimSpace(prGitOutput(t, "-C", work, "rev-parse", "HEAD"))
+	base := strings.TrimSpace(prGitOutput(t, "-C", work, "rev-parse", "HEAD~1"))
+	prGitRun(t, "init", "--bare", remote)
+	prGitRun(t, "-C", work, "push", remote, "HEAD:refs/heads/main")
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { serveGitBackend(t, w, r, root) }))
+	t.Cleanup(server.Close)
+	ca := filepath.Join(root, "ca.pem")
+	if err := os.WriteFile(ca, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: server.Certificate().Raw}), 0600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("GIT_SSL_CAINFO", ca)
+	secret := strings.Repeat("0", 63) + "1"
+	owner, err := event.PublicKey(secret)
+	if err != nil {
+		t.Fatal(err)
+	}
+	hosted := Repository{Owner: owner, Identifier: "repo"}
+	g := &GitRelay{root: filepath.Join(root, "hosted"), allowPrivate: true, configured: make(map[string]struct{})}
+	pr := event.Event{Kind: event.KIND_GIT_PR, CreatedAt: 1, Tags: [][]string{{"a", "30617:" + owner + ":repo"}, {"c", tip}, {"clone", server.URL + "/remote.git"}}}
+	if err := event.Sign(&pr, secret); err != nil {
+		t.Fatal(err)
+	}
+	if err := g.RepairPullRequestObjects(context.Background(), hosted, PullRequestRepair{Root: pr}); err == nil || !strings.Contains(err.Error(), "object graph") {
+		t.Fatalf("expected incomplete object graph rejection, got %v", err)
+	}
+	if g.objectsPresent(context.Background(), hosted, []string{tip}) {
+		t.Fatal("rejected objects reached the hosted repository")
+	}
+	gitDir := g.repoPath(hosted)
+	if _, err := os.Stat(filepath.Join(gitDir, "shallow")); !os.IsNotExist(err) {
+		t.Fatalf("hosted shallow boundary changed: %v", err)
+	}
+	if out := prGitOutput(t, "--git-dir", gitDir, "for-each-ref", "refs/nostr/"); strings.TrimSpace(out) != "" {
+		t.Fatalf("rejected PR installed refs: %s", out)
+	}
+	// Once the existing base is hosted, the exact same PR must succeed even
+	// though its complete ancestry extends beyond the remote depth window.
+	prGitRun(t, "--git-dir", gitDir, "fetch", work, base+":refs/heads/main")
+	if err := g.RepairPullRequestObjects(context.Background(), hosted, PullRequestRepair{Root: pr}); err != nil {
+		t.Fatalf("PR with hosted base failed: %v", err)
+	}
+	if got := strings.TrimSpace(prGitOutput(t, "--git-dir", gitDir, "rev-parse", "refs/nostr/"+pr.ID)); got != tip {
+		t.Fatalf("PR tip = %s, want %s", got, tip)
+	}
+	prGitRun(t, "--git-dir", gitDir, "fsck", "--full", "--no-dangling")
+	if _, err := os.Stat(filepath.Join(gitDir, "shallow")); !os.IsNotExist(err) {
+		t.Fatalf("successful repair made host shallow: %v", err)
 	}
 }
 
