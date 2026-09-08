@@ -50,7 +50,7 @@ var iconMonoSVG []byte
 // navItem is one rail entry. Tab matches PageData.Tab for the active state.
 type navItem struct{ Label, Href, Tab string }
 
-var relayNav = []navItem{{"/home", "/", "home"}, {"/search", "/search", "search"}, {"/repos", "/repos", "repos"}, {"/files", "/files", "files"}, {"/sites", "/sites", "sites"}, {"/inbox", "/inbox", "inbox"}, {"/outbox", "/outbox", "outbox"}, {"/articles", "/articles", "articles"}, {"/manage", "/manage/people", "manage"}}
+var relayNav = []navItem{{"/home", "/", "home"}, {"/search", "/search", "search"}, {"/repos", "/repos", "repos"}, {"/files", "/files", "files"}, {"/sites", "/sites", "sites"}, {"/articles", "/articles", "articles"}, {"/inbox", "/inbox", "inbox"}, {"/outbox", "/outbox", "outbox"}, {"/manage", "/manage/people", "manage"}}
 
 var manageNav = []navItem{{"/people", "/manage/people", "people"}, {"/moderation", "/manage/moderation", "moderation"}, {"/rules", "/manage/rules", "rules"}, {"/identity", "/manage/identity", "identity"}, {"/connect", "/manage/connect", "connect"}, {"/data", "/manage/data", "data"}, {"/sync", "/manage/sync", "sync"}, {"/views", "/manage/views", "views"}, {"/health", "/manage/health", "health"}, {"/owner", "/manage/owner", "owner"}, {"/status", "/manage/status", "status"}, {"/tools", "/tools", "tools"}}
 
