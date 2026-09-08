@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"io"
 	"net"
 	"net/http"
@@ -11,7 +12,9 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/FelineStateMachine/tinyrelay/internal/storage"
 )
@@ -43,6 +46,116 @@ func TestUploadDeduplicatesAndServesByHash(t *testing.T) {
 	}
 	if response.Header().Get("ETag") != `"`+digest+`"` {
 		t.Fatalf("etag = %q", response.Header().Get("ETag"))
+	}
+}
+
+func TestUploadEnforcesFileAndUploaderLimits(t *testing.T) {
+	service := testService(t)
+	service.config.Limits = func() Limits { return Limits{MaxFileBytes: 4, UserStorageBytes: 6} }
+	if _, err := service.Put(context.Background(), PutOptions{Reader: strings.NewReader("12345"), Type: "text/plain", Uploader: testUploader}); !errors.Is(err, ErrFileTooLarge) {
+		t.Fatalf("oversized upload error = %v", err)
+	}
+	if _, err := service.Put(context.Background(), PutOptions{Reader: strings.NewReader("1234"), Type: "text/plain", Uploader: testUploader}); err != nil {
+		t.Fatalf("first limited upload: %v", err)
+	}
+	if _, err := service.Put(context.Background(), PutOptions{Reader: strings.NewReader("5678"), Type: "text/plain", Uploader: testUploader}); !errors.Is(err, ErrQuotaExceeded) {
+		t.Fatalf("quota upload error = %v", err)
+	}
+	// A deduplicated claim does not consume additional physical storage.
+	if _, err := service.Put(context.Background(), PutOptions{Reader: strings.NewReader("1234"), Type: "text/plain", Uploader: strings.Repeat("b", 64)}); err != nil {
+		t.Fatalf("deduplicated upload: %v", err)
+	}
+	second := strings.Repeat("b", 64)
+	if _, err := service.Put(context.Background(), PutOptions{Reader: strings.NewReader("abc"), Type: "text/plain", Uploader: strings.Repeat("c", 64)}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.Put(context.Background(), PutOptions{Reader: strings.NewReader("56"), Type: "text/plain", Uploader: second}); err != nil {
+		t.Fatalf("second uploader upload: %v", err)
+	}
+	if _, err := service.Put(context.Background(), PutOptions{Reader: strings.NewReader("xyz"), Type: "text/plain", Uploader: second}); !errors.Is(err, ErrQuotaExceeded) {
+		t.Fatalf("second uploader remaining quota error = %v", err)
+	}
+	if _, err := service.Put(context.Background(), PutOptions{Reader: strings.NewReader("abc"), Type: "text/plain", Uploader: second}); !errors.Is(err, ErrQuotaExceeded) {
+		t.Fatalf("existing blob claim bypassed remaining quota: %v", err)
+	}
+	digest := sha256.Sum256([]byte("56"))
+	sha := hex.EncodeToString(digest[:])
+	if err := service.DeleteForUploader(context.Background(), sha, second); err != nil {
+		t.Fatalf("remove second uploader claim: %v", err)
+	}
+	if _, err := service.Put(context.Background(), PutOptions{Reader: strings.NewReader("ab"), Type: "text/plain", Uploader: second}); err != nil {
+		t.Fatalf("quota after claim deletion: %v", err)
+	}
+}
+
+func TestConcurrentUploadsRespectUploaderQuota(t *testing.T) {
+	service := testService(t)
+	service.config.Limits = func() Limits { return Limits{UserStorageBytes: 4} }
+	var wg sync.WaitGroup
+	errs := make(chan error, 2)
+	for _, body := range []string{"aaaa", "bbbb"} {
+		wg.Add(1)
+		go func(body string) {
+			defer wg.Done()
+			_, err := service.Put(context.Background(), PutOptions{Reader: strings.NewReader(body), Type: "text/plain", Uploader: testUploader})
+			errs <- err
+		}(body)
+	}
+	wg.Wait()
+	close(errs)
+	var success, quota int
+	for err := range errs {
+		if err == nil {
+			success++
+		} else if errors.Is(err, ErrQuotaExceeded) {
+			quota++
+		}
+	}
+	if success != 1 || quota != 1 {
+		t.Fatalf("concurrent quota results success=%d quota=%d", success, quota)
+	}
+}
+
+func TestQuotaOnlyLimitReportsQuotaBeforeHashMismatch(t *testing.T) {
+	service := testService(t)
+	service.config.Limits = func() Limits { return Limits{UserStorageBytes: 4} }
+	_, err := service.Put(context.Background(), PutOptions{Reader: strings.NewReader("12345"), Type: "text/plain", Uploader: testUploader, Hash: strings.Repeat("a", 64)})
+	if !errors.Is(err, ErrQuotaExceeded) {
+		t.Fatalf("quota-only oversized upload error = %v", err)
+	}
+}
+
+func TestSlowUploadDoesNotHoldQuotaLockWhileReading(t *testing.T) {
+	service := testService(t)
+	reader, writer := io.Pipe()
+	done := make(chan error, 1)
+	go func() {
+		_, err := service.Put(context.Background(), PutOptions{Reader: reader, Type: "text/plain", Uploader: testUploader})
+		done <- err
+	}()
+	select {
+	case <-done:
+		t.Fatal("stalled upload returned before receiving data")
+	case <-time.After(25 * time.Millisecond):
+	}
+	second := strings.Repeat("b", 64)
+	finished := make(chan error, 1)
+	go func() {
+		_, err := service.Put(context.Background(), PutOptions{Reader: strings.NewReader("fast"), Type: "text/plain", Uploader: second})
+		finished <- err
+	}()
+	select {
+	case err := <-finished:
+		if err != nil {
+			t.Fatalf("second upload: %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("second upload blocked behind stalled stream")
+	}
+	_, _ = writer.Write([]byte("slow"))
+	_ = writer.Close()
+	if err := <-done; err != nil {
+		t.Fatalf("stalled upload completion: %v", err)
 	}
 }
 

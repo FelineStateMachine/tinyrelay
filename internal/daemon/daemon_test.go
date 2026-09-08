@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/FelineStateMachine/tinyrelay/internal/blob"
 	"github.com/FelineStateMachine/tinyrelay/internal/event"
 )
 
@@ -80,6 +81,34 @@ func signRequest(t *testing.T, r *http.Request, body string) {
 		t.Fatal(err)
 	}
 	r.Header.Set("Authorization", "Nostr "+base64.StdEncoding.EncodeToString(raw))
+}
+
+func TestBUD13RemoteNIP98AcceptsAbsentOrEmptyPayloadOnly(t *testing.T) {
+	_, tenant := testTenant(t)
+	sha := strings.Repeat("a", 64)
+	empty := sha256.Sum256(nil)
+	for name, payload := range map[string]string{"absent": "", "empty": hex.EncodeToString(empty[:]), "wrong": strings.Repeat("b", 64)} {
+		t.Run(name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodPut, "http://relay.test/"+sha+"?url=https%3A%2F%2Forigin.example%2Fblob", http.NoBody)
+			tags := [][]string{{"u", req.URL.String()}, {"method", "PUT"}}
+			if payload != "" {
+				tags = append(tags, []string{"payload", payload})
+			}
+			e := event.Event{Kind: 27235, CreatedAt: time.Now().Unix(), Tags: tags}
+			if err := event.Sign(&e, strings.Repeat("0", 63)+"1"); err != nil {
+				t.Fatal(err)
+			}
+			raw, _ := json.Marshal(e)
+			req.Header.Set("Authorization", "Nostr "+base64.StdEncoding.EncodeToString(raw))
+			_, err := tenant.authorizeBlob(req, blob.ActionUpload)
+			if name == "wrong" && err == nil {
+				t.Fatal("accepted wrong empty-body payload")
+			}
+			if name != "wrong" && err != nil {
+				t.Fatalf("remote authorization: %v", err)
+			}
+		})
+	}
 }
 
 func TestCreationRequiresOwnerAndInformationHasNoEconomy(t *testing.T) {

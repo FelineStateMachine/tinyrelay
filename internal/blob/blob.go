@@ -19,6 +19,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/FelineStateMachine/tinyrelay/internal/event"
@@ -57,6 +58,14 @@ type Config struct {
 	// RecordReport joins native blob reporting to the host moderation ledger.
 	// It runs inside the blob report transaction.
 	RecordReport ReportRecorder
+	// Limits is read for each upload so policy changes apply without reopening
+	// the blob service. Zero values mean unlimited.
+	Limits func() Limits
+}
+
+type Limits struct {
+	MaxFileBytes     int64
+	UserStorageBytes int64
 }
 
 type Blob struct {
@@ -79,10 +88,18 @@ type Service struct {
 	root    string
 	store   *storage.Store
 	resolve ResolveIP
+	quotaMu sync.Mutex
+	// multipartMu protects partial files and their range metadata. Lock it
+	// before quotaMu; network bodies are never read while either is held.
+	multipartMu sync.Mutex
+	activeParts map[string]int
 }
 
 var ErrBlocked = errors.New("blocked: this blob was removed by a moderator")
 var ErrHashMismatch = errors.New("conflict: mirrored blob hash does not match the requested hash")
+var ErrFileTooLarge = errors.New("invalid: blob exceeds the per-file size limit")
+var ErrQuotaExceeded = errors.New("restricted: uploader storage quota exceeded")
+var ErrMultipartConflict = errors.New("conflict: upload metadata differs from existing session")
 
 var shaPattern = regexp.MustCompile(`^[0-9a-f]{64}$`)
 var blobPathPattern = regexp.MustCompile(`^/([0-9a-f]{64})(?:\.[a-z0-9]{1,8})?$`)
@@ -99,6 +116,7 @@ var extensions = map[string]string{
 	"image/png": "png", "image/jpeg": "jpg", "image/gif": "gif", "image/webp": "webp", "image/avif": "avif", "image/svg+xml": "svg",
 	"video/mp4": "mp4", "video/webm": "webm", "video/quicktime": "mov", "audio/mpeg": "mp3", "audio/ogg": "ogg", "audio/wav": "wav", "audio/mp4": "m4a",
 	"application/pdf": "pdf", "application/json": "json", "text/plain": "txt", "text/markdown": "md",
+	"application/vnd.blossom.directory+msgpack": "bdir",
 }
 
 func New(ctx context.Context, config Config) (*Service, error) {
@@ -126,6 +144,8 @@ func New(ctx context.Context, config Config) (*Service, error) {
 		WHEN NEW.uploader != '' BEGIN INSERT OR IGNORE INTO blob_claims(sha256,uploader,claimed_at) VALUES(NEW.sha256,NEW.uploader,NEW.uploaded); END;
 	CREATE TABLE IF NOT EXISTS blob_blocks (sha256 TEXT PRIMARY KEY, reason TEXT NOT NULL DEFAULT '', blocked_at INTEGER NOT NULL DEFAULT 0);
 	CREATE TABLE IF NOT EXISTS blob_tombstones (sha256 TEXT PRIMARY KEY, deleted_at INTEGER NOT NULL);
+	CREATE TABLE IF NOT EXISTS multipart_uploads (id TEXT PRIMARY KEY, sha256 TEXT NOT NULL, uploader TEXT NOT NULL, length INTEGER NOT NULL, type TEXT NOT NULL, created INTEGER NOT NULL, last_seen INTEGER NOT NULL);
+	CREATE TABLE IF NOT EXISTS multipart_parts (upload_id TEXT NOT NULL, offset INTEGER NOT NULL, length INTEGER NOT NULL, PRIMARY KEY(upload_id, offset), FOREIGN KEY(upload_id) REFERENCES multipart_uploads(id) ON DELETE CASCADE);
 	INSERT OR IGNORE INTO blob_claims(sha256,uploader,claimed_at)
 		SELECT sha256,uploader,uploaded FROM blobs WHERE uploader != ''`); err != nil {
 		return nil, fmt.Errorf("initialize blob metadata: %w", err)
@@ -139,7 +159,11 @@ func New(ctx context.Context, config Config) (*Service, error) {
 			return net.DefaultResolver.LookupIP(ctx, "ip", host)
 		}
 	}
-	return &Service{config: config, root: filepath.Join(config.Root, "blobs"), store: config.Store, resolve: resolve}, nil
+	s := &Service{config: config, root: filepath.Join(config.Root, "blobs"), store: config.Store, resolve: resolve, activeParts: make(map[string]int)}
+	if err := s.reconcileMultipart(ctx); err != nil {
+		return nil, err
+	}
+	return s, nil
 }
 
 func (s *Service) Handler() http.HandlerFunc { return s.serveHTTP }
@@ -320,9 +344,13 @@ func (s *Service) Descriptor(baseURL string, entry Blob) map[string]any {
 
 func (s *Service) serveHTTP(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("access-control-allow-origin", "*")
-	w.Header().Set("access-control-allow-headers", "authorization, content-type, x-sha-256, x-content-length")
-	w.Header().Set("access-control-allow-methods", "GET, HEAD, PUT, POST, DELETE, OPTIONS")
+	w.Header().Set("access-control-allow-headers", "authorization, content-type, x-sha-256, x-content-length, x-content-type, upload-type, upload-length, upload-offset")
+	w.Header().Set("access-control-allow-methods", "GET, HEAD, PUT, PATCH, POST, DELETE, OPTIONS")
+	w.Header().Set("Access-Control-Expose-Headers", "Allow, X-Reason")
 	if r.Method == http.MethodOptions {
+		if blobPathPattern.MatchString(r.URL.Path) {
+			w.Header().Set("Allow", "GET, HEAD, PUT, PATCH, DELETE, OPTIONS")
+		}
 		w.WriteHeader(http.StatusNoContent)
 		return
 	}
@@ -340,6 +368,14 @@ func (s *Service) serveHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	if r.URL.Path == "/mirror" && r.Method == http.MethodPut {
 		s.mirror(w, r)
+		return
+	}
+	if match := blobPathPattern.FindStringSubmatch(r.URL.Path); match != nil && (r.Method == http.MethodPut || r.Method == http.MethodPatch || r.Method == http.MethodOptions) {
+		if r.Method == http.MethodPatch || r.Method == http.MethodOptions {
+			s.multipart(w, r, match[1])
+			return
+		}
+		s.pathUpload(w, r, match[1])
 		return
 	}
 	if r.URL.Path == "/report" && r.Method == http.MethodPut {
@@ -388,12 +424,18 @@ func (s *Service) uploadHead(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, http.StatusBadRequest, errors.New("invalid: X-SHA-256 must be lowercase hex"))
 		return
 	}
-	length, err := strconv.ParseInt(strings.TrimSpace(r.Header.Get("x-content-length")), 10, 64)
+	rawLength := strings.TrimSpace(r.Header.Get("x-content-length"))
+	if rawLength == "" {
+		s.fail(w, http.StatusLengthRequired, errors.New("invalid: X-Content-Length is required"))
+		return
+	}
+	length, err := strconv.ParseInt(rawLength, 10, 64)
 	if err != nil || length <= 0 {
 		s.fail(w, http.StatusBadRequest, errors.New("invalid: X-Content-Length must be a positive integer"))
 		return
 	}
-	if _, err := s.authorize(r, ActionUpload); err != nil {
+	pubkey, err := s.authorize(r, ActionUpload)
+	if err != nil {
 		s.fail(w, http.StatusUnauthorized, err)
 		return
 	}
@@ -404,6 +446,26 @@ func (s *Service) uploadHead(w http.ResponseWriter, r *http.Request) {
 	if strings.TrimSpace(typ) == "" {
 		s.fail(w, http.StatusBadRequest, errors.New("invalid: X-Content-Type is required"))
 		return
+	}
+	if existing, lookupErr := s.lookup(r.Context(), sha); lookupErr == nil && existing.SHA256 != "" && s.hasClaim(r.Context(), sha, pubkey) {
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+	limits := s.currentLimits()
+	if limits.MaxFileBytes > 0 && length > limits.MaxFileBytes {
+		s.fail(w, http.StatusRequestEntityTooLarge, ErrFileTooLarge)
+		return
+	}
+	// HEAD is advisory for deduplicated uploads, whose final physical size is
+	// already present, but it should still reflect the current quota budget.
+	if limits.UserStorageBytes > 0 {
+		if used, quotaErr := s.quotaUsage(r.Context(), pubkey); quotaErr != nil {
+			s.fail(w, http.StatusInternalServerError, quotaErr)
+			return
+		} else if length > limits.UserStorageBytes-used {
+			s.fail(w, http.StatusForbidden, ErrQuotaExceeded)
+			return
+		}
 	}
 	if existing, err := s.lookup(r.Context(), sha); err == nil && existing.SHA256 != "" {
 		w.WriteHeader(http.StatusOK)
@@ -516,6 +578,16 @@ func (s *Service) put(ctx context.Context, source io.Reader, typ, uploader, clai
 }
 
 func (s *Service) putValidated(ctx context.Context, source io.Reader, typ, uploader, claimed string, validate func(string) error) (Blob, bool, error) {
+	limits := s.currentLimits()
+	streamLimit := limits.MaxFileBytes
+	quotaStream := false
+	if streamLimit == 0 && limits.UserStorageBytes > 0 && uploader != "" {
+		streamLimit = limits.UserStorageBytes
+		quotaStream = true
+	}
+	if streamLimit > 0 && streamLimit < int64(^uint64(0)>>1) {
+		source = io.LimitReader(source, streamLimit+1)
+	}
 	tmp, err := os.CreateTemp(s.root, ".upload-")
 	if err != nil {
 		return Blob{}, false, fmt.Errorf("create upload temporary file: %w", err)
@@ -528,9 +600,13 @@ func (s *Service) putValidated(ctx context.Context, source io.Reader, typ, uploa
 		_ = tmp.Close()
 		return Blob{}, false, fmt.Errorf("read upload: %w", err)
 	}
-	if count == 0 {
+	if limits.MaxFileBytes > 0 && count > limits.MaxFileBytes {
 		_ = tmp.Close()
-		return Blob{}, false, errors.New("invalid: empty body")
+		return Blob{}, false, ErrFileTooLarge
+	}
+	if quotaStream && count > streamLimit {
+		_ = tmp.Close()
+		return Blob{}, false, ErrQuotaExceeded
 	}
 	if err := tmp.Sync(); err != nil {
 		_ = tmp.Close()
@@ -548,12 +624,48 @@ func (s *Service) putValidated(ctx context.Context, source io.Reader, typ, uploa
 			return Blob{}, false, err
 		}
 	}
+	return s.installUpload(ctx, uploadCandidate{path: tmpName, hash: sha, size: count, typ: typ, uploader: uploader})
+}
+
+type uploadCandidate struct {
+	path, hash, typ, uploader, reservation string
+	size                                   int64
+}
+
+func (s *Service) installUpload(ctx context.Context, candidate uploadCandidate) (Blob, bool, error) {
+	sha, count, typ, uploader := candidate.hash, candidate.size, candidate.typ, candidate.uploader
+	// Serialize the lookup, quota check, installation and metadata transaction.
+	// This closes the race where concurrent uploads could each observe the same
+	// remaining quota before one of them installs a new physical object.
+	s.quotaMu.Lock()
+	defer s.quotaMu.Unlock()
 	if s.blocked(ctx, sha) {
 		return Blob{}, false, ErrBlocked
 	}
+	limits := s.currentLimits()
+	if limits.MaxFileBytes > 0 && count > limits.MaxFileBytes {
+		return Blob{}, false, ErrFileTooLarge
+	}
+	if limits.UserStorageBytes > 0 && uploader != "" && count > limits.UserStorageBytes {
+		return Blob{}, false, ErrQuotaExceeded
+	}
 	if existing, err := s.lookup(ctx, sha); err == nil {
 		if uploader != "" {
+			if limits.UserStorageBytes > 0 && !s.hasClaim(ctx, sha, uploader) {
+				used, usageErr := s.quotaUsageExcept(ctx, uploader, candidate.reservation)
+				if usageErr != nil {
+					return Blob{}, false, fmt.Errorf("check uploader storage quota: %w", usageErr)
+				}
+				if existing.Size > limits.UserStorageBytes-used {
+					return Blob{}, false, ErrQuotaExceeded
+				}
+			}
 			if err := s.claim(ctx, sha, uploader); err != nil {
+				return Blob{}, false, err
+			}
+		}
+		if candidate.reservation != "" {
+			if _, err := s.store.DB().ExecContext(ctx, "DELETE FROM multipart_uploads WHERE id=?", candidate.reservation); err != nil {
 				return Blob{}, false, err
 			}
 		}
@@ -561,8 +673,17 @@ func (s *Service) putValidated(ctx context.Context, source io.Reader, typ, uploa
 	} else if !errors.Is(err, sql.ErrNoRows) {
 		return Blob{}, false, err
 	}
+	if limits.UserStorageBytes > 0 && uploader != "" {
+		used, err := s.quotaUsageExcept(ctx, uploader, candidate.reservation)
+		if err != nil {
+			return Blob{}, false, fmt.Errorf("check uploader storage quota: %w", err)
+		}
+		if count > limits.UserStorageBytes-used {
+			return Blob{}, false, ErrQuotaExceeded
+		}
+	}
 	final := filepath.Join(s.root, sha)
-	if err := os.Rename(tmpName, final); err != nil && !errors.Is(err, os.ErrExist) {
+	if err := os.Rename(candidate.path, final); err != nil && !errors.Is(err, os.ErrExist) {
 		return Blob{}, false, fmt.Errorf("install blob: %w", err)
 	}
 	if err := syncDirectory(s.root); err != nil {
@@ -574,7 +695,7 @@ func (s *Service) putValidated(ctx context.Context, source io.Reader, typ, uploa
 		typ = detectFileType(final)
 	}
 	entry := Blob{SHA256: sha, Size: count, Type: typ, Uploader: uploader, Uploaded: now}
-	err = s.store.WithTx(ctx, func(tx *sql.Tx) error {
+	err := s.store.WithTx(ctx, func(tx *sql.Tx) error {
 		if _, err := tx.ExecContext(ctx, "DELETE FROM blob_tombstones WHERE sha256=?", entry.SHA256); err != nil {
 			return fmt.Errorf("clear blob deletion tombstone: %w", err)
 		}
@@ -584,6 +705,11 @@ func (s *Service) putValidated(ctx context.Context, source io.Reader, typ, uploa
 		if entry.Uploader != "" {
 			if _, err := tx.ExecContext(ctx, "INSERT OR IGNORE INTO blob_claims(sha256,uploader,claimed_at) VALUES(?,?,?)", entry.SHA256, entry.Uploader, entry.Uploaded); err != nil {
 				return fmt.Errorf("record blob claim: %w", err)
+			}
+		}
+		if candidate.reservation != "" {
+			if _, err := tx.ExecContext(ctx, "DELETE FROM multipart_uploads WHERE id=?", candidate.reservation); err != nil {
+				return fmt.Errorf("release upload reservation: %w", err)
 			}
 		}
 		return nil
@@ -597,12 +723,41 @@ func (s *Service) putValidated(ctx context.Context, source io.Reader, typ, uploa
 	return entry, true, nil
 }
 
+func (s *Service) quotaUsage(ctx context.Context, uploader string) (int64, error) {
+	return s.quotaUsageExcept(ctx, uploader, "")
+}
+
+func (s *Service) quotaUsageExcept(ctx context.Context, uploader, reservation string) (int64, error) {
+	var used sql.NullInt64
+	err := s.store.DB().QueryRowContext(ctx, `SELECT COALESCE((SELECT SUM(b.size)
+		FROM blobs b JOIN blob_claims c ON c.sha256=b.sha256 WHERE c.uploader=?),0) +
+		COALESCE((SELECT SUM(length) FROM multipart_uploads WHERE uploader=? AND id != ?),0)`, uploader, uploader, reservation).Scan(&used)
+	if err != nil {
+		return 0, err
+	}
+	return used.Int64, nil
+}
+
 func (s *Service) claim(ctx context.Context, sha, uploader string) error {
 	_, err := s.store.DB().ExecContext(ctx, "INSERT OR IGNORE INTO blob_claims(sha256,uploader,claimed_at) VALUES(?,?,?)", sha, uploader, time.Now().UTC().Unix())
 	if err != nil {
 		return fmt.Errorf("record blob claim: %w", err)
 	}
 	return nil
+}
+
+func (s *Service) currentLimits() Limits {
+	if s.config.Limits == nil {
+		return Limits{}
+	}
+	limits := s.config.Limits()
+	if limits.MaxFileBytes < 0 {
+		limits.MaxFileBytes = 0
+	}
+	if limits.UserStorageBytes < 0 {
+		limits.UserStorageBytes = 0
+	}
+	return limits
 }
 
 func (s *Service) hasClaim(ctx context.Context, sha, uploader string) bool {
@@ -634,7 +789,7 @@ func reconcile(ctx context.Context, store *storage.Store, root string) error {
 			continue
 		}
 		name := entry.Name()
-		if strings.HasPrefix(name, ".upload-") {
+		if strings.HasPrefix(name, ".upload-") || strings.HasPrefix(name, ".multipart-chunk-") {
 			if err := os.Remove(filepath.Join(root, name)); err != nil {
 				return fmt.Errorf("remove abandoned upload: %w", err)
 			}
@@ -1138,8 +1293,20 @@ func statusFor(err error) int {
 	if errors.Is(err, ErrHashMismatch) {
 		return http.StatusConflict
 	}
+	if errors.Is(err, ErrMultipartConflict) {
+		return http.StatusConflict
+	}
+	if errors.Is(err, ErrFileTooLarge) {
+		return http.StatusRequestEntityTooLarge
+	}
+	if errors.Is(err, ErrQuotaExceeded) {
+		return http.StatusForbidden
+	}
 	if errors.Is(err, ErrBlocked) {
 		return http.StatusForbidden
+	}
+	if strings.HasPrefix(err.Error(), "auth-required:") {
+		return http.StatusUnauthorized
 	}
 	if strings.HasPrefix(err.Error(), "invalid:") {
 		return http.StatusBadRequest

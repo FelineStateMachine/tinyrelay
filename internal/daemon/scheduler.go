@@ -45,6 +45,9 @@ func (t *Tenant) runScheduler() {
 		if !wake {
 			report("records", t.records.Tick(ctx, now.Unix()))
 			if !now.Before(nextMaintenance) {
+				if t.blobs != nil {
+					report("partial uploads", t.blobs.CleanupMultipart(ctx))
+				}
 				report("retention", t.sweep(ctx, now.Unix()))
 				report("restore-state", t.sweepReplicationState(ctx, now.Unix()))
 				report("git-sync", t.git.GRASPService().Tick(ctx))

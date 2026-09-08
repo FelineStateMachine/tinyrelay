@@ -30,6 +30,9 @@ func TestCapabilityRegistryReportsHonestOptionalFeatures(t *testing.T) {
 	if got["NIP-94"].Status != "enabled" || got["NIP-96"].Status != "enabled" {
 		t.Fatalf("file capabilities = %#v", got)
 	}
+	if got["BUD-08"].Status != "enabled" || got["BUD-13"].Status != "enabled" {
+		t.Fatalf("file metadata and upload capabilities = %#v", got)
+	}
 }
 
 func TestPublishPeerStatusStoresSignedDiscoveryEvent(t *testing.T) {

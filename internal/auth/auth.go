@@ -105,16 +105,16 @@ func (v *Validator) verifyBlossom(header, action, server, blobHash string, stric
 	if expiration == 0 || expiration <= now.Unix() {
 		return event.Event{}, authError("token expired")
 	}
-	if e.CreatedAt > now.Unix()+int64(5*time.Minute/time.Second) {
+	// BUD-11 authorization timestamps may not be from the future. The
+	// expiration tag, rather than an arbitrary maximum age, controls how long
+	// an otherwise valid token remains usable.
+	if e.CreatedAt > now.Unix() {
 		return event.Event{}, authError("token is from the future")
-	}
-	if strict && e.CreatedAt < now.Unix()-int64(5*time.Minute/time.Second) {
-		return event.Event{}, authError("token is expired")
 	}
 	if strict && requiresBlobScope(action) && len(event.TagValues(e, "x")) == 0 {
 		return event.Event{}, authError("token must include an x tag")
 	}
-	if strict && blobHash != "" && !contains(event.TagValues(e, "x"), blobHash) {
+	if strict && blobHash != "" && len(event.TagValues(e, "x")) > 0 && !contains(event.TagValues(e, "x"), blobHash) {
 		return event.Event{}, authError("token x tag does not name this blob")
 	}
 	return e, nil

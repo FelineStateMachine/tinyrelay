@@ -3,7 +3,9 @@ package daemon
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"database/sql"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -39,15 +41,11 @@ func (t *Tenant) initServices(ctx context.Context) error {
 	}
 	t.blobs, err = blob.New(ctx, blob.Config{
 		Root: t.meta.Paths.Root, PublicURL: t.publicURL, Store: t.store, Authorize: t.authorizeBlob,
-		ValidateUpload: func(r *http.Request, hash string) error {
-			// /mirror is authenticated against its complete JSON request body in
-			// authorizeBlob. Its resulting blob hash is not the NIP-98 payload
-			// hash; Blossom tokens still bind through their x tag.
-			if r.URL.Path == "/mirror" {
-				return t.auth.ValidateBlossomPayload(r.Header.Get("Authorization"), string(blob.ActionMirror), hash)
-			}
-			return t.auth.ValidateBlobPayload(r.Header.Get("Authorization"), hash)
+		Limits: func() blob.Limits {
+			limits := t.Policy().FileLimits
+			return blob.Limits{MaxFileBytes: limits.MaxFileBytes, UserStorageBytes: limits.UserStorageBytes}
 		},
+		ValidateUpload: t.validateBlobUpload,
 		ResolveServers: func(ctx context.Context, pubkey string) ([]string, error) {
 			result, err := t.store.Query(ctx, event.Filter{Authors: []string{pubkey}, Kinds: []int{10063}, Tags: map[string][]string{}}, storage.QueryOptions{Now: time.Now().Unix(), Access: storage.Access{All: true}, Limit: 1})
 			if err != nil {
@@ -224,10 +222,13 @@ func (t *Tenant) siteReadAccess(r *http.Request) bool {
 }
 func (t *Tenant) authorizeBlob(r *http.Request, action blob.Action) (string, error) {
 	hash := ""
-	if action == blob.ActionGet || action == blob.ActionDelete {
+	if action == blob.ActionGet || action == blob.ActionDelete || (action == blob.ActionUpload && (r.Method == http.MethodPut || r.Method == http.MethodPatch)) {
 		path := strings.TrimPrefix(r.URL.Path, "/")
 		path = strings.TrimPrefix(path, "nip96/")
 		hash = strings.Split(path, ".")[0]
+		if len(hash) != 64 || strings.Trim(hash, "0123456789abcdef") != "" {
+			hash = ""
+		}
 	}
 	body, bodyErr := blobAuthBody(r, action)
 	if bodyErr != nil {
@@ -241,17 +242,32 @@ func (t *Tenant) authorizeBlob(r *http.Request, action blob.Action) (string, err
 		pubkey = token.PubKey
 	} else {
 		if auth.IsBlossomAuthorization(r.Header.Get("Authorization")) {
+			blossomAction := string(action)
+			if action == blob.ActionMirror {
+				// BUD-04 mirror uses the upload authorization verb; the fetched
+				// bytes are the resulting blob and are scoped by x below.
+				blossomAction = string(blob.ActionUpload)
+			}
 			blobHash := hash
 			if blobHash == "" && action == blob.ActionUpload {
 				blobHash = strings.ToLower(strings.TrimSpace(r.Header.Get("x-sha-256")))
 			}
 			var token event.Event
-			token, err = t.auth.VerifyBlossomRequest(r.Header.Get("Authorization"), string(action), t.siteDomain(), blobHash)
+			token, err = t.auth.VerifyBlossomRequest(r.Header.Get("Authorization"), blossomAction, t.siteDomain(), blobHash)
 			pubkey = token.PubKey
 		} else {
-			var keys []string
-			keys, err = t.auth.WhoAsks(r.Header.Get("Authorization"), t.requestURL(r), r.Method, body, string(action), hash)
-			pubkey = first(keys)
+			if isBUD13RemoteUpload(r) {
+				var token event.Event
+				token, err = t.auth.VerifyNIP98(r.Header.Get("Authorization"), t.requestURL(r), r.Method, "")
+				if err == nil && event.Tag(token, "payload") != "" && event.Tag(token, "payload") != emptyPayloadHash() {
+					err = errors.New("auth-required: remote upload token payload must hash an empty body")
+				}
+				pubkey = token.PubKey
+			} else {
+				var keys []string
+				keys, err = t.auth.WhoAsks(r.Header.Get("Authorization"), t.requestURL(r), r.Method, body, string(action), hash)
+				pubkey = first(keys)
+			}
 		}
 	}
 	if err != nil {
@@ -282,6 +298,24 @@ func (t *Tenant) authorizeBlob(r *http.Request, action blob.Action) (string, err
 		}
 	}
 	return pubkey, nil
+}
+
+func (t *Tenant) validateBlobUpload(r *http.Request, hash string) error {
+	// PATCH carries only one chunk. Blossom scopes the final path hash, while
+	// NIP-98 binds the bytes in this individual request body.
+	if r.Method == http.MethodPatch && auth.IsBlossomAuthorization(r.Header.Get("Authorization")) {
+		finalHash := strings.Split(strings.TrimPrefix(r.URL.Path, "/"), ".")[0]
+		return t.auth.ValidateBlossomPayload(r.Header.Get("Authorization"), string(blob.ActionUpload), finalHash)
+	}
+	// Mirror proofs bind the HTTP request body before fetching. Blossom
+	// authorization additionally names the fetched content through its x tag.
+	if r.URL.Path == "/mirror" || isBUD13RemoteUpload(r) {
+		if auth.IsBlossomAuthorization(r.Header.Get("Authorization")) {
+			return t.auth.ValidateBlossomPayload(r.Header.Get("Authorization"), string(blob.ActionUpload), hash)
+		}
+		return nil
+	}
+	return t.auth.ValidateBlobPayload(r.Header.Get("Authorization"), hash)
 }
 
 // NIP-98 binds its payload to the complete HTTP body. The streaming Blossom
@@ -355,6 +389,21 @@ func first(v []string) string {
 	}
 	return v[0]
 }
+
+func isBUD13RemoteUpload(r *http.Request) bool {
+	if r == nil || r.Method != http.MethodPut || r.URL.Query().Get("url") == "" {
+		return false
+	}
+	path := strings.TrimPrefix(r.URL.Path, "/")
+	hash := strings.Split(path, ".")[0]
+	return len(hash) == 64 && strings.Trim(hash, "0123456789abcdefABCDEF") == ""
+}
+
+func emptyPayloadHash() string {
+	sum := sha256.Sum256(nil)
+	return hex.EncodeToString(sum[:])
+}
+
 func (t *Tenant) resolveUIActor(r *http.Request) (string, error) {
 	if r.Header.Get("Authorization") == "" {
 		if r.Method != http.MethodGet && r.Method != http.MethodHead {

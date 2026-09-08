@@ -122,6 +122,25 @@ func TestVerifyBlossomRequestRequiresScopeAndServer(t *testing.T) {
 	}
 }
 
+func TestVerifyBlossomRequestAllowsUnscopedGet(t *testing.T) {
+	now := time.Unix(1_700_000_000, 0)
+	validator := NewValidator(func() time.Time { return now })
+	hash := sha256Hex("blob")
+	e := signedEvent(t, 24242, now.Add(-24*time.Hour).Unix(), "", [][]string{{"t", "get"}, {"expiration", "1700086400"}})
+	if _, err := validator.VerifyBlossomRequest(token(t, e), "get", "relay.example", hash); err != nil {
+		t.Fatalf("unscoped GET token rejected: %v", err)
+	}
+}
+
+func TestVerifyBlossomRequestRejectsFutureCreatedAt(t *testing.T) {
+	now := time.Unix(1_700_000_000, 0)
+	validator := NewValidator(func() time.Time { return now })
+	e := signedEvent(t, 24242, now.Add(time.Second).Unix(), "", [][]string{{"t", "get"}, {"expiration", "1700000300"}})
+	if _, err := validator.VerifyBlossomRequest(token(t, e), "get", "relay.example", ""); err == nil || !strings.Contains(err.Error(), "future") {
+		t.Fatalf("future token accepted: %v", err)
+	}
+}
+
 func TestChallengeManagerBindsRelayAndConsumesChallenge(t *testing.T) {
 	now := time.Unix(1_700_000_000, 0)
 	m := NewChallengeManager("wss://relay.example/tenant", func() time.Time { return now })

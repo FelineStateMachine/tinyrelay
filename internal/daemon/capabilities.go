@@ -84,10 +84,13 @@ func CapabilityRegistryWithServices(p policy.Policy, gitAvailable, blobsAvailabl
 		{ID: "BUD-01", Status: "enabled", Reason: "blob retrieval and basic server behavior"},
 		{ID: "BUD-02", Status: "enabled", Reason: "blob upload and management"},
 		{ID: "BUD-04", Status: "enabled", Reason: "blob mirroring"},
-		{ID: "BUD-06", Status: "enabled", Reason: "blob existence and metadata checks"},
+		{ID: "BUD-06", Status: "enabled", Reason: "upload preflight and storage allowances"},
+		{ID: "BUD-08", Status: "enabled", Reason: "Nostr file metadata in blob descriptors"},
 		{ID: "BUD-09", Status: "enabled", Reason: "blob reports"},
 		{ID: "BUD-11", Status: "enabled", Reason: "Nostr authorization"},
 		{ID: "BUD-12", Status: "enabled", Reason: "cursor-paginated blob listing"},
+		{ID: "BUD-13", Status: "enabled", Reason: "draft hash-addressed uploads and remote sources"},
+		{ID: "BUD-14", Status: "enabled", Reason: "draft multipart uploads with bounded partial storage"},
 		{ID: "NIP-66", Status: "disabled", Reason: "operator peer liveness is not configured"},
 	}
 	if p.Features.Count {

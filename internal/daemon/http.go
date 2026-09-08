@@ -21,10 +21,15 @@ import (
 
 func (t *Tenant) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Access-Control-Allow-Origin", "*")
-	w.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type, X-SHA-256, X-Content-Length, X-Content-Type")
-	w.Header().Set("Access-Control-Allow-Methods", "GET, HEAD, POST, PUT, DELETE, OPTIONS")
+	w.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type, X-SHA-256, X-Content-Length, X-Content-Type, Upload-Type, Upload-Length, Upload-Offset")
+	w.Header().Set("Access-Control-Allow-Methods", "GET, HEAD, POST, PUT, PATCH, DELETE, OPTIONS")
+	w.Header().Set("Access-Control-Expose-Headers", "Allow, X-Reason")
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	if r.Method == http.MethodOptions {
+		if t.blobs != nil && t.Policy().Features.Files && blob.HandlesPath(r.URL.Path) {
+			t.blobs.Handler().ServeHTTP(w, r)
+			return
+		}
 		w.WriteHeader(http.StatusNoContent)
 		return
 	}
