@@ -45,6 +45,8 @@ python3 scripts/observe-git-benchmark.py --out artifacts/git/baseline \
 
 The [conformance suite](../scripts/conformance/README.md) runs black-box NIP and GRASP cases against a running local daemon and preserves stdout, stderr, status, and environment artifacts. Start the daemon, then run `node scripts/conformance/run.mjs`. To try the Bunker URL sign-in without a phone, run `node scripts/qa/nip46-bunker.mjs` and paste the printed URL into the sign-in page.
 
+The [UI checks](../scripts/qa/README.md) cover hosted viewers, malformed URLs, signer controls, browser history, failed requests and mobile navigation with and without JavaScript.
+
 ## Real Git repositories
 
 The Git performance harness below records raw profiles and results under `artifacts/git-performance/`.
