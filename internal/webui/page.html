@@ -121,7 +121,7 @@
 
 {{define "nostrEvent"}}{{$e := asMap .}}<nostr-event id="event-{{str (index $e "id")}}">
 <header><a href="/e/{{str (index $e "id")}}">{{shortID (index $e "id")}}</a> | kind {{str (index $e "kind")}} | {{template "nostrKey" (str (index $e "pubkey"))}}<small><time datetime="{{datetime (index $e "created_at")}}">{{when (index $e "created_at")}}</time></small></header>
-<pre>{{str (index $e "content")}}</pre>
+{{if eq (str (index $e "kind")) "30023"}}<article>{{markdown (str (index $e "content"))}}</article>{{else}}<pre>{{str (index $e "content")}}</pre>{{end}}
 <details><summary>event JSON</summary>{{template "jsonView" .}}</details>
 </nostr-event>{{end}}
 

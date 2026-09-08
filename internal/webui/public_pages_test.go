@@ -29,6 +29,32 @@ func (b *articleBackend) Query(_ context.Context, method string, _ []json.RawMes
 	return nil, nil
 }
 
+type articleDetailBackend struct{ fakeBackend }
+
+func (b *articleDetailBackend) Query(_ context.Context, method string, _ []json.RawMessage, _ string) (any, error) {
+	if method == "eventdetail" {
+		return map[string]any{"id": "article-1", "kind": 30023, "created_at": float64(1700000000), "pubkey": strings.Repeat("a", 64), "content": "# Heading\n\nBody"}, nil
+	}
+	return nil, nil
+}
+
+func TestArticleDetailRendersMarkdownContent(t *testing.T) {
+	backend := &articleDetailBackend{fakeBackend: fakeBackend{policy: policy.Defaults(strings.Repeat("a", 64))}}
+	app, err := New(backend, Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	recorder := httptest.NewRecorder()
+	app.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/e/article-1", nil))
+	body := recorder.Body.String()
+	if recorder.Code != http.StatusOK || !strings.Contains(body, `<nostr-event id="event-article-1">`) || !strings.Contains(body, "<article><h1>Heading</h1>") {
+		t.Fatalf("article detail did not render markdown within the shared event viewer: status=%d", recorder.Code)
+	}
+	if strings.Contains(body, "<pre># Heading") {
+		t.Fatalf("article detail retained plaintext rendering: %s", body)
+	}
+}
+
 func TestPublicSearchAndInboxRenderBackendResults(t *testing.T) {
 	owner := strings.Repeat("a", 64)
 	backend := &publicBackend{fakeBackend: fakeBackend{policy: policy.Defaults(owner)}}

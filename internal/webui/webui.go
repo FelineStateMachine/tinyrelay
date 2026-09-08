@@ -556,7 +556,7 @@ func (a *App) readme(ctx context.Context, actor string, query url.Values) templa
 		if binary, _ := page["binary"].(bool); binary || content == "" {
 			continue
 		}
-		return renderMarkdown(content)
+		return renderRepositoryMarkdown(content, query)
 	}
 	return ""
 }
