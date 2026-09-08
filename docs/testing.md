@@ -5,6 +5,8 @@ The normal development loop is local:
 ```sh
 make test-internal-race
 make test
+npm run test:files
+npm run test:collaboration
 ```
 
 The repository also contains a multistage Docker build. `make docker-test` runs `TEST_PACKAGES` (default `./...`) under Go 1.27.1 on Debian Bookworm with the race detector. `make docker-build` builds the self-hosted runtime image.
@@ -78,8 +80,14 @@ node scripts/git-performance.mjs --relay ws://127.0.0.1:17447 \
 
 Use `--only strudel,atlas` to select fixtures. Each run creates distinct signed repository identities, checks all transferred refs and HEAD, runs `git fsck`, and measures relay EVENT/REQ traffic throughout the Git phases. The incremental push adds a commit with an unchanged tree; it is a small metadata update, not a new binary upload.
 
-Add `--private` to test private repository announcements and NIP-98 Git authorization. The harness authenticates its control WebSocket with the repository signer and starts a loopback signing proxy for native Git. That proxy hashes each request through a temporary file and signs the exact URL, method and body; its overhead is included in private timings. Private server authorization also spools before invoking Git, so malformed payloads cannot mutate the repository and upload size does not determine Go heap size. Do not interpret private timings as a like-for-like unauthenticated native Git comparison.
+Add `--private` to both commands to test a GRASP-08 private tenant. The private fixture uses the documented benchmark owner key, so it is already a tenant member. The harness authenticates its control WebSocket with the repository signer and starts a loopback signing proxy for native Git. The proxy adds a repository-root proof with the literal `GET` method to each Git request, and its temporary file handling is included in private timings. Signed repository state authorizes each pushed ref. Use a fresh data directory for each comparison. Do not interpret private timings as a like-for-like unauthenticated native Git comparison.
 
 For native Git comparisons, `go run ./scripts/git-http-baseline --root /path/to/fresh-bare-repos --listen 127.0.0.1:17449` exposes a benchmark-only HTTP server. Initialize one empty bare `<name>.git` per fixture, set its symbolic HEAD to the corpus manifest's `head_branch`, and enable `http.receivepack`. Add `--baseline http://127.0.0.1:17449` to the workload. Use fresh baseline repositories for each run so initial pushes transfer the complete corpus.
 
 The raw JSON records failures as failures; interrupted or absent phases are not successful samples. The observer separates Go process memory from container memory, which also includes native Git and file cache. Run performance measurements separately from compilation and test suites on the same host.
+
+## Git collaboration checks
+
+Run `npm run test:collaboration` to check signed issue, reply, status and pull request events. Run `go test ./internal/daemon ./internal/gitrelay ./internal/replication ./internal/webui` for collaboration queries, access controls, synchronization, Git repair and page rendering.
+
+The UX fixture includes an issue, a threaded comment, a status change and a pull request with a real Git diff. Use a disposable daemon when testing signed browser publishing.

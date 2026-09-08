@@ -45,6 +45,10 @@ The web interface uses plain HTML pages and forms. Connect a Nostr signer with N
 
 The browsing pages provide repository lists, source files, branches, history, diffs, file previews, raw downloads, synchronization status, and storage status. Access follows the tenant's current permissions.
 
+See [Files and private repositories](docs/files-and-private-repositories.md) for encrypted folders, resumable uploads, storage allowances, private Git hosting and Blossom draft support.
+
+See [Git collaboration](docs/git-collaboration.md) for issues, pull requests, conversation synchronization and participant outboxes.
+
 The `/tools` page reports whether the browser supports native WebMCP controls. See [WebMCP tools](docs/webmcp.md) for browser-agent integration and authorization behavior.
 
 ## Deployment
