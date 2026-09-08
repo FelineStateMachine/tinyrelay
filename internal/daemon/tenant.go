@@ -64,6 +64,7 @@ type Tenant struct {
 	policyWrite   sync.Mutex
 	policy        policy.Policy
 	maintenance   maintenanceGate
+	gitLegacy     *replication.LegacyCache
 }
 
 func newTenant(ctx context.Context, cfg tenantConfig) (*Tenant, error) {
@@ -82,7 +83,7 @@ func newTenant(ctx context.Context, cfg tenantConfig) (*Tenant, error) {
 			return nil, fmt.Errorf("preserve legacy repository privacy: %w", err)
 		}
 	}
-	t := &Tenant{app: cfg.app, meta: cfg.meta, store: cfg.store, policy: p, publicURL: cfg.publicURL, auth: auth.NewValidator(time.Now), schedulerWake: make(chan struct{}, 1)}
+	t := &Tenant{app: cfg.app, meta: cfg.meta, store: cfg.store, policy: p, publicURL: cfg.publicURL, auth: auth.NewValidator(time.Now), schedulerWake: make(chan struct{}, 1), gitLegacy: &replication.LegacyCache{}}
 	t.community, err = community.New(ctx, t.store, t.policy.Owner)
 	if err != nil {
 		return nil, err

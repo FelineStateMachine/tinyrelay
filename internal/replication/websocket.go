@@ -256,6 +256,49 @@ type NostrTransport struct {
 	sequence atomic.Uint64
 	legacyMu sync.Mutex
 	legacy   map[string]struct{}
+	// LegacyCache may be shared by short-lived transports created for the same
+	// tenant. Entries expire so a relay can gain NIP-77 support without a
+	// process restart.
+	LegacyCache *LegacyCache
+}
+
+const legacyProbeTTL = 4 * time.Hour
+
+type LegacyCache struct {
+	mu      sync.Mutex
+	entries map[string]time.Time
+}
+
+func (c *LegacyCache) known(target string) bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	when, ok := c.entries[target]
+	if !ok || time.Since(when) >= legacyProbeTTL {
+		if ok {
+			delete(c.entries, target)
+		}
+		return false
+	}
+	return true
+}
+
+func (c *LegacyCache) remember(target string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.entries == nil {
+		c.entries = make(map[string]time.Time)
+	}
+	if len(c.entries) >= 64 {
+		var oldest string
+		var oldestAt time.Time
+		for key, at := range c.entries {
+			if oldest == "" || at.Before(oldestAt) {
+				oldest, oldestAt = key, at
+			}
+		}
+		delete(c.entries, oldest)
+	}
+	c.entries[target] = time.Now()
 }
 
 // Subscribe keeps a bounded NIP-01 subscription open until ctx is canceled.
@@ -384,6 +427,9 @@ func (t *NostrTransport) QuerySynchronized(ctx context.Context, target string, f
 }
 
 func (t *NostrTransport) knownLegacy(target string) bool {
+	if t.LegacyCache != nil && t.LegacyCache.known(target) {
+		return true
+	}
 	t.legacyMu.Lock()
 	defer t.legacyMu.Unlock()
 	_, ok := t.legacy[target]
@@ -391,6 +437,10 @@ func (t *NostrTransport) knownLegacy(target string) bool {
 }
 
 func (t *NostrTransport) rememberLegacy(target string) {
+	if t.LegacyCache != nil {
+		t.LegacyCache.remember(target)
+		return
+	}
 	t.legacyMu.Lock()
 	defer t.legacyMu.Unlock()
 	if t.legacy == nil {

@@ -282,7 +282,13 @@ func (s *Service) Tick(ctx context.Context) error {
 			}
 			cancel()
 		}
-		if repoErr != nil {
+		if errors.Is(repoErr, ErrIncomplete) {
+			// Progress is saved; continue soon without recording a failure.
+			if previous, ok := previousProgress.Repos[repoKey]; ok {
+				status.SucceededAt = previous.SucceededAt
+			}
+			status.NextAt = progress.At + graspRetryDelay
+		} else if repoErr != nil {
 			status.Error = repoErr.Error()
 			status.NextAt = progress.At + graspRetryDelay
 			tickErr = errors.Join(tickErr, fmt.Errorf("%s synchronization: %w", last, repoErr))
@@ -923,6 +929,11 @@ func (g *GitRelay) validateRefs(refs map[string]string) error {
 	}
 	return nil
 }
+
+// ErrIncomplete reports a synchronization pass that saved progress and has
+// more history to fetch. The scheduler continues it soon without counting a
+// failure.
+var ErrIncomplete = errors.New("synchronization incomplete")
 
 // Capabilities returns only protocol surfaces that this instance can serve.
 func (g *GitRelay) Capabilities() []string {

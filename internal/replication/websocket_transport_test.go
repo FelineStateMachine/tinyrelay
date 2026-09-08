@@ -3,6 +3,7 @@ package replication
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"testing"
 	"time"
@@ -63,8 +64,9 @@ func TestQuerySynchronizedFallsBackAfterSilentLegacyNegentropyPeer(t *testing.T)
 
 func TestQuerySynchronizedCachesSilentLegacyPeerPerTransport(t *testing.T) {
 	dialer := &silentNegentropyDialer{}
-	transport := &NostrTransport{Dialer: dialer, Timeout: 10 * time.Millisecond}
+	cache := &LegacyCache{}
 	for i := 0; i < 2; i++ {
+		transport := &NostrTransport{Dialer: dialer, Timeout: 10 * time.Millisecond, LegacyCache: cache}
 		if _, err := transport.QuerySynchronized(context.Background(), "ws://legacy.example", event.Filter{}, nil); err != nil {
 			t.Fatal(err)
 		}
@@ -83,5 +85,22 @@ func TestQueryNegentropyIDsReportsMissingRequestedEvents(t *testing.T) {
 	}
 	if len(items) != 0 {
 		t.Fatalf("returned %d events for missing ID", len(items))
+	}
+}
+
+func TestLegacyCacheExpiresAndBoundsEntries(t *testing.T) {
+	cache := &LegacyCache{entries: map[string]time.Time{
+		"ws://expired.example": time.Now().Add(-legacyProbeTTL - time.Second),
+	}}
+	if cache.known("ws://expired.example") {
+		t.Fatal("expired legacy probe was reused")
+	}
+	for i := 0; i < 65; i++ {
+		cache.remember(fmt.Sprintf("ws://relay-%d.example", i))
+	}
+	cache.mu.Lock()
+	defer cache.mu.Unlock()
+	if len(cache.entries) != 64 {
+		t.Fatalf("cache entries = %d, want 64", len(cache.entries))
 	}
 }
