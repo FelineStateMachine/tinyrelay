@@ -32,6 +32,13 @@ func (t *Tenant) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		t.healthHTTP(w, r)
 		return
 	}
+	if t.unclaimedSiteHost(r.Host) {
+		// A host under the site domain that no site claims must not fall
+		// through to the relay: signed requests would otherwise verify
+		// against a URL the relay does not own.
+		http.NotFound(w, r)
+		return
+	}
 	if strings.EqualFold(r.Header.Get("Upgrade"), "websocket") {
 		t.router.HandleHTTP(w, r)
 		return
@@ -552,4 +559,23 @@ func containsString(values []string, wanted string) bool {
 		}
 	}
 	return false
+}
+
+// unclaimedSiteHost reports whether host is a subdomain of the site domain
+// that neither a hosted site nor a custom host claims.
+func (t *Tenant) unclaimedSiteHost(host string) bool {
+	host = strings.ToLower(strings.Split(host, ":")[0])
+	domain := strings.ToLower(t.siteDomain())
+	if domain == "" || host == domain || !strings.HasSuffix(host, "."+domain) {
+		return false
+	}
+	if t.sites != nil && t.sites.MatchesHost(host) {
+		return false
+	}
+	for _, custom := range t.Policy().CustomHosts {
+		if strings.EqualFold(custom.Host, host) {
+			return false
+		}
+	}
+	return true
 }
