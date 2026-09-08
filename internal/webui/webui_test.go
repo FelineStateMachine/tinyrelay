@@ -335,7 +335,7 @@ func TestTenantPrefixRewritesUIEndpoints(t *testing.T) {
 	recorder := httptest.NewRecorder()
 	app.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/r/alice/manage/connect", nil))
 	body := recorder.Body.String()
-	for _, want := range []string{`src="/r/alice/fixi.js"`, `src="/r/alice/signer.js"`, `fx-action="/r/alice/connect/fragment"`, `localPath(this.getAttribute("action")||"/manage/rpc")`, `signedSession("/r/alice/session")`, `replace(/^http/,"ws")+root`} {
+	for _, want := range []string{`src="/r/alice/fixi.js"`, `src="/r/alice/signer.js"`, `fx-action="/r/alice/connect/fragment"`, `localPath(this.getAttribute("action")||"/manage/rpc")`, `signedSession("/session")`, `replace(/^http/,"ws")+root`} {
 		if !strings.Contains(body, want) {
 			t.Errorf("tenant prefix missing %q", want)
 		}

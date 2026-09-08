@@ -843,20 +843,6 @@ func requestPrefix(request *http.Request) string {
 	return pathPrefix(request.URL.Path)
 }
 
-func injectBase(html, base string) string {
-	if base == "" {
-		return html
-	}
-	for _, attr := range []string{"href", "src", "fx-action", "action"} {
-		html = strings.ReplaceAll(html, " "+attr+"=\"/", " "+attr+"=\""+base+"/")
-	}
-	html = strings.ReplaceAll(html, "fetch(\"/", "fetch(\""+base+"/")
-	html = strings.ReplaceAll(html, "new URL(\"/", "new URL(\""+base+"/")
-	html = strings.ReplaceAll(html, "signedSession(\"/", "signedSession(\""+base+"/")
-	html = strings.ReplaceAll(html, "qr.src=\"/", "qr.src=\""+base+"/")
-	return html
-}
-
 func tabForPath(path string) string {
 	path = strings.TrimPrefix(path, pathPrefix(path))
 	if path == "/" || path == "" {
