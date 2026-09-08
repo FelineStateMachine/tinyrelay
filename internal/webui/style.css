@@ -52,9 +52,10 @@ img{max-width:100%}
 
 /* Panel */
 #panel section{padding:10px 14px;border-bottom:1px solid var(--line);font:12px var(--mono)}
-#content:focus{outline:2px solid var(--accent);outline-offset:-2px}
+#content:focus{outline:0}#content:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}
 #navigation-status{color:var(--muted);font-size:11px}
 #panel h4{margin:0 0 6px;font:12px var(--mono);color:var(--muted)}
+#panel p{margin:0 0 6px;font:13px/1.4 var(--sans);color:var(--muted)}#panel p small{font-size:inherit}
 #panel table{width:100%;border-collapse:collapse;margin:0}
 #panel th{text-align:left;font-weight:normal;color:var(--muted);padding:2px 1ch 2px 0;border:0;white-space:nowrap;vertical-align:top}
 #panel td{text-align:right;padding:2px 0;border:0;overflow-wrap:anywhere}
