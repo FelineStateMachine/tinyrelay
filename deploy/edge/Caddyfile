@@ -8,11 +8,11 @@
 
 # Fly's proxy terminates TLS and forwards HTTP here with the original Host
 # and X-Forwarded-Proto. Upstream traffic reaches the relay host over the
-# tailnet through tailscaled's local CONNECT proxy.
+# tailnet through tailscaled's local SOCKS5 proxy, which dials by address.
 :8080 {
   reverse_proxy http://{$RELAY_TAILNET_HOST}:8080 {
     transport http {
-      network_proxy http://127.0.0.1:1055
+      network_proxy url socks5://127.0.0.1:1055
     }
   }
 }
