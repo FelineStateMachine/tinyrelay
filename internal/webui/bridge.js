@@ -127,7 +127,7 @@
   const setSigner = signer => {
     window.tinySigner = signer;
     window.nostr = {signEvent: event => window.tinySigner.signEvent(event)};
-    document.dispatchEvent(new CustomEvent("tiny:signer"));
+    if (typeof CustomEvent === "function") document.dispatchEvent?.(new CustomEvent("tiny:signer"));
     if (document.getElementById("signer-status")) {
       say(document.getElementById("session-logout") ? "Signer connected." : "Signer connected. Choose Sign in with connected signer to continue.");
     }

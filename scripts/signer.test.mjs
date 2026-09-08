@@ -17,7 +17,7 @@ async function page({signedIn = false, bunkerResult = null} = {}) {
   const signer = {bp: {pubkey: "a".repeat(64), relays: ["wss://tiny.example/r/work"]}, getPublicKey: async () => "a".repeat(64), signEvent: async event => ({...event, pubkey: "a".repeat(64), sig: "test"})};
   const sandbox = {
     tiny: {},
-    document: {getElementById: id => elements.get(id), querySelector: () => null, addEventListener() {}, documentElement: {dataset: {}}},
+    document: {getElementById: id => elements.get(id), querySelector: () => null, addEventListener() {}, dispatchEvent() {}, documentElement: {dataset: {}}},
     crypto: webcrypto, TextEncoder, URL, Uint8Array, ArrayBuffer,
     btoa: value => Buffer.from(value).toString("base64"),
     location: {pathname: "/r/work/signin", href: "https://tiny.example/r/work/signin", origin: "https://tiny.example", assign(url) { sandbox.opened = url; }, reload() { sandbox.reloaded = true; }},
