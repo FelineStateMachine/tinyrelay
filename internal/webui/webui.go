@@ -79,8 +79,8 @@ type PageData struct {
 	Path     string
 	Readme   template.HTML
 	Tree     []any
-	// Connections lists the relay's configured connections for signed-in
-	// owners and moderators; it stays nil for everyone else.
+	// Connections lists the ways to open this relay in client apps that the
+	// viewer may see, with link placeholders already resolved.
 	Connections []any
 }
 
@@ -680,21 +680,7 @@ func identityNpub(identity string) string {
 
 const bech32Charset = "qpzry9x8gf2tvdw0s3jn54khce6mua7l"
 
-func encodeNpub(data []byte) string {
-	fiveBits := convertBits(data)
-	values := append(append([]byte{}, fiveBits...), 0, 0, 0, 0, 0, 0)
-	polymod := bech32Polymod(append([]byte{3, 3, 3, 3, 0, 14, 16, 21, 2}, values...)) ^ 1
-	checksum := make([]byte, 6)
-	for i := range checksum {
-		checksum[i] = byte(polymod >> uint(5*(5-i)) & 31)
-	}
-	var out strings.Builder
-	out.WriteString("npub1")
-	for _, value := range append(fiveBits, checksum...) {
-		out.WriteByte(bech32Charset[value])
-	}
-	return out.String()
-}
+func encodeNpub(data []byte) string { return bech32("npub", data) }
 
 func convertBits(data []byte) []byte {
 	result := make([]byte, 0, 52)
@@ -772,9 +758,9 @@ func (a *App) page(writer http.ResponseWriter, request *http.Request) {
 			data.Feed = feed
 		}
 	}
-	if tab == "home" && actor != "" {
-		if result, err := a.backend.Query(request.Context(), "listconnections", nil, actor); err == nil {
-			data.Connections = browseRows(result)
+	if tab == "home" {
+		if result, err := a.backend.Query(request.Context(), "connections", nil, actor); err == nil {
+			data.Connections = expandConnections(browseRows(result), PageData{URL: a.backend.URL(), Identity: a.backend.Identity(), Policy: a.backend.Policy(), Actor: actor})
 		}
 	}
 	if tab != "" {

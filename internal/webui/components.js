@@ -390,7 +390,29 @@
     }
   }
 
+  // ConnectCard copies a command or address, filling {input:name} from the
+  // card's inputs, so a clone command carries the repository name typed.
+  class ConnectCard extends HTMLElement {
+    connectedCallback() {
+      if (this.bound) return;
+      this.bound = true;
+      this.addEventListener("click", async event => {
+        const button = event.target.closest("button[data-copy]");
+        if (!button) return;
+        const text = button.dataset.copy.replace(/\{input:([a-z]+)\}/g, (match, name) => this.querySelector(`input[name="${name}"]`)?.value.trim() || "<" + name + ">");
+        const output = this.querySelector("output");
+        try {
+          await navigator.clipboard.writeText(text);
+          if (output) output.textContent = "copied: " + text;
+        } catch {
+          if (output) output.textContent = text;
+        }
+      });
+    }
+  }
+
   customElements.define("rpc-form", RpcForm);
+  customElements.define("connect-card", ConnectCard);
   customElements.define("relay-lists", RelayLists);
   customElements.define("signed-form", SignedForm);
   customElements.define("publish-list", PublishList);

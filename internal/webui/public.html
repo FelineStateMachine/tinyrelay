@@ -11,14 +11,16 @@
 </table>
 {{if .Policy.Description}}<h2>About</h2>
 {{markdown .Policy.Description}}
-{{end}}{{if .Connections}}<h2>Connections</h2>
-<table id="rows">
-<thead><tr><th>connection</th><th>relay</th><th>status</th></tr></thead>
-<tbody>
-{{range .Connections}}{{$c := asMap .}}<tr><td>{{or (str (index $c "label")) (str (index $c "title")) (str (index $c "name")) (str (index $c "template"))}}</td><td><code>{{or (str (index $c "url")) (str (index $c "href")) (str (index $c "relay"))}}</code></td><td>{{or (str (index $c "status")) (str (index $c "visibility")) "configured"}}</td></tr>
-{{end}}</tbody>
-</table>
-{{end}}<h2>Recent activity</h2>
+{{end}}{{if .Connections}}<h2>Connect</h2>
+<p>Open this relay in an app. Each card is a way in; sign in to see the ones made for members.</p>
+{{range .Connections}}{{$c := asMap .}}<connect-card>
+<h3>{{str (index $c "title")}} <small>{{str (index $c "app")}}{{with str (index $c "where")}}, {{.}}{{end}}{{if ne (str (index $c "visibility")) "public"}} | {{str (index $c "visibility")}}{{end}}</small></h3>
+<p>{{str (index $c "about")}}</p>
+{{range index $c "inputs"}}{{$i := asMap .}}<label>{{str (index $i "Label")}} <input name="{{str (index $i "Name")}}" placeholder="{{str (index $i "Placeholder")}}" pattern="{{str (index $i "Pattern")}}"></label>
+{{end}}<p>{{range index $c "links"}}{{$l := asMap .}}{{if str (index $l "href")}}<a href="{{str (index $l "href")}}">{{str (index $l "label")}}</a> {{else}}<button type="button" data-copy="{{str (index $l "copy")}}">{{str (index $l "label")}}</button> {{end}}{{end}}{{if index $c "hidden"}}<small>sign in for {{str (index $c "hidden")}} more</small>{{end}}<output role="status"></output></p>
+{{with str (index $c "qr")}}<details><summary>QR code</summary><img src="/qr.svg?text={{urlquery .}}" alt="QR code" width="200" height="200"></details>{{end}}
+</connect-card>
+{{end}}{{end}}<h2>Recent activity</h2>
 {{if .Error}}{{template "alert" .Error}}{{else}}{{template "eventList" .}}{{end}}
 </section>
 {{end}}

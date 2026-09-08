@@ -112,6 +112,8 @@ rpc-form output[data-error]{color:var(--alert)}
 
 relay-lists{display:block}relay-lists #rows td{height:auto;padding:8px 10px;white-space:normal;vertical-align:middle}relay-lists #rows td:last-child{width:230px;text-align:left;color:var(--ink);white-space:nowrap}relay-lists #rows td:first-child{width:170px;color:var(--ink);font-family:var(--sans)}relay-lists output{display:block;font:12px var(--mono);color:var(--muted);white-space:normal}relay-lists button{font-size:12px}
 
+connect-card{display:block;border-bottom:1px solid var(--line);padding:10px 0;max-width:720px}connect-card h3{margin:0 0 4px;border:0;font-size:15px}connect-card h3 small{font:12px var(--mono);color:var(--muted)}connect-card p{margin:0 0 6px}connect-card label{display:inline-block;font:12px var(--mono);color:var(--muted);margin:0 10px 6px 0}connect-card label input{display:block;font:13px var(--mono);min-width:200px}connect-card a,connect-card button{margin-right:10px;font-size:13px}connect-card output{display:block;font:12px var(--mono);color:var(--muted);overflow-wrap:anywhere}connect-card details img{display:block;margin:6px 0;background:#fff;padding:6px;border:1px solid var(--line)}
+
 /* json-view: structured rendering of any JSON payload. */
 json-view{display:block;font:12px var(--mono)}
 json-view>details>summary{cursor:pointer;color:var(--muted)}

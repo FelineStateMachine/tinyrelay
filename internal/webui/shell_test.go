@@ -312,13 +312,13 @@ func TestGuestsSeeSignInInsteadOfManagementPages(t *testing.T) {
 type connectionsBackend struct{ fakeBackend }
 
 func (b *connectionsBackend) Query(_ context.Context, method string, _ []json.RawMessage, _ string) (any, error) {
-	if method == "listconnections" {
-		return []any{map[string]any{"label": "Upstream", "url": "wss://upstream.example", "status": "syncing"}}, nil
+	if method == "connections" {
+		return []any{map[string]any{"template": "notes", "title": "Notes", "about": "Everything posted here.", "app": "Jumble", "where": "web", "visibility": "public", "links": []any{map[string]any{"label": "Open", "href": "https://jumble.social/?r={relay:url|enc}"}}}}, nil
 	}
 	return nil, nil
 }
 
-func TestAccountPageOffersRelayListsAndHomeShowsConnections(t *testing.T) {
+func TestAccountPageOffersRelayListsAndHomeShowsConnectCards(t *testing.T) {
 	backend := &connectionsBackend{fakeBackend{policy: policy.Defaults(strings.Repeat("a", 64))}}
 	app, err := New(backend, Options{Actor: func(*http.Request) (string, error) { return backend.policy.Owner, nil }})
 	if err != nil {
@@ -335,16 +335,7 @@ func TestAccountPageOffersRelayListsAndHomeShowsConnections(t *testing.T) {
 	recorder = httptest.NewRecorder()
 	app.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/", nil))
 	body = recorder.Body.String()
-	if !strings.Contains(body, "<h2>Connections</h2>") || !strings.Contains(body, "wss://upstream.example") || !strings.Contains(body, "syncing") {
-		t.Fatalf("home page did not show configured connections: %s", body[:min(400, len(body))])
-	}
-	guest, err := New(backend, Options{Actor: func(*http.Request) (string, error) { return "", nil }})
-	if err != nil {
-		t.Fatal(err)
-	}
-	recorder = httptest.NewRecorder()
-	guest.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/", nil))
-	if strings.Contains(recorder.Body.String(), "<h2>Connections</h2>") {
-		t.Fatal("guests must not see configured connections")
+	if !strings.Contains(body, "<h2>Connect</h2>") || !strings.Contains(body, `href="https://jumble.social/?r=ws%3A%2F%2Frelay.example"`) || !strings.Contains(body, "<connect-card>") {
+		t.Fatalf("home page did not show connect cards: %s", body[:min(400, len(body))])
 	}
 }
