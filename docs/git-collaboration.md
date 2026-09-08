@@ -20,9 +20,13 @@ Enable `features.grasp` and `features.grasp02` to synchronize repository announc
 
 Enable `features.grasp03` as well to discover participant outboxes from their NIP-65 relay lists and kind 10317 GRASP lists. Profile and relay-list events are cached locally. New discussion participants are included in subsequent discovery passes.
 
-Synchronization runs on a schedule. A repository that synchronizes successfully is checked again after 55 minutes. One that fails is retried after five minutes. A pass that runs out of time keeps its progress and continues from the next relay or participant on the following pass. Live subscriptions and outbox discovery are limited so a busy repository does not open unbounded connections.
+Synchronization runs on a schedule. A repository that synchronizes completely is checked again after 55 minutes. One with more history to fetch continues after five minutes, and one that fails is retried after five minutes. A pass that runs out of time keeps its progress and continues from the next relay or participant on the following pass. Live subscriptions and outbox discovery are limited so a busy repository does not open unbounded connections.
 
-History responses are limited to 10,000 events per filter. A history that reaches that limit is reported as incomplete instead of silently claiming success, and larger histories are not yet guaranteed to converge.
+History responses are limited to 10,000 events per filter. When local history exceeds that limit, synchronization refreshes up to 256 recent events and resumes older history from a saved cursor. A cursor advances only after its events are stored or rejected by policy; a storage failure keeps the window for the next attempt. Interrupted queries retain received events for the next attempt. Large histories remain marked incomplete; slow peers and large groups of events with the same timestamp can prevent older history from converging.
+
+Peers that do not support NIP-77 use paginated queries for four hours before another compatibility probe. Private peer authorization is checked on every connection.
+
+Pull request repair limits ancestry depth to 128 commits per tip and allows 256 MiB of transfer traffic across its sources and updates. Fetched objects are checked in temporary storage before the pull request refs become visible. A tip must have complete ancestry, using objects already hosted when available. Repairs that exceed these limits leave the pull request unavailable until the required objects are hosted through another route, such as an authorized Git push.
 
 ## Private repositories
 

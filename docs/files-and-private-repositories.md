@@ -26,7 +26,7 @@ Cancel stops the current upload. Retry reuses the selected files while the page 
 
 Encrypted file uploads use [draft BUD-14](https://github.com/hzrd149/blossom/pull/102) when the server advertises it. Cancel and retry keep the encrypted bytes and key in memory while the page stays open. Closing or reloading the page loses that local state. The uploader falls back to BUD-13 when multipart support is unavailable.
 
-Other clients can send binary chunks to `PATCH /<sha256>` with `Upload-Type`, `Upload-Length`, `Upload-Offset` and `Content-Length`. Chunks may overlap or arrive out of order. A partial upload stays unavailable for download until its complete hash is verified. Blossom proofs name the final hash; NIP-98 proofs bind each chunk's request body.
+Other clients can send binary chunks to `PATCH /<sha256>` with `Upload-Type`, `Upload-Length`, `Upload-Offset` and `Content-Length`. Chunks may overlap or arrive out of order. A partial upload stays unavailable for download until its complete hash is verified. Other uploads can proceed during verification. Blossom proofs name the final hash; NIP-98 proofs bind each chunk's request body.
 
 Partial uploads reserve the complete file size against the uploader's allowance. Reservations expire after 60 seconds of inactivity. Incomplete uploads can survive a server restart within that window. The draft provides no server endpoint for discovering received offsets, so clients must track their own progress.
 
@@ -49,7 +49,7 @@ This example limits each stored blob to 100 MiB and allows 1 GiB of claimed stor
 
 Each uploader pays the full size of every file they claim, even when another uploader already stores identical bytes. Repeated uploads by the same user count once. Removing an uploader's claim releases their allowance; shared content remains while another claim exists. An owner can remove the stored file for everyone.
 
-Clients can check an upload with [BUD-06](https://github.com/hzrd149/blossom/blob/master/buds/06.md) `HEAD /upload`. The result is advisory; the upload itself checks the current limits. File descriptors include the optional Nostr metadata field defined by [BUD-08](https://github.com/hzrd149/blossom/blob/master/buds/08.md). A [BUD-13](https://github.com/hzrd149/blossom/pull/100) remote upload may name up to eight `url` sources.
+Clients can check an upload with [BUD-06](https://github.com/hzrd149/blossom/blob/master/buds/06.md) `HEAD /upload`, including empty files with `X-Content-Length: 0`. The result is advisory; the upload itself checks the current limits. File descriptors include the optional Nostr metadata field defined by [BUD-08](https://github.com/hzrd149/blossom/blob/master/buds/08.md). A [BUD-13](https://github.com/hzrd149/blossom/pull/100) remote upload may name up to eight `url` sources.
 
 ## Private Git hosting
 
