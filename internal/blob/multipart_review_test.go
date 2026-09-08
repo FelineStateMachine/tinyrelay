@@ -3,11 +3,13 @@ package blob
 import (
 	"context"
 	"crypto/sha256"
+	"database/sql"
 	"encoding/hex"
 	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -102,6 +104,222 @@ func TestMultipartReviewStalledBodyDoesNotBlockOrdinaryUpload(t *testing.T) {
 		}
 	case <-time.After(time.Second):
 		t.Fatal("stalled multipart request did not finish")
+	}
+}
+
+func TestMultipartReviewStalledHashDoesNotBlockOrdinaryUpload(t *testing.T) {
+	s := testService(t)
+	body := "hash-paused"
+	digest := sha256.Sum256([]byte(body))
+	sha := hex.EncodeToString(digest[:])
+	started := make(chan struct{})
+	release := make(chan struct{})
+	s.verifyMultipartHook = func(path, hash string, size int64) error {
+		close(started)
+		<-release
+		return verifyMultipart(path, hash, size)
+	}
+	result := make(chan *httptest.ResponseRecorder, 1)
+	r := multipartReviewRequest(sha, int64(len(body)), 0, body)
+	go func() { result <- record(s.Handler(), r) }()
+	select {
+	case <-started:
+	case <-time.After(time.Second):
+		t.Fatal("multipart hash was not started")
+	}
+	ordinary := make(chan error, 1)
+	go func() {
+		_, err := s.Put(context.Background(), PutOptions{Reader: strings.NewReader("ordinary"), Type: "text/plain", Uploader: "other"})
+		ordinary <- err
+	}()
+	select {
+	case err := <-ordinary:
+		if err != nil {
+			t.Fatalf("ordinary upload while multipart hash paused: %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("ordinary upload blocked by multipart hashing")
+	}
+	close(release)
+	select {
+	case response := <-result:
+		if response.Code != http.StatusCreated {
+			t.Fatalf("multipart completion status = %d: %s", response.Code, response.Body.String())
+		}
+	case <-time.After(time.Second):
+		t.Fatal("multipart hash did not finish")
+	}
+}
+
+func TestMultipartReviewStalledHashDoesNotBlockAnotherSession(t *testing.T) {
+	s := testService(t)
+	body := "hash-paused"
+	digest := sha256.Sum256([]byte(body))
+	sha := hex.EncodeToString(digest[:])
+	started := make(chan struct{})
+	release := make(chan struct{})
+	var unblock sync.Once
+	defer unblock.Do(func() { close(release) })
+	s.verifyMultipartHook = func(path, hash string, size int64) error {
+		close(started)
+		<-release
+		return verifyMultipart(path, hash, size)
+	}
+	first := make(chan *httptest.ResponseRecorder, 1)
+	go func() { first <- record(s.Handler(), multipartReviewRequest(sha, int64(len(body)), 0, body)) }()
+	select {
+	case <-started:
+	case <-time.After(5 * time.Second):
+		t.Fatal("multipart hash did not start")
+	}
+	// A different session must reserve space and commit a partial chunk while
+	// the first session hashes. Ordinary PUT does not take multipartMu and
+	// would not detect the tenant-wide finalization lock regression.
+	secondBody := strings.Repeat("b", 70000)
+	secondDigest := sha256.Sum256([]byte(secondBody + "remaining"))
+	second := make(chan *httptest.ResponseRecorder, 1)
+	go func() {
+		second <- record(s.Handler(), multipartReviewRequest(hex.EncodeToString(secondDigest[:]), int64(len(secondBody)+len("remaining")), 0, secondBody))
+	}()
+	select {
+	case response := <-second:
+		if response.Code != http.StatusNoContent {
+			t.Fatalf("second session = %d: %s", response.Code, response.Body.String())
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("another multipart session blocked by hashing")
+	}
+	unblock.Do(func() { close(release) })
+	select {
+	case response := <-first:
+		if response.Code != http.StatusCreated {
+			t.Fatalf("finalizing session = %d: %s", response.Code, response.Body.String())
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("finalizing session did not finish")
+	}
+}
+
+func TestMultipartReviewFinalizingSessionRejectsConcurrentChunk(t *testing.T) {
+	s := testService(t)
+	body := "same-session"
+	digest := sha256.Sum256([]byte(body))
+	sha := hex.EncodeToString(digest[:])
+	started := make(chan struct{})
+	release := make(chan struct{})
+	s.verifyMultipartHook = func(path, hash string, size int64) error {
+		close(started)
+		<-release
+		return verifyMultipart(path, hash, size)
+	}
+	first := make(chan *httptest.ResponseRecorder, 1)
+	go func() { first <- record(s.Handler(), multipartReviewRequest(sha, int64(len(body)), 0, body)) }()
+	select {
+	case <-started:
+	case <-time.After(time.Second):
+		t.Fatal("multipart hash was not started")
+	}
+	second := record(s.Handler(), multipartReviewRequest(sha, int64(len(body)), 0, body))
+	if second.Code != http.StatusConflict {
+		t.Fatalf("concurrent same-session chunk status = %d: %s", second.Code, second.Body.String())
+	}
+	close(release)
+	if response := <-first; response.Code != http.StatusCreated {
+		t.Fatalf("finalizing upload status = %d: %s", response.Code, response.Body.String())
+	}
+}
+
+func TestMultipartReviewCleanupDoesNotRemoveActiveFinalization(t *testing.T) {
+	s := testService(t)
+	body := "cleanup-paused"
+	digest := sha256.Sum256([]byte(body))
+	sha := hex.EncodeToString(digest[:])
+	started := make(chan struct{})
+	release := make(chan struct{})
+	s.verifyMultipartHook = func(path, hash string, size int64) error {
+		close(started)
+		<-release
+		return verifyMultipart(path, hash, size)
+	}
+	result := make(chan *httptest.ResponseRecorder, 1)
+	go func() { result <- record(s.Handler(), multipartReviewRequest(sha, int64(len(body)), 0, body)) }()
+	select {
+	case <-started:
+	case <-time.After(time.Second):
+		t.Fatal("multipart hash was not started")
+	}
+	if _, err := s.store.DB().Exec("UPDATE multipart_uploads SET last_seen=0"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.CleanupMultipart(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	id := multipartID(sha, "uploader")
+	if _, err := os.Stat(s.multipartPath(id)); err != nil {
+		t.Fatalf("active multipart file removed during cleanup: %v", err)
+	}
+	var found int
+	if err := s.store.DB().QueryRow("SELECT COUNT(*) FROM multipart_uploads WHERE id=?", id).Scan(&found); err != nil {
+		t.Fatal(err)
+	}
+	if found != 1 {
+		t.Fatal("active multipart reservation removed during cleanup")
+	}
+	close(release)
+	if response := <-result; response.Code != http.StatusCreated {
+		t.Fatalf("finalizing upload status = %d: %s", response.Code, response.Body.String())
+	}
+}
+
+func TestMultipartReviewPolicyRecheckedAfterHash(t *testing.T) {
+	s := testService(t)
+	body := "policy-after-hash"
+	digest := sha256.Sum256([]byte(body))
+	sha := hex.EncodeToString(digest[:])
+	started := make(chan struct{})
+	release := make(chan struct{})
+	s.verifyMultipartHook = func(path, hash string, size int64) error {
+		close(started)
+		<-release
+		return verifyMultipart(path, hash, size)
+	}
+	s.config.Limits = func() Limits { return Limits{MaxFileBytes: int64(len(body))} }
+	result := make(chan *httptest.ResponseRecorder, 1)
+	go func() { result <- record(s.Handler(), multipartReviewRequest(sha, int64(len(body)), 0, body)) }()
+	<-started
+	s.config.Limits = func() Limits { return Limits{MaxFileBytes: int64(len(body) - 1)} }
+	close(release)
+	if response := <-result; response.Code != http.StatusRequestEntityTooLarge {
+		t.Fatalf("policy-changed upload status = %d: %s", response.Code, response.Body.String())
+	}
+	if _, _, err := s.Get(context.Background(), sha); !errors.Is(err, sql.ErrNoRows) {
+		t.Fatalf("policy-rejected upload lookup = %v", err)
+	}
+}
+
+func TestMultipartReviewCanceledHashCanBeRetried(t *testing.T) {
+	s := testService(t)
+	body := "cancel-and-retry"
+	digest := sha256.Sum256([]byte(body))
+	sha := hex.EncodeToString(digest[:])
+	started := make(chan struct{})
+	release := make(chan struct{})
+	s.verifyMultipartHook = func(path, hash string, size int64) error {
+		close(started)
+		<-release
+		return verifyMultipart(path, hash, size)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	r := multipartReviewRequest(sha, int64(len(body)), 0, body).WithContext(ctx)
+	result := make(chan *httptest.ResponseRecorder, 1)
+	go func() { result <- record(s.Handler(), r) }()
+	<-started
+	cancel()
+	close(release)
+	<-result
+	s.verifyMultipartHook = nil
+	if response := record(s.Handler(), multipartReviewRequest(sha, int64(len(body)), 0, body)); response.Code != http.StatusCreated {
+		t.Fatalf("retry after canceled hash status = %d: %s", response.Code, response.Body.String())
 	}
 }
 

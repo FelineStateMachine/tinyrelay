@@ -93,6 +93,13 @@ type Service struct {
 	// before quotaMu; network bodies are never read while either is held.
 	multipartMu sync.Mutex
 	activeParts map[string]int
+	// multipartFinalizing prevents another chunk from changing a complete
+	// session while its assembled file is being hashed. Hashing is deliberately
+	// outside multipartMu because the upload may be as large as 1 GiB.
+	multipartFinalizing map[string]bool
+	// verifyMultipartHook is used by package tests to pause finalization
+	// without allocating a GiB fixture. It is nil in production.
+	verifyMultipartHook func(string, string, int64) error
 }
 
 var ErrBlocked = errors.New("blocked: this blob was removed by a moderator")
@@ -159,7 +166,7 @@ func New(ctx context.Context, config Config) (*Service, error) {
 			return net.DefaultResolver.LookupIP(ctx, "ip", host)
 		}
 	}
-	s := &Service{config: config, root: filepath.Join(config.Root, "blobs"), store: config.Store, resolve: resolve, activeParts: make(map[string]int)}
+	s := &Service{config: config, root: filepath.Join(config.Root, "blobs"), store: config.Store, resolve: resolve, activeParts: make(map[string]int), multipartFinalizing: make(map[string]bool)}
 	if err := s.reconcileMultipart(ctx); err != nil {
 		return nil, err
 	}
@@ -430,8 +437,8 @@ func (s *Service) uploadHead(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	length, err := strconv.ParseInt(rawLength, 10, 64)
-	if err != nil || length <= 0 {
-		s.fail(w, http.StatusBadRequest, errors.New("invalid: X-Content-Length must be a positive integer"))
+	if err != nil || length < 0 {
+		s.fail(w, http.StatusBadRequest, errors.New("invalid: X-Content-Length must be a nonnegative integer"))
 		return
 	}
 	pubkey, err := s.authorize(r, ActionUpload)

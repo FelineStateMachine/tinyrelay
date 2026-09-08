@@ -285,46 +285,78 @@ func (s *Service) releaseMultipart(id string) {
 
 func (s *Service) commitMultipart(ctx context.Context, part multipartRequest, chunk string) (Blob, bool, bool, error) {
 	s.multipartMu.Lock()
-	defer s.multipartMu.Unlock()
+	if s.multipartFinalizing[part.id] {
+		s.multipartMu.Unlock()
+		return Blob{}, false, false, multipartFailure(http.StatusConflict, "multipart upload is being finalized")
+	}
 	// Recheck policy after streaming, including uploads whose next chunk does
 	// not complete the file. Policy may have changed while the body arrived.
 	s.quotaMu.Lock()
 	admissionErr := s.multipartAdmission(ctx, part)
 	s.quotaMu.Unlock()
 	if admissionErr != nil {
+		s.multipartMu.Unlock()
 		return Blob{}, false, false, admissionErr
 	}
 	candidate := uploadCandidate{hash: part.hash, size: part.length, typ: part.typ, uploader: part.uploader, reservation: part.id}
 	if existing, err := s.lookup(ctx, part.hash); err == nil {
 		if existing.Size != part.length {
+			s.multipartMu.Unlock()
 			return Blob{}, false, false, ErrMultipartConflict
 		}
 		entry, _, err := s.installUpload(ctx, candidate)
+		s.multipartMu.Unlock()
 		return entry, false, err == nil, err
 	} else if !errors.Is(err, sql.ErrNoRows) {
+		s.multipartMu.Unlock()
 		return Blob{}, false, false, err
 	}
 	ranges, err := s.multipartRanges(ctx, part)
 	if err != nil {
+		s.multipartMu.Unlock()
 		return Blob{}, false, false, err
 	}
 	candidate.path = s.multipartPath(part.id)
 	if err := writeMultipartChunk(candidate.path, chunk, part.offset); err != nil {
 		_ = s.discardMultipart(ctx, part.id)
+		s.multipartMu.Unlock()
 		return Blob{}, false, false, err
 	}
 	if err := s.recordMultipartRanges(ctx, part.id, ranges); err != nil {
 		_ = s.discardMultipart(ctx, part.id)
+		s.multipartMu.Unlock()
 		return Blob{}, false, false, err
 	}
 	if len(ranges) != 1 || ranges[0].start != 0 || ranges[0].end != part.length {
+		s.multipartMu.Unlock()
 		return Blob{}, false, false, nil
 	}
-	if err := verifyMultipart(candidate.path, part.hash, part.length); err != nil {
-		return Blob{}, false, false, errors.Join(err, s.discardMultipart(ctx, part.id))
+	// Keep the session reserved while hashing, but let unrelated multipart
+	// sessions and ordinary uploads proceed. The finalizing marker makes this
+	// small state transition safe without holding the global mutex for the hash.
+	s.multipartFinalizing[part.id] = true
+	s.multipartMu.Unlock()
+	verify := verifyMultipart
+	if s.verifyMultipartHook != nil {
+		verify = s.verifyMultipartHook
 	}
+	if err := verify(candidate.path, part.hash, part.length); err != nil {
+		s.multipartMu.Lock()
+		delete(s.multipartFinalizing, part.id)
+		// A canceled request must not throw away an otherwise complete session:
+		// the caller can retry finalization without retransmitting its chunks.
+		var cleanupErr error
+		if !errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded) {
+			cleanupErr = s.discardMultipart(ctx, part.id)
+		}
+		s.multipartMu.Unlock()
+		return Blob{}, false, false, errors.Join(err, cleanupErr)
+	}
+	s.multipartMu.Lock()
 	entry, created, err := s.installUpload(ctx, candidate)
 	cleanupErr := s.discardMultipart(ctx, part.id)
+	delete(s.multipartFinalizing, part.id)
+	s.multipartMu.Unlock()
 	return entry, created, err == nil && cleanupErr == nil, errors.Join(err, cleanupErr)
 }
 
