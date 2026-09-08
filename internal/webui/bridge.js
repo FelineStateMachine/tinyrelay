@@ -56,6 +56,15 @@
   const currentTheme = () => root_.dataset.theme || (matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
   const savedTheme = localStorage.getItem("tiny.theme");
   if (savedTheme) root_.dataset.theme = savedTheme;
+  // The installed app's title bar follows the theme-color meta, so keep it
+  // in step with the rail colour of whichever theme is active.
+  const themeMeta = document.querySelector('meta[name="theme-color"]');
+  const paintChrome = () => {
+    const rail = getComputedStyle(root_).getPropertyValue("--rail").trim();
+    if (themeMeta && rail) themeMeta.content = rail;
+  };
+  paintChrome();
+  matchMedia("(prefers-color-scheme: dark)").addEventListener("change", paintChrome);
   if (themeButton) {
     const label = () => { themeButton.textContent = currentTheme() === "dark" ? "light" : "dark"; };
     label();
@@ -63,6 +72,7 @@
       root_.dataset.theme = currentTheme() === "dark" ? "light" : "dark";
       localStorage.setItem("tiny.theme", root_.dataset.theme);
       label();
+      paintChrome();
     });
   }
   document.getElementById("menu")?.addEventListener("click", () => { root_.dataset.menu = root_.dataset.menu === "open" ? "" : "open"; });
