@@ -19,6 +19,13 @@ type QueryOptions struct {
 	Now    int64
 	Access Access
 	Limit  int
+	Before *EventCursor
+}
+
+// EventCursor follows the stable newest-first query order.
+type EventCursor struct {
+	CreatedAt int64
+	ID        string
 }
 type QueryResult struct {
 	Events []event.Event
@@ -46,6 +53,9 @@ func (p *predicate) list(column string, value any) error {
 
 func where(f event.Filter, opts QueryOptions) (predicate, error) {
 	var p predicate
+	if opts.Before != nil {
+		p.add("(created_at<? OR (created_at=? AND id>?))", opts.Before.CreatedAt, opts.Before.CreatedAt, opts.Before.ID)
+	}
 	if f.IDs != nil {
 		if err := p.list("id", f.IDs); err != nil {
 			return p, err
