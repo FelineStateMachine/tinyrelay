@@ -157,7 +157,7 @@ diff-view caption{text-align:left;font:13px var(--mono);padding:8px 12px;border-
 #gridhead{font:12px var(--mono);color:var(--muted);margin:0 0 6px}
 
 /* Sign in. */
-#signer-qr{display:block;margin:8px 0;background:#fff;padding:8px;border:1px solid var(--line)}
+#signer-qr:not([hidden]){display:block;margin:8px 0;background:#fff;padding:8px;border:1px solid var(--line)}
 
 /* Phones: a top bar with a menu, the rail slides in, the panel stacks under the content. */
 @media(max-width:720px){
