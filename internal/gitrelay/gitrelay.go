@@ -150,7 +150,7 @@ func (g *GitRelay) ValidateImported(ctx context.Context, e event.Event) (Reposit
 
 const (
 	graspRetryDelay   = int64(5 * 60)
-	graspSuccessDelay = int64(60 * 60)
+	graspSuccessDelay = int64(55 * 60)
 )
 
 type tickProgress struct {
@@ -236,54 +236,60 @@ func (s *Service) Tick(ctx context.Context) error {
 	var last string
 	progress := tickProgress{At: time.Now().Unix(), Repos: make(map[string]tickRepository, len(repos))}
 	previousProgress, _ := s.loadProgress()
+	// Resume after the last attempted repository if the prior pass ran out
+	// of time. Preserve untouched statuses instead of marking them failed.
+	last = previousProgress.LastKey
+	for _, r := range repos {
+		if previous, ok := previousProgress.Repos[key(r.Owner, r.Identifier)]; ok {
+			progress.Repos[key(r.Owner, r.Identifier)] = previous
+		}
+	}
+	start := sort.Search(len(repos), func(i int) bool { return key(repos[i].Owner, repos[i].Identifier) > last })
+	repos = append(repos[start:], repos[:start]...)
 	var tickErr error
 	for _, r := range repos {
-		last = key(r.Owner, r.Identifier)
+		if ctx.Err() != nil {
+			tickErr = errors.Join(tickErr, ctx.Err())
+			break
+		}
+		repoKey := key(r.Owner, r.Identifier)
 		status := tickRepository{AttemptedAt: progress.At, Attempts: 1}
 		profile := s.relay.policy()
 		status.Fingerprint = repoFingerprint(r, profile)
-		if previous, ok := previousProgress.Repos[last]; ok {
+		if previous, ok := previousProgress.Repos[repoKey]; ok {
 			if previous.NextAt > progress.At && previous.Fingerprint == status.Fingerprint {
-				progress.Repos[last] = previous
+				progress.Repos[repoKey] = previous
 				continue
 			}
 			if previous.Error != "" {
 				status.Attempts = previous.Attempts + 1
 			}
 		}
+		last = repoKey
 		features := profile.Features
-		if features.Grasp02 && s.relay.gitSync != nil {
-			if err := s.relay.gitSync(ctx, r); err != nil {
-				status.Error = err.Error()
-				status.NextAt = progress.At + graspRetryDelay
-				tickErr = errors.Join(tickErr, fmt.Errorf("%s Git sync: %w", last, err))
-				progress.Repos[last] = status
-				continue
+		var repoErr error
+		if features.Grasp && features.Grasp02 {
+			if s.relay.eventSync != nil {
+				eventCtx, cancel := context.WithTimeout(ctx, 40*time.Second)
+				repoErr = errors.Join(repoErr, s.relay.eventSync(eventCtx, r))
+				cancel()
 			}
-		} else if features.Grasp02 && len(r.Refs) > 0 && len(RepairSources(r)) > 0 {
-			// Native fallback for self-hosted deployments: fetch and verify the
-			// signed tips without requiring a hosted-worker callback.
-			if err := s.relay.FetchMissing(ctx, r, RepairSources(r), r.Refs); err != nil {
-				// A source may be temporarily unavailable; leave the persisted
-				// cursor intact and let the next tick retry.
-				status.Error = err.Error()
-				status.NextAt = progress.At + graspRetryDelay
-				tickErr = errors.Join(tickErr, fmt.Errorf("%s Git sync: %w", last, err))
-				progress.Repos[last] = status
-				continue
+			gitCtx, cancel := context.WithTimeout(ctx, 20*time.Second)
+			if s.relay.gitSync != nil {
+				repoErr = errors.Join(repoErr, s.relay.gitSync(gitCtx, r))
+			} else if len(r.Refs) > 0 && len(RepairSources(r)) > 0 {
+				repoErr = errors.Join(repoErr, s.relay.FetchMissing(gitCtx, r, RepairSources(r), r.Refs))
 			}
+			cancel()
 		}
-		if features.Grasp03 && s.relay.eventSync != nil {
-			if err := s.relay.eventSync(ctx, r); err != nil {
-				status.Error = err.Error()
-				status.NextAt = progress.At + graspRetryDelay
-				tickErr = errors.Join(tickErr, fmt.Errorf("%s event sync: %w", last, err))
-				progress.Repos[last] = status
-				continue
-			}
+		if repoErr != nil {
+			status.Error = repoErr.Error()
+			status.NextAt = progress.At + graspRetryDelay
+			tickErr = errors.Join(tickErr, fmt.Errorf("%s synchronization: %w", last, repoErr))
+		} else {
+			status.SucceededAt = progress.At
+			status.NextAt = progress.At + graspSuccessDelay
 		}
-		status.SucceededAt = progress.At
-		status.NextAt = progress.At + graspSuccessDelay
 		progress.Repos[last] = status
 	}
 	progress.LastKey = last

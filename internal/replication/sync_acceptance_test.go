@@ -182,6 +182,57 @@ func TestQueryNegentropyEqualInventoryCloseCompletesImmediately(t *testing.T) {
 	}
 }
 
+type negRejectDialer struct{ calls int }
+
+type negRejectSocket struct{ responses [][]byte }
+
+func (d *negRejectDialer) Dial(context.Context, string) (Socket, *http.Response, error) {
+	d.calls++
+	return &negRejectSocket{}, nil, nil
+}
+
+func (s *negRejectSocket) Read(ctx context.Context) ([]byte, error) {
+	if len(s.responses) == 0 {
+		return nil, ctx.Err()
+	}
+	item := s.responses[0]
+	s.responses = s.responses[1:]
+	return item, nil
+}
+
+func (s *negRejectSocket) Write(_ context.Context, data []byte) error {
+	var message []json.RawMessage
+	if err := json.Unmarshal(data, &message); err != nil || len(message) < 2 {
+		return nil
+	}
+	var kind, id string
+	_ = json.Unmarshal(message[0], &kind)
+	_ = json.Unmarshal(message[1], &id)
+	var response []any
+	if kind == "NEG-OPEN" {
+		response = []any{"NEG-ERR", id, "unsupported"}
+	} else if kind == "REQ" {
+		response = []any{"EOSE", id}
+	}
+	raw, _ := json.Marshal(response)
+	s.responses = append(s.responses, raw)
+	return nil
+}
+
+func (s *negRejectSocket) Close(error) error { return nil }
+
+func TestQuerySynchronizedFallsBackWhenNegentropyIsUnsupported(t *testing.T) {
+	dialer := &negRejectDialer{}
+	transport := &NostrTransport{Dialer: dialer, Timeout: time.Second}
+	items, err := transport.QuerySynchronized(context.Background(), "ws://relay.example", event.Filter{}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(items) != 0 || dialer.calls != 2 {
+		t.Fatalf("fallback result=%d dials=%d, want empty result and two dials", len(items), dialer.calls)
+	}
+}
+
 func TestNegentropyNeededIDsAreFetchedInBoundedFilteredBatches(t *testing.T) {
 	const total = negentropyFetchBatch + 1
 	secret := "1111111111111111111111111111111111111111111111111111111111111111"

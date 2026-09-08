@@ -50,7 +50,6 @@ func (t *Tenant) runScheduler() {
 				}
 				report("retention", t.sweep(ctx, now.Unix()))
 				report("restore-state", t.sweepReplicationState(ctx, now.Unix()))
-				report("git-sync", t.git.GRASPService().Tick(ctx))
 				nextMaintenance = now.Add(time.Minute)
 			}
 			next = nextMaintenance

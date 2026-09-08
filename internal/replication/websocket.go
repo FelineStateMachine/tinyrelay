@@ -8,6 +8,8 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -252,6 +254,221 @@ type NostrTransport struct {
 	Dialer   Dialer
 	Timeout  time.Duration
 	sequence atomic.Uint64
+	legacyMu sync.Mutex
+	legacy   map[string]struct{}
+}
+
+// Subscribe keeps a bounded NIP-01 subscription open until ctx is canceled.
+// Reconnection belongs to the lifecycle owner so it can apply peer backoff
+// and avoid multiplying sockets when a relay is unhealthy.
+func (t *NostrTransport) Subscribe(ctx context.Context, target string, filter event.Filter, onEvent func(event.Event) error) error {
+	return t.SubscribeFilters(ctx, target, []event.Filter{filter}, onEvent)
+}
+
+// SubscribeFilters opens one subscription for a set of NIP-01 filters. Relays
+// treat filters in one REQ as an OR, which lets callers follow related event
+// families without opening a socket for each family.
+func (t *NostrTransport) SubscribeFilters(ctx context.Context, target string, filters []event.Filter, onEvent func(event.Event) error) error {
+	if len(filters) == 0 {
+		return errors.New("replication: live subscription has no filters")
+	}
+	socket, _, err := t.dial(ctx, target)
+	if err != nil {
+		return err
+	}
+	defer socket.Close(nil)
+	sub := fmt.Sprintf("tiny-live-%d", t.sequence.Add(1))
+	prepared := make([]event.Filter, len(filters))
+	for i, filter := range filters {
+		filter.Tags = ensureTags(filter.Tags)
+		prepared[i] = filter
+	}
+	message, err := json.Marshal(append([]any{"REQ", sub}, filtersToAny(prepared)...))
+	if err != nil {
+		return fmt.Errorf("encode subscription: %w", err)
+	}
+	if err := socket.Write(ctx, message); err != nil {
+		return err
+	}
+	for {
+		data, err := socket.Read(ctx)
+		if err != nil {
+			return err
+		}
+		var raw []json.RawMessage
+		if json.Unmarshal(data, &raw) != nil || len(raw) < 2 {
+			continue
+		}
+		var kind, id string
+		_ = json.Unmarshal(raw[0], &kind)
+		_ = json.Unmarshal(raw[1], &id)
+		if id != sub {
+			continue
+		}
+		if kind == "CLOSED" {
+			return errors.New("replication: live subscription closed")
+		}
+		if kind != "EVENT" || len(raw) < 3 {
+			continue
+		}
+		var item event.Event
+		if err := json.Unmarshal(raw[2], &item); err != nil {
+			continue
+		}
+		if err := event.Validate(item); err != nil || !filterMatchesAny(prepared, item) {
+			continue
+		}
+		if onEvent != nil {
+			if err := onEvent(item); err != nil {
+				return err
+			}
+		}
+	}
+}
+
+func filtersToAny(filters []event.Filter) []any {
+	out := make([]any, len(filters))
+	for i := range filters {
+		out[i] = filters[i]
+	}
+	return out
+}
+
+func filterMatchesAny(filters []event.Filter, item event.Event) bool {
+	for _, filter := range filters {
+		if event.Matches(filter, item) {
+			return true
+		}
+	}
+	return false
+}
+
+const (
+	// pullPageSize keeps a compatibility REQ small enough for relays to serve
+	// without allocating an unbounded result set.
+	pullPageSize = 500
+	// pullPageLimit prevents a corrupt or very large repository announcement
+	// from turning one maintenance pass into an unbounded import.
+	pullPageLimit  = 20
+	pullEventLimit = pullPageSize * pullPageLimit
+)
+
+// ErrPullIncomplete indicates that a relay returned a full bounded history
+// window but the next page cannot be represented safely by an `until` cursor.
+// Callers should retain the result and retry with a larger or more capable
+// synchronization method.
+var ErrPullIncomplete = errors.New("replication: pull history is incomplete")
+
+// ErrNegentropyUnsupported means the peer does not implement NIP-77. It is
+// deliberately distinct from authentication, protocol and transport errors:
+// only this condition is safe to downgrade to an ordinary REQ pull.
+var ErrNegentropyUnsupported = errors.New("replication: negentropy unsupported")
+
+// QuerySynchronized prefers NIP-77 negentropy and falls back to bounded,
+// descending REQ pages when the peer does not implement it. GRASP peers are
+// commonly mixed-version, so lack of NIP-77 support must not prevent the
+// ordinary NIP-01 pull from completing.
+func (t *NostrTransport) QuerySynchronized(ctx context.Context, target string, filter event.Filter, local []syncprotocol.Item) ([]event.Event, error) {
+	if t.knownLegacy(target) {
+		return t.QueryPaginated(ctx, target, filter)
+	}
+	items, err := t.QueryNegentropy(ctx, target, filter, local)
+	if err == nil {
+		return items, nil
+	}
+	if !errors.Is(err, ErrNegentropyUnsupported) {
+		return items, err
+	}
+	t.rememberLegacy(target)
+	return t.QueryPaginated(ctx, target, filter)
+}
+
+func (t *NostrTransport) knownLegacy(target string) bool {
+	t.legacyMu.Lock()
+	defer t.legacyMu.Unlock()
+	_, ok := t.legacy[target]
+	return ok
+}
+
+func (t *NostrTransport) rememberLegacy(target string) {
+	t.legacyMu.Lock()
+	defer t.legacyMu.Unlock()
+	if t.legacy == nil {
+		t.legacy = make(map[string]struct{})
+	}
+	// Bound the instance-local compatibility cache so untrusted relay URLs
+	// cannot accumulate indefinitely. Once full, an unremembered peer simply
+	// receives another bounded probe on a later sync.
+	if len(t.legacy) < 64 {
+		t.legacy[target] = struct{}{}
+	}
+}
+
+// QueryPaginated reads a bounded history window. It uses the oldest event in
+// each page as the next upper bound, deduplicating events because relays may
+// include the boundary event in their response.
+func (t *NostrTransport) QueryPaginated(ctx context.Context, target string, filter event.Filter) ([]event.Event, error) {
+	result := make([]event.Event, 0, pullPageSize)
+	seen := make(map[string]struct{})
+	pageFilter := filter
+	for page := 0; page < pullPageLimit; page++ {
+		if err := ctx.Err(); err != nil {
+			return result, err
+		}
+		limit := pullPageSize
+		pageFilter.Limit = &limit
+		items, err := t.Query(ctx, target, pageFilter)
+		added := 0
+		for _, item := range items {
+			if _, ok := seen[item.ID]; ok {
+				continue
+			}
+			seen[item.ID] = struct{}{}
+			result = append(result, item)
+			added++
+		}
+		if len(result) >= pullEventLimit {
+			return result, ErrPullIncomplete
+		}
+		if err != nil {
+			return result, err
+		}
+		if len(items) == 0 {
+			return result, nil
+		}
+		oldest := items[0].CreatedAt
+		for _, item := range items {
+			if item.CreatedAt < oldest {
+				oldest = item.CreatedAt
+			}
+		}
+		// The inclusive boundary is an overlap probe. If it yields no new
+		// events, the relay has no older matching events available through this
+		// cursor; a short response is therefore not treated as definitive by
+		// itself.
+		if page > 0 && added == 0 {
+			allAtBoundary := true
+			for _, item := range items {
+				if item.CreatedAt != oldest {
+					allAtBoundary = false
+					break
+				}
+			}
+			if allAtBoundary && len(items) >= pullPageSize {
+				return result, ErrPullIncomplete
+			}
+			return result, nil
+		}
+		if oldest <= 0 {
+			return result, nil
+		}
+		// Keep the boundary inclusive. A relay may cap every response below
+		// our requested limit, and a strict cursor would silently drop events
+		// sharing the oldest timestamp. Deduplication makes the overlap safe.
+		until := oldest
+		pageFilter.Until = &until
+	}
+	return result, ErrPullIncomplete
 }
 
 // QueryNegentropy reconciles a local index with a remote relay, then fetches
@@ -281,11 +498,19 @@ func (t *NostrTransport) QueryNegentropy(ctx context.Context, target string, fil
 		return nil, err
 	}
 	var needed []string
+	progress := false
 	deadline, cancel := context.WithTimeout(ctx, t.timeout())
 	defer cancel()
 	for {
 		data, err := socket.Read(deadline)
 		if err != nil {
+			// Some legacy relays accept the websocket but silently ignore
+			// NEG-OPEN. A bounded probe timeout is the only safe downgrade; a
+			// caller cancellation or an authenticated/protocol response must
+			// remain an error.
+			if errors.Is(err, context.DeadlineExceeded) && !progress && ctx.Err() == nil {
+				return nil, ErrNegentropyUnsupported
+			}
 			return nil, err
 		}
 		var raw []json.RawMessage
@@ -298,6 +523,9 @@ func (t *NostrTransport) QueryNegentropy(ctx context.Context, target string, fil
 		if len(raw) > 2 {
 			_ = json.Unmarshal(raw[2], &body)
 		}
+		if kind == "AUTH" {
+			return nil, errors.New("replication: remote relay requires authentication")
+		}
 		if messageID != id {
 			continue
 		}
@@ -306,19 +534,30 @@ func (t *NostrTransport) QueryNegentropy(ctx context.Context, target string, fil
 		// waiting for a NEG-MSG that will never arrive turns a successful NIP-77
 		// no-op sync into a timeout.
 		if kind == "NEG-CLOSE" {
+			progress = true
 			break
 		}
+		if kind == "CLOSED" {
+			return nil, errors.New("replication: remote negentropy closed")
+		}
 		if kind == "NEG-ERR" {
-			return nil, errors.New("replication: remote negentropy rejected")
+			if negentropyUnsupported(body) {
+				return nil, ErrNegentropyUnsupported
+			}
+			return nil, fmt.Errorf("replication: remote negentropy rejected: %s", body)
 		}
 		if kind != "NEG-MSG" {
 			continue
 		}
+		progress = true
 		result, err := session.Reconcile(body)
 		if err != nil {
 			return nil, err
 		}
 		needed = append(needed, result.Need...)
+		if len(needed) > pullEventLimit {
+			return nil, ErrPullIncomplete
+		}
 		if result.Done {
 			closeMessage, _ := json.Marshal([]any{"NEG-CLOSE", id})
 			_ = socket.Write(ctx, closeMessage)
@@ -338,6 +577,19 @@ func (t *NostrTransport) QueryNegentropy(ctx context.Context, target string, fil
 	return t.queryNegentropyIDs(ctx, target, filter, needed)
 }
 
+func negentropyUnsupported(reason string) bool {
+	reason = strings.ToLower(strings.TrimSpace(reason))
+	if strings.HasPrefix(reason, "unsupported") || strings.HasPrefix(reason, "error: unsupported") {
+		return true
+	}
+	switch reason {
+	case "unsupported", "not supported", "negentropy unsupported", "nip-77 unsupported":
+		return true
+	default:
+		return false
+	}
+}
+
 const negentropyFetchBatch = 500
 
 func (t *NostrTransport) queryNegentropyIDs(ctx context.Context, target string, filter event.Filter, ids []string) ([]event.Event, error) {
@@ -355,7 +607,14 @@ func (t *NostrTransport) queryNegentropyIDs(ctx context.Context, target string, 
 		request.Limit = &limit
 		events, err := t.Query(ctx, target, request)
 		if err != nil {
-			return nil, err
+			for _, candidate := range events {
+				if _, ok := seen[candidate.ID]; ok {
+					continue
+				}
+				seen[candidate.ID] = struct{}{}
+				result = append(result, candidate)
+			}
+			return result, err
 		}
 		allowed := make(map[string]struct{}, len(batch))
 		for _, id := range batch {
@@ -375,7 +634,18 @@ func (t *NostrTransport) queryNegentropyIDs(ctx context.Context, target string, 
 			result = append(result, candidate)
 		}
 	}
+	if len(seen) != len(uniqueIDs(ids)) {
+		return result, ErrPullIncomplete
+	}
 	return result, nil
+}
+
+func uniqueIDs(ids []string) map[string]struct{} {
+	unique := make(map[string]struct{}, len(ids))
+	for _, id := range ids {
+		unique[id] = struct{}{}
+	}
+	return unique
 }
 
 func (t *NostrTransport) timeout() time.Duration {
@@ -400,7 +670,7 @@ func (t *NostrTransport) Query(ctx context.Context, target string, filter event.
 	if err := socket.Write(ctx, message); err != nil {
 		return nil, err
 	}
-	return readEvents(ctx, socket, sub, t.timeout())
+	return readEvents(ctx, socket, sub, t.timeout(), filter)
 }
 
 func (t *NostrTransport) Send(ctx context.Context, target string, e event.Event) (DeliveryResult, error) {
@@ -447,14 +717,14 @@ func (t *NostrTransport) dial(ctx context.Context, target string) (Socket, *http
 	return dialer.Dial(ctx, target)
 }
 
-func readEvents(ctx context.Context, socket Socket, subscription string, timeout time.Duration) ([]event.Event, error) {
+func readEvents(ctx context.Context, socket Socket, subscription string, timeout time.Duration, filter event.Filter) ([]event.Event, error) {
 	deadline, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	items := make([]event.Event, 0)
 	for {
 		data, err := socket.Read(deadline)
 		if err != nil {
-			return nil, err
+			return items, err
 		}
 		var raw []json.RawMessage
 		if err := json.Unmarshal(data, &raw); err != nil || len(raw) < 2 {
@@ -469,8 +739,11 @@ func readEvents(ctx context.Context, socket Socket, subscription string, timeout
 				continue
 			}
 			var item event.Event
-			if json.Unmarshal(raw[2], &item) == nil && event.Validate(item) == nil {
+			if json.Unmarshal(raw[2], &item) == nil && event.Validate(item) == nil && event.Matches(filter, item) {
 				items = append(items, item)
+				if len(items) > pullEventLimit {
+					return items[:pullEventLimit], ErrPullIncomplete
+				}
 			}
 		case "EOSE":
 			if id == subscription {
@@ -478,10 +751,10 @@ func readEvents(ctx context.Context, socket Socket, subscription string, timeout
 			}
 		case "CLOSED":
 			if id == subscription {
-				return nil, errors.New("replication: remote query closed")
+				return items, errors.New("replication: remote query closed")
 			}
 		case "AUTH":
-			return nil, errors.New("replication: remote relay requires authentication")
+			return items, errors.New("replication: remote relay requires authentication")
 		}
 	}
 }

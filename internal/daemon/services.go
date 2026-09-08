@@ -137,6 +137,10 @@ func (t *Tenant) initServices(ctx context.Context) error {
 	}()
 	t.workWG.Add(1)
 	go func() { defer t.workWG.Done(); t.runScheduler() }()
+	t.workWG.Add(1)
+	go func() { defer t.workWG.Done(); t.runGitLive(t.workCtx) }()
+	t.workWG.Add(1)
+	go func() { defer t.workWG.Done(); t.runGitHistory(t.workCtx) }()
 	return nil
 }
 
