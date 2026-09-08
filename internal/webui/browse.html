@@ -18,7 +18,7 @@
 {{else if .Feed}}<table id="rows">
 <thead><tr><th>hash</th><th>type</th><th>uploaded</th></tr></thead>
 <tbody>
-{{range .Feed}}{{$f := asMap .}}<tr><td><a href="/file?sha={{str (index $f "sha256")}}">{{shortID (index $f "sha256")}}</a></td><td>{{str (index $f "type")}} <small>{{str (index $f "size")}} B</small></td><td>{{str (index $f "uploaded")}}</td></tr>
+{{range .Feed}}{{$f := asMap .}}<tr><td><a href="/file?sha={{str (index $f "sha256")}}">{{shortID (index $f "sha256")}}</a></td><td>{{str (index $f "type")}} <small>{{str (index $f "size")}} B</small></td><td>{{when (index $f "uploaded")}}</td></tr>
 {{end}}</tbody>
 </table>
 {{else}}<p>No files were reported.</p>

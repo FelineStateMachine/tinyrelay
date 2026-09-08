@@ -32,8 +32,8 @@
 {{end}}{{end}}{{end}}
 
 {{define "repoTree"}}{{$repo := asMap .Event}}{{$entries := index $repo "entries"}}{{if .Tree}}{{$entries = .Tree}}{{end}}<ul>
-{{range $i, $e := $entries}}{{$entry := asMap $e}}{{$last := eq (add $i 1) (len $entries)}}<li><span>{{if $last}}└─ {{else}}├─ {{end}}</span>{{if eq (str (index $entry "type")) "tree"}}<a href="{{repoURL $.Query "tree" (str (index $entry "path"))}}">{{str (index $entry "name")}}/</a>{{else if eq (str (index $entry "type")) "commit"}}{{str (index $entry "name")}} <span>(submodule)</span>{{else}}<a href="{{repoURL $.Query "file" (str (index $entry "path"))}}"{{if eq (str (index $entry "path")) ($.Query.Get "path")}} aria-current="page"{{end}}>{{str (index $entry "name")}}</a>{{end}}</li>
-{{else}}<li><span>   </span>no published files here</li>
+{{range $e := $entries}}{{$entry := asMap $e}}<li>{{if eq (str (index $entry "type")) "tree"}}<a href="{{repoURL $.Query "tree" (str (index $entry "path"))}}">{{str (index $entry "name")}}/</a>{{else if eq (str (index $entry "type")) "commit"}}{{str (index $entry "name")}} <span>(submodule)</span>{{else}}<a href="{{repoURL $.Query "file" (str (index $entry "path"))}}"{{if eq (str (index $entry "path")) ($.Query.Get "path")}} aria-current="page"{{end}}>{{str (index $entry "name")}}</a>{{end}}</li>
+{{else}}<li><span>no published files here</span></li>
 {{end}}</ul>
 <p id="pages">{{if .Query.Get "offset"}}<a href="{{repoURL .Query "tree" (.Query.Get "path")}}">first page</a> {{end}}{{if hasNextOffset (index $repo "next_offset")}}<a href="{{browsePageURL "/repo" .Query "offset" (index $repo "next_offset")}}">more</a>{{end}}</p>
 {{end}}

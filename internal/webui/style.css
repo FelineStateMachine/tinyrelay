@@ -70,6 +70,7 @@ img{max-width:100%}
 #rows td:last-child{width:170px;text-align:right;font:12px var(--mono);color:var(--muted)}
 #rows tr:hover td{background:var(--hover)}
 #rows th{text-align:left;font:12px var(--mono);color:var(--muted);font-weight:normal;padding:0 10px;height:28px;border-bottom:1px solid var(--line)}
+#rows th:last-child{text-align:right}
 #rows td a{color:inherit}#rows td:first-child a{color:var(--accent)}
 #pages{font:12px var(--mono)}
 
@@ -127,8 +128,12 @@ nostr-key{font-family:var(--mono);cursor:copy}
 #split>tbody>tr>td{vertical-align:top;padding:0;border:0}
 #tree{width:300px;overflow:auto;border-right:1px solid var(--line);font:13px/24px var(--mono);padding:8px 0 20px}
 #tree header{padding:0 12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}#tree header small{float:right}
-#tree ul{list-style:none;margin:0;padding:0 0 0 12px}
-#tree li{white-space:nowrap}#tree li>span{color:var(--muted)}
+#tree ul{list-style:none;margin:0 0 0 16px;padding:0 0 0 14px;border-left:1px solid var(--muted)}
+#tree li{white-space:nowrap;position:relative}
+#tree li>a{display:inline-block;max-width:100%;overflow:hidden;text-overflow:ellipsis;vertical-align:top}
+#tree li::before{content:"";position:absolute;left:-14px;top:12px;width:10px;border-top:1px solid var(--muted)}
+#tree li:last-child::after{content:"";position:absolute;left:-15px;top:12px;bottom:0;width:1px;background:var(--rail)}
+#tree li>span{color:var(--muted)}
 #tree a{color:var(--ink)}#tree a[aria-current=page]{background:var(--soft);padding:0 4px}
 #preview{padding:0;overflow:hidden}
 #preview header{padding:0 12px;height:36px;line-height:36px;border-bottom:1px solid var(--line);font:13px var(--mono);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -176,6 +181,6 @@ html[data-menu=open] #layout>tbody>tr>td#rail{transform:none;box-shadow:8px 0 24
 #prompt{display:none}#footer td:last-child{text-align:left}
 #split,#split>tbody,#split>tbody>tr,#split>tbody>tr>td{display:block;width:auto}
 #tree{border-right:0;border-bottom:1px solid var(--line)}
-#rows td{white-space:normal;height:auto;padding:8px 6px;line-height:1.35}#rows td:first-child{width:90px}#rows td:last-child{width:80px}
+#rows{table-layout:fixed}#rows td{white-space:normal;overflow-wrap:anywhere;height:auto;padding:8px 6px;line-height:1.35}#rows td:first-child{width:90px}#rows td:last-child{width:80px}
 #grid,#gridhead,h2:has(+#gridhead){display:none}
 }
