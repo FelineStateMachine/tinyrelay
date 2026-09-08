@@ -123,6 +123,7 @@ func parseTemplates() (*template.Template, error) {
 		"datetime":        datetime,
 		"when":            when,
 		"markdown":        renderMarkdown,
+		"hasPrefix":       strings.HasPrefix,
 		"npub":            identityNpub,
 		"short":           short,
 		"prompt":          promptPath,

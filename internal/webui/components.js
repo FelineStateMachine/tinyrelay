@@ -150,7 +150,7 @@
       const file = form.querySelector("input[type=file]")?.files[0];
       if (!file) { this.report("Choose a file first."); return; }
       this.report("Signing…");
-      const response = await tiny.signedFetch(action, method, await file.arrayBuffer());
+      const response = await tiny.signedFetch(action, method, await file.arrayBuffer(), {contentType: file.type || "application/octet-stream"});
       this.report("Done: " + await response.text());
     }
   }

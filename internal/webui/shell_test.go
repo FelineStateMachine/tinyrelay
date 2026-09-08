@@ -135,3 +135,24 @@ func TestPromptPathSpellsOutRepositoriesAndFiles(t *testing.T) {
 		t.Fatalf("manage prompt = %q", got)
 	}
 }
+
+type imageBackend struct{ fakeBackend }
+
+func (b *imageBackend) Query(_ context.Context, method string, _ []json.RawMessage, _ string) (any, error) {
+	if method == "browsefile" {
+		return map[string]any{"sha256": strings.Repeat("9", 64), "type": "image/png", "size": 12, "binary": true}, nil
+	}
+	return nil, nil
+}
+
+func TestFilePagePreviewsImages(t *testing.T) {
+	app, err := New(&imageBackend{fakeBackend{policy: policy.Defaults(strings.Repeat("a", 64))}}, Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	recorder := httptest.NewRecorder()
+	app.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/file?sha="+strings.Repeat("9", 64), nil))
+	if body := recorder.Body.String(); !strings.Contains(body, `<img src="/files/raw?hash=`+strings.Repeat("9", 64)+`"`) {
+		t.Fatalf("no image preview: %s", body)
+	}
+}

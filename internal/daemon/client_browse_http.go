@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/FelineStateMachine/tinyrelay/internal/blob"
 	"github.com/FelineStateMachine/tinyrelay/internal/gitrelay"
 )
 
@@ -85,6 +86,11 @@ func (t *Tenant) sourceDownload(w http.ResponseWriter, r *http.Request, actor st
 	return t.git.WriteSource(r.Context(), q, w)
 }
 
+// mediaInline reports whether a stored type is safe to render in the browser.
+func mediaInline(typ string) bool {
+	return strings.HasPrefix(typ, "image/") || strings.HasPrefix(typ, "video/") || strings.HasPrefix(typ, "audio/") || typ == "application/pdf"
+}
+
 func (t *Tenant) fileDownload(w http.ResponseWriter, r *http.Request) error {
 	if !t.Policy().Features.Files {
 		return os.ErrNotExist
@@ -95,9 +101,28 @@ func (t *Tenant) fileDownload(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 	defer body.Close()
-	w.Header().Set("Content-Type", "application/octet-stream")
-	w.Header().Set("Content-Disposition", mime.FormatMediaType("attachment", map[string]string{"filename": entry.SHA256}))
-	if seeker, ok := body.(io.ReadSeeker); ok {
+	// Recognised media is served inline under its own type so the browser can
+	// show it. Everything else downloads as an attachment.
+	typ := entry.Type
+	seeker, seekable := body.(io.ReadSeeker)
+	if typ == "application/octet-stream" && seekable {
+		head := make([]byte, 512)
+		n, _ := io.ReadFull(seeker, head)
+		typ = blob.DetectMediaType(head[:n])
+		if _, err := seeker.Seek(0, io.SeekStart); err != nil {
+			return err
+		}
+	}
+	if !mediaInline(typ) {
+		typ = "application/octet-stream"
+	}
+	w.Header().Set("Content-Type", typ)
+	if typ == "application/octet-stream" {
+		w.Header().Set("Content-Disposition", mime.FormatMediaType("attachment", map[string]string{"filename": entry.SHA256}))
+	} else {
+		w.Header().Set("Content-Disposition", mime.FormatMediaType("inline", map[string]string{"filename": entry.SHA256}))
+	}
+	if seekable {
 		http.ServeContent(w, r, entry.SHA256, time.Unix(entry.Uploaded, 0), seeker)
 		return nil
 	}

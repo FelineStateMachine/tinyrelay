@@ -569,7 +569,11 @@ func (s *Service) putValidated(ctx context.Context, source io.Reader, typ, uploa
 		return Blob{}, false, fmt.Errorf("sync blob directory: %w", err)
 	}
 	now := time.Now().UTC().Unix()
-	entry := Blob{SHA256: sha, Size: count, Type: contentType(typ), Uploader: uploader, Uploaded: now}
+	typ = contentType(typ)
+	if typ == "application/octet-stream" {
+		typ = detectFileType(final)
+	}
+	entry := Blob{SHA256: sha, Size: count, Type: typ, Uploader: uploader, Uploaded: now}
 	err = s.store.WithTx(ctx, func(tx *sql.Tx) error {
 		if _, err := tx.ExecContext(ctx, "DELETE FROM blob_tombstones WHERE sha256=?", entry.SHA256); err != nil {
 			return fmt.Errorf("clear blob deletion tombstone: %w", err)
@@ -1031,6 +1035,34 @@ func (s *Service) origin(r *http.Request) string {
 	}
 	return origin(r)
 }
+
+// DetectMediaType recognises images, video, audio and PDF from the first
+// bytes of a blob. Anything else stays an octet stream so uploads can never
+// be reinterpreted as a page or a script.
+func DetectMediaType(head []byte) string {
+	detected := contentType(http.DetectContentType(head))
+	for _, prefix := range []string{"image/", "video/", "audio/"} {
+		if strings.HasPrefix(detected, prefix) {
+			return detected
+		}
+	}
+	if detected == "application/pdf" {
+		return detected
+	}
+	return "application/octet-stream"
+}
+
+func detectFileType(name string) string {
+	file, err := os.Open(name)
+	if err != nil {
+		return "application/octet-stream"
+	}
+	defer file.Close()
+	head := make([]byte, 512)
+	n, _ := io.ReadFull(file, head)
+	return DetectMediaType(head[:n])
+}
+
 func contentType(raw string) string {
 	raw = strings.ToLower(strings.TrimSpace(strings.Split(raw, ";")[0]))
 	if raw == "" {

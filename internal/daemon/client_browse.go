@@ -277,6 +277,11 @@ func (t *Tenant) browseFile(ctx context.Context, actor, hash string) (any, error
 	binary := bytes.IndexByte(data, 0) >= 0 || (!utf8.Valid(data) && !truncated)
 	result := t.browseBlobMetadata(entry)
 	result["binary"], result["truncated"] = binary, truncated
+	if entry.Type == "application/octet-stream" {
+		if detected := blob.DetectMediaType(data); detected != "application/octet-stream" {
+			result["type"] = detected
+		}
+	}
 	if actor == "" {
 		delete(result, "uploader")
 	}
