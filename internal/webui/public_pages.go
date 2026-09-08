@@ -7,8 +7,12 @@ import (
 	"html/template"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
+
+	"github.com/FelineStateMachine/tinyrelay/internal/event"
+	"github.com/FelineStateMachine/tinyrelay/internal/sites"
 )
 
 func (a *App) publicFeed(ctx context.Context, tab, actor string, values url.Values) ([]any, error) {
@@ -29,9 +33,14 @@ func (a *App) publicFeed(ctx context.Context, tab, actor string, values url.Valu
 		filter = map[string]any{"authors": []string{actor}, "limit": 50}
 	case "articles":
 		filter = map[string]any{"kinds": []int{30023}, "limit": 50}
+	case "home":
+		filter = map[string]any{"kinds": []int{1, 30023}, "limit": 12}
+	case "sites":
+		filter = map[string]any{"kinds": []int{sites.KindSite, sites.KindNamedSite}, "limit": 100}
 	default:
 		return nil, nil
 	}
+	applyFeedFilters(filter, values)
 	raw, err := json.Marshal(filter)
 	if err != nil {
 		return nil, err
@@ -49,6 +58,62 @@ func (a *App) publicFeed(ctx context.Context, tab, actor string, values url.Valu
 		return []any{}, nil
 	}
 	return feed, nil
+}
+
+// applyFeedFilters narrows a feed by the panel filters: kinds, author, since.
+// "all" removes the kind restriction; unknown values are ignored.
+func applyFeedFilters(filter map[string]any, values url.Values) {
+	switch kinds := strings.TrimSpace(values.Get("kinds")); {
+	case kinds == "all":
+		delete(filter, "kinds")
+	case kinds != "":
+		var list []int
+		for _, part := range strings.Split(kinds, ",") {
+			if kind, err := strconv.Atoi(strings.TrimSpace(part)); err == nil {
+				list = append(list, kind)
+			}
+		}
+		if len(list) > 0 {
+			filter["kinds"] = list
+		}
+	}
+	if author := strings.ToLower(strings.TrimSpace(values.Get("author"))); len(author) == 64 {
+		filter["authors"] = []string{author}
+	}
+	if since := strings.TrimSpace(values.Get("since")); since != "" {
+		if parsed, err := time.Parse("2006-01-02", since); err == nil {
+			filter["since"] = parsed.Unix()
+		}
+	}
+}
+
+// siteRows turns site manifest events into rows with the host each site is
+// served from, using the same labels the daemon uses for site hosts.
+func (a *App) siteRows(feed []any) []any {
+	base, err := url.Parse(a.backend.URL())
+	if err != nil {
+		return nil
+	}
+	rows := make([]any, 0, len(feed))
+	for _, item := range feed {
+		encoded, _ := json.Marshal(item)
+		var e event.Event
+		if json.Unmarshal(encoded, &e) != nil {
+			continue
+		}
+		label := sites.SiteLabel(e)
+		if label == "" {
+			continue
+		}
+		scheme := base.Scheme
+		if scheme == "" || scheme == "ws" {
+			scheme = "http"
+		} else if scheme == "wss" {
+			scheme = "https"
+		}
+		rows = append(rows, map[string]any{"id": e.ID, "kind": e.Kind, "author": e.PubKey, "label": label, "paths": len(sites.SitePaths(e)), "created_at": e.CreatedAt, "url": scheme + "://" + label + "." + base.Hostname()})
+	}
+	return rows
 }
 
 type publicAuthError struct{}

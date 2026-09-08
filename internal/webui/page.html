@@ -3,26 +3,22 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<meta name="theme-color" content="#f4f2ec" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#1e1d1a" media="(prefers-color-scheme: dark)">
 <title>{{.Title}}</title>
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="icon" href="/icon.svg" type="image/svg+xml">
 <style>{{stylesheet}}</style>
 <script src="/fixi.js"></script>
 <script src="/signer.js"></script>
 <script src="/webmcp.js"></script>
 </head>
 <body>
-<table id="layout" aria-label="tiny relay"><tr><td>
-<header>
-{{if .Private}}<h1>Private relay</h1>
-<p>Sign in with a Nostr signer to continue.</p>
-{{else}}<h1><a href="/">{{.Slug}}</a></h1>
-<p>{{.Policy.Description}}</p>
-<p><code>{{.URL}}</code> | identity {{template "nostrKey" .Identity}}</p>
-<nav aria-label="Site">
-<a href="/">Home</a> | <a href="/repos">Repositories</a> | <a href="/files">Files</a> | <a href="/inbox">Inbox</a> | <a href="/outbox">Outbox</a> | <a href="/search">Search</a> | <a href="/manage/people">Manage</a> |
-{{if .Actor}}<a href="/signin" title="{{.Actor}}">{{shortID .Actor}}</a> <button id="session-logout" type="button">Sign out</button>{{else}}<a href="/signin">Sign in</a>{{end}}
-</nav>
-<p id="session-status" role="status"></p>
-{{end}}</header>
+<header id="topbar"><button id="menu" type="button">menu</button> <span><b>{{.Slug}}</b> &raquo; {{prompt .Path .Query}}</span></header>
+<table id="layout" aria-label="{{.Slug}}"><tbody><tr>
+<td id="rail"><div id="railbox">{{template "rail" .}}</div></td>
+<td id="main"><div id="content">
 {{if .Private}}{{template "signin" .}}
 {{else if eq .Tab "home"}}{{template "home" .}}
 {{else if eq .Tab "inbox"}}{{template "inbox" .}}
@@ -32,7 +28,7 @@
 {{else if eq .Tab "private"}}{{template "private" .}}
 {{else if eq .Tab "chat"}}{{template "chat" .}}
 {{else if eq .Tab "media"}}{{template "media" .}}
-{{else if eq .Tab "site"}}{{template "site" .}}
+{{else if eq .Tab "sites"}}{{template "sites" .}}
 {{else if eq .Tab "marmot"}}{{template "marmot" .}}
 {{else if eq .Tab "grasp"}}{{template "grasp" .}}
 {{else if eq .Tab "terms"}}{{template "terms" .}}
@@ -57,27 +53,77 @@
 {{else if eq .Tab "view"}}{{template "view" .}}
 {{else if eq .Tab "invite"}}{{template "invite" .}}
 {{else}}{{template "home" .}}
-{{end}}
-<footer><a href="/.well-known/nostr.json">NIP-05</a> | <a href="/terms">Terms</a></footer>
-</td></tr></table>
+{{end}}</div></td>
+<td id="aside"><div id="panel">{{template "panel" .}}</div></td>
+</tr></tbody></table>
+<footer id="footer"><table><tr><td><span id="prompt"><b>{{.Slug}}</b> &raquo; {{prompt .Path .Query}}</span></td><td><span id="who">{{if .Private}}private relay{{else if .Actor}}signed in as {{template "nostrKey" .Actor}} (<button id="session-logout" type="button">sign out</button>){{else}}browsing as guest (<a href="/signin">Sign in</a>){{end}}</span> <span id="session-status" role="status"></span><button id="theme" type="button" aria-label="Switch theme">theme</button></td></tr></table></footer>
 <script>{{script "bridge.js"}}</script>
 <script>{{script "components.js"}}</script>
 </body>
 </html>
 {{end}}
 
-{{/* Shared partials. Each renders one reusable element so pages never repeat markup for the same kind of data. */}}
+{{/* The rail is the sitemap for the current context: the relay, one repository, or management. */}}
+{{define "rail"}}{{$kind := railKind .Tab}}{{if .Private}}<header><span><a id="mark" href="/"><i>t</i><i>i</i><i>n</i><i>y</i></a></span></header>
+<nav><a href="/signin" aria-current="page">/signin</a></nav>
+<p>Private relay. Sign in with a Nostr signer to continue.</p>
+{{else if eq $kind "repo"}}<header><span><a href="/">{{.Slug}}</a>/<a href="/repos" title="{{.Query.Get "owner"}}">{{shortID (npub (.Query.Get "owner"))}}</a>/<b>{{.Query.Get "repo"}}</b></span></header>
+<nav>{{$v := repoView .Query}}<a href="{{repoURL .Query "home" ""}}"{{if eq $v "home"}} aria-current="page"{{end}}>/home</a><a href="{{repoURL .Query "tree" ""}}"{{if or (eq $v "tree") (eq $v "file")}} aria-current="page"{{end}}>/code</a><a href="{{repoURL .Query "history" ""}}"{{if or (eq $v "history") (eq $v "commit")}} aria-current="page"{{end}}>/history</a><a href="{{repoURL .Query "activity" ""}}"{{if eq $v "activity"}} aria-current="page"{{end}}>/activity</a></nav>
+<p>&larr; <a href="/repos">all repositories</a></p>
+{{else if eq $kind "manage"}}<header><span><a href="/">{{.Slug}}</a>/<b>manage</b></span></header>
+<nav>{{range $item := manageItems}}<a href="{{$item.Href}}"{{if eq $item.Tab $.Tab}} aria-current="page"{{end}}>{{$item.Label}}</a>{{end}}</nav>
+<p>&larr; <a href="/">relay</a></p>
+{{else}}<header><span><a id="mark" href="/" title="{{.Slug}}"><i>t</i><i>i</i><i>n</i><i>y</i></a></span></header>
+<nav>{{range $item := relayItems}}<a href="{{$item.Href}}"{{if eq $item.Tab $.Tab}} aria-current="page"{{end}}>{{$item.Label}}</a>{{end}}</nav>
+{{end}}{{end}}
+
+{{/* The panel holds facts and filters for the current page. */}}
+{{define "panel"}}{{$kind := railKind .Tab}}{{if .Private}}{{template "panel-signin" .}}
+{{else if eq .Tab "repo"}}{{template "panel-repo" .}}
+{{else if eq $kind "manage"}}{{template "panel-manage" .}}
+{{else if or (eq .Tab "inbox") (eq .Tab "outbox") (eq .Tab "search") (eq .Tab "articles")}}{{template "panel-feed" .}}
+{{else if eq .Tab "repos"}}{{template "panel-repos" .}}
+{{else if or (eq .Tab "files") (eq .Tab "file")}}{{template "panel-files" .}}
+{{else if eq .Tab "signin"}}{{template "panel-signin" .}}
+{{else}}{{template "panel-relay" .}}
+{{end}}{{end}}
+
+{{define "panel-relay"}}<section><h4>About</h4><table><tr><th>identity</th><td>{{template "nostrKey" .Identity}}</td></tr><tr><th>reads</th><td>{{.Policy.Reads}}</td></tr><tr><th>writes</th><td>{{.Policy.Writes}}</td></tr><tr><th>search</th><td>{{.Policy.Features.Search}}</td></tr>{{if .Policy.Features.Grasp}}<tr><th>git</th><td>GRASP-01</td></tr>{{end}}{{if .Policy.Features.Files}}<tr><th>files</th><td>Blossom</td></tr>{{end}}</table></section>
+<section><h4>Actions</h4><ul>{{if not .Actor}}<li><a href="/signin">sign in</a></li>{{end}}<li><a href="/manage/people">manage</a></li><li><a href="/.well-known/nostr.json">NIP-05 names</a></li>{{if .Policy.Features.Pages}}<li><a href="/feed.xml">Atom feed</a></li>{{end}}<li><a href="/terms">terms</a></li></ul></section>
+<section><h4>Relay</h4><table><tr><th>url</th><td><code>{{.URL}}</code></td></tr></table></section>{{end}}
+
+{{define "panel-signin"}}<section><h4>Session</h4><table><tr><th>status</th><td>{{if .Actor}}signed in{{else}}guest{{end}}</td></tr><tr><th>method</th><td>NIP-98</td></tr></table></section>
+<section><h4>After sign in</h4><ul><li>read your inbox</li><li>manage members and policy</li><li>upload files</li><li>push repositories</li></ul></section>{{end}}
+
+{{define "panel-repos"}}<section><h4>Hosting</h4><table><tr><th>server</th><td><code>{{.URL}}</code></td></tr><tr><th>protocol</th><td>GRASP-01</td></tr></table></section>
+<section><h4>Publish</h4><p><small>Announce with ngit and push with plain git. Every push needs the owner's signed state.</small></p></section>{{end}}
+
+{{define "panel-files"}}<section><h4>Storage</h4><table><tr><th>protocol</th><td>Blossom</td></tr>{{if .Policy.Features.Files}}<tr><th>uploads</th><td>members</td></tr>{{end}}</table></section>
+{{if .Actor}}<section><h4>Upload</h4><signed-form action="/upload" method="PUT"><label>file<input type="file" name="file" required></label><button>upload</button></signed-form></section>{{end}}{{end}}
+
+{{define "panel-feed"}}<section><h4>Filters</h4><form method="get" action="/{{.Tab}}"><label for="filter-kinds">kinds</label><select id="filter-kinds" name="kinds"><option value="">notes and articles</option><option value="1"{{if eq (.Query.Get "kinds") "1"}} selected{{end}}>1 notes</option><option value="30023"{{if eq (.Query.Get "kinds") "30023"}} selected{{end}}>30023 articles</option><option value="7"{{if eq (.Query.Get "kinds") "7"}} selected{{end}}>7 reactions</option><option value="all"{{if eq (.Query.Get "kinds") "all"}} selected{{end}}>everything</option></select><label for="filter-author">author</label><input id="filter-author" name="author" placeholder="64 hex pubkey" value="{{.Query.Get "author"}}"><label for="filter-since">since</label><input id="filter-since" name="since" type="date" value="{{.Query.Get "since"}}">{{if eq .Tab "search"}}<label for="filter-q">search</label><input id="filter-q" name="q" value="{{.Query.Get "q"}}">{{end}}<button>apply</button></form></section>
+{{if .Actor}}<section><h4>You</h4><table><tr><th>key</th><td>{{template "nostrKey" .Actor}}</td></tr></table></section>{{end}}{{end}}
+
+{{define "panel-repo"}}{{$r := asMap .Event}}<section><h4>About</h4><table><tr><th>owner</th><td>{{template "nostrKey" (str (index $r "owner"))}}</td></tr><tr><th>visibility</th><td>{{if index $r "private"}}private{{else}}public{{end}}</td></tr>{{with index $r "commit"}}<tr><th>head</th><td><code title="{{.}}">{{shortID .}}</code></td></tr>{{end}}</table></section>
+<section><h4>Clone</h4><ul>{{range index $r "clone"}}<li><code>{{.}}</code></li>{{else}}<li>no clone URL advertised</li>{{end}}</ul></section>
+{{with index $r "refs"}}<section><h4>Refs</h4><form method="get" action="/repo"><input type="hidden" name="owner" value="{{$.Query.Get "owner"}}"><input type="hidden" name="repo" value="{{$.Query.Get "repo"}}"><input type="hidden" name="path" value="{{$.Query.Get "path"}}"><input type="hidden" name="view" value="{{repoView $.Query}}"><label for="ref-select">branch or tag</label><select id="ref-select" name="ref"><option value="">default branch</option>{{range $name, $oid := .}}<option value="{{$name}}"{{if eq ($.Query.Get "ref") $name}} selected{{end}}>{{$name}}</option>{{end}}</select><button>go</button></form></section>{{end}}{{end}}
+
+{{define "panel-manage"}}<section><h4>Policy</h4><table><tr><th>name</th><td>{{.Policy.Name}}</td></tr><tr><th>reads</th><td>{{.Policy.Reads}}</td></tr><tr><th>writes</th><td>{{.Policy.Writes}}</td></tr><tr><th>owner</th><td>{{template "nostrKey" .Policy.Owner}}</td></tr></table></section>
+<section><h4>Session</h4><table><tr><th>you</th><td>{{if .Actor}}{{template "nostrKey" .Actor}}{{else}}guest{{end}}</td></tr><tr><th>role</th><td>{{if .Owner}}owner{{else if .Actor}}member{{else}}none{{end}}</td></tr></table></section>
+<section><h4>Result</h4><p><small>Each form shows its result below the form. Every call is signed by your connected signer.</small></p></section>{{end}}
+
+{{/* Shared partials. */}}
 
 {{define "alert"}}{{if .}}<p role="alert">{{.}}</p>{{end}}{{end}}
 
-{{define "nostrKey"}}<nostr-key hex="{{.}}">{{shortID .}}</nostr-key>{{end}}
+{{define "nostrKey"}}<nostr-key hex="{{.}}" title="{{.}}">{{shortID .}}</nostr-key>{{end}}
 
 {{define "jsonView"}}<json-view><pre>{{json .}}</pre></json-view>{{end}}
 
 {{define "nostrEvent"}}{{$e := asMap .}}<nostr-event id="event-{{str (index $e "id")}}">
-<p><a href="/e/{{str (index $e "id")}}"><code>{{shortID (index $e "id")}}</code></a> | kind {{str (index $e "kind")}} | {{template "nostrKey" (str (index $e "pubkey"))}} | <time datetime="{{datetime (index $e "created_at")}}">{{when (index $e "created_at")}}</time></p>
+<header><a href="/e/{{str (index $e "id")}}">{{shortID (index $e "id")}}</a> | kind {{str (index $e "kind")}} | {{template "nostrKey" (str (index $e "pubkey"))}}<small><time datetime="{{datetime (index $e "created_at")}}">{{when (index $e "created_at")}}</time></small></header>
 <pre>{{str (index $e "content")}}</pre>
-<details><summary>Event JSON</summary>{{template "jsonView" .}}</details>
+<details><summary>event JSON</summary>{{template "jsonView" .}}</details>
 </nostr-event>{{end}}
 
 {{define "eventList"}}{{if .Feed}}<ol id="events">
@@ -85,8 +131,3 @@
 {{end}}</ol>
 {{else}}<p>No events.</p>
 {{end}}{{end}}
-
-{{define "manageNav"}}<nav id="manage-nav" aria-label="Manage">
-<a href="/manage/people">People</a> | <a href="/manage/moderation">Moderation</a> | <a href="/manage/rules">Rules</a> | <a href="/manage/identity">Identity</a> | <a href="/manage/connect">Connect</a> | <a href="/manage/data">Data</a> | <a href="/manage/sync">Sync</a> | <a href="/manage/views">Views</a> | <a href="/manage/health">Health</a> | <a href="/manage/owner">Owner</a> | <a href="/manage/status">Status</a> | <a href="/tools">Tools</a>
-</nav>
-{{end}}

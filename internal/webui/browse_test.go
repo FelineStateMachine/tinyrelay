@@ -99,7 +99,7 @@ func TestBrowseRendersTypedGitRelayPage(t *testing.T) {
 	recorder := httptest.NewRecorder()
 	app.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/repo?owner=alice&repo=notes&view=file", nil))
 	body := recorder.Body.String()
-	if recorder.Code != http.StatusOK || !strings.Contains(body, "&lt;script&gt;") || !strings.Contains(body, "line two") || !strings.Contains(body, "Raw/download") {
+	if recorder.Code != http.StatusOK || !strings.Contains(body, "&lt;script&gt;") || !strings.Contains(body, "line two") || !strings.Contains(body, ">raw</a>") {
 		t.Fatalf("typed browse page status=%d body=%s", recorder.Code, body)
 	}
 }

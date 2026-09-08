@@ -76,6 +76,9 @@ type PageData struct {
 	Base     string
 	Query    url.Values
 	Private  bool
+	Path     string
+	Readme   template.HTML
+	Tree     []any
 }
 
 func New(backend Backend, options Options) (*App, error) {
@@ -189,6 +192,25 @@ func (a *App) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
 	if request.URL.Path == "/fixi.js" {
 		writer.Header().Set("content-type", "application/javascript; charset=utf-8")
 		_, _ = writer.Write(fixiJS)
+		return
+	}
+	if request.URL.Path == "/sw.js" {
+		writer.Header().Set("content-type", "application/javascript; charset=utf-8")
+		writer.Header().Set("service-worker-allowed", "/")
+		_, _ = writer.Write(serviceWorkerJS)
+		return
+	}
+	if request.URL.Path == "/icon.svg" || request.URL.Path == "/icon-mono.svg" {
+		writer.Header().Set("content-type", "image/svg+xml; charset=utf-8")
+		if request.URL.Path == "/icon.svg" {
+			_, _ = writer.Write(iconSVG)
+		} else {
+			_, _ = writer.Write(iconMonoSVG)
+		}
+		return
+	}
+	if request.URL.Path == "/manifest.webmanifest" {
+		a.manifest(writer, request)
 		return
 	}
 	if request.URL.Path == "/qr.svg" {
@@ -481,7 +503,7 @@ func (a *App) browse(writer http.ResponseWriter, request *http.Request) {
 	switch method {
 	case "browserepo":
 		view := request.URL.Query().Get("view")
-		if view == "" {
+		if view == "" || view == "home" {
 			view = "tree"
 		}
 		offset := 0
@@ -499,6 +521,10 @@ func (a *App) browse(writer http.ResponseWriter, request *http.Request) {
 	}
 	raw, _ := json.Marshal(query)
 	params = append(params, raw)
+	var tree []any
+	if method == "browserepo" && request.URL.Query().Get("view") == "file" {
+		tree = a.siblings(request.Context(), actor, request.URL.Query())
+	}
 	result, err := a.backend.Query(request.Context(), method, params, actor)
 	if err != nil {
 		a.render(writer, request, PageData{Tab: browseTab(path), Error: err.Error(), Query: request.URL.Query()})
@@ -509,7 +535,46 @@ func (a *App) browse(writer http.ResponseWriter, request *http.Request) {
 		pageQuery.Set("view", "tree")
 	}
 	data := PageData{Tab: browseTab(path), Feed: browseRows(result), Event: result, Query: pageQuery}
+	if method == "browserepo" && pageQuery.Get("view") == "home" {
+		data.Readme = a.readme(request.Context(), actor, pageQuery)
+	}
+	data.Tree = tree
 	a.render(writer, request, data)
+}
+
+// readme renders README.md from the requested ref for the repository entry
+// page. A missing or binary README simply yields no content.
+func (a *App) readme(ctx context.Context, actor string, query url.Values) template.HTML {
+	for _, name := range []string{"README.md", "readme.md", "README"} {
+		raw, _ := json.Marshal(map[string]any{"owner": query.Get("owner"), "repo": query.Get("repo"), "ref": query.Get("ref"), "path": name, "view": "file", "limit": 1})
+		result, err := a.backend.Query(ctx, "browserepo", []json.RawMessage{raw}, actor)
+		if err != nil {
+			continue
+		}
+		page := valueMap(result)
+		content, _ := page["content"].(string)
+		if binary, _ := page["binary"].(bool); binary || content == "" {
+			continue
+		}
+		return renderMarkdown(content)
+	}
+	return ""
+}
+
+// siblings lists the directory that holds the file being previewed so the
+// tree pane stays populated beside the file.
+func (a *App) siblings(ctx context.Context, actor string, query url.Values) []any {
+	dir := ""
+	if slash := strings.LastIndex(query.Get("path"), "/"); slash >= 0 {
+		dir = query.Get("path")[:slash]
+	}
+	raw, _ := json.Marshal(map[string]any{"owner": query.Get("owner"), "repo": query.Get("repo"), "ref": query.Get("ref"), "path": dir, "view": "tree", "limit": 100})
+	result, err := a.backend.Query(ctx, "browserepo", []json.RawMessage{raw}, actor)
+	if err != nil {
+		return nil
+	}
+	entries, _ := valueMap(result)["entries"].([]any)
+	return entries
 }
 
 func browseTab(path string) string {
@@ -564,6 +629,7 @@ func (a *App) render(writer http.ResponseWriter, request *http.Request, data Pag
 	if data.Query == nil {
 		data.Query = request.URL.Query()
 	}
+	data.Path = strings.TrimPrefix(request.URL.Path, data.Base)
 	a.privatePageData(&data, request, actor)
 	writer.Header().Set("Cache-Control", "private, no-store")
 	writer.Header().Set("content-type", "text/html; charset=utf-8")
@@ -633,6 +699,19 @@ func bech32Polymod(values []byte) uint64 {
 	return checksum
 }
 
+// manifest describes the installable app for this relay and tenant prefix.
+func (a *App) manifest(writer http.ResponseWriter, request *http.Request) {
+	name := a.backend.Policy().Name
+	if name == "" || privatePolicyEnabled(a.backend.Policy()) {
+		name = a.backend.Slug()
+	}
+	encoded, _ := json.Marshal(name)
+	body := strings.ReplaceAll(manifestTemplate, `"NAME"`, string(encoded))
+	body = strings.ReplaceAll(body, "BASE/", requestPrefix(request)+"/")
+	writer.Header().Set("content-type", "application/manifest+json; charset=utf-8")
+	_, _ = writer.Write([]byte(body))
+}
+
 func (a *App) qrImage(writer http.ResponseWriter, text string) {
 	if a.qr == nil || text == "" {
 		http.Error(writer, "QR generation is not configured", http.StatusNotImplemented)
@@ -654,10 +733,12 @@ func (a *App) page(writer http.ResponseWriter, request *http.Request) {
 		actor = ""
 	}
 	data := PageData{Tab: tab, Query: request.URL.Query()}
-	if tab == "inbox" || tab == "outbox" || tab == "search" || tab == "articles" {
+	if tab == "inbox" || tab == "outbox" || tab == "search" || tab == "articles" || tab == "home" || tab == "sites" {
 		feed, feedErr := a.publicFeed(request.Context(), tab, actor, request.URL.Query())
 		if feedErr != nil {
 			data.Error = feedErr.Error()
+		} else if tab == "sites" {
+			data.Feed = a.siteRows(feed)
 		} else {
 			data.Feed = feed
 		}
@@ -790,7 +871,7 @@ func tabForPath(path string) string {
 		return "files"
 	case "file":
 		return "file"
-	case "tools", "signin":
+	case "tools", "signin", "sites":
 		return path
 	case "people", "moderation", "rules", "identity", "connect", "data", "sync", "views", "health", "owner":
 		return path

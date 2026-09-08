@@ -29,7 +29,7 @@ func privateShellPath(path string) bool {
 }
 
 func privateProtectedPath(path string) bool {
-	if privateShellPath(path) || path == "/webmcp.js" || path == "/signer.js" || path == "/fixi.js" || path == "/qr.svg" {
+	if privateShellPath(path) || path == "/webmcp.js" || path == "/signer.js" || path == "/fixi.js" || path == "/qr.svg" || path == "/sw.js" || path == "/manifest.webmanifest" || path == "/icon.svg" || path == "/icon-mono.svg" {
 		return false
 	}
 	return true

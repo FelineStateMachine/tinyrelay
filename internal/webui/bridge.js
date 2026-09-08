@@ -49,6 +49,25 @@
   }
 
   const signedSession = path => signedFetch(path, "POST", "");
+
+  // Shell: theme toggle, the phone menu, and the installable app worker.
+  const root_ = document.documentElement;
+  const themeButton = document.getElementById("theme");
+  const currentTheme = () => root_.dataset.theme || (matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
+  const savedTheme = localStorage.getItem("tiny.theme");
+  if (savedTheme) root_.dataset.theme = savedTheme;
+  if (themeButton) {
+    const label = () => { themeButton.textContent = currentTheme() === "dark" ? "light" : "dark"; };
+    label();
+    themeButton.addEventListener("click", () => {
+      root_.dataset.theme = currentTheme() === "dark" ? "light" : "dark";
+      localStorage.setItem("tiny.theme", root_.dataset.theme);
+      label();
+    });
+  }
+  document.getElementById("menu")?.addEventListener("click", () => { root_.dataset.menu = root_.dataset.menu === "open" ? "" : "open"; });
+  document.getElementById("rail")?.addEventListener("click", event => { if (event.target.closest("a")) root_.dataset.menu = ""; });
+  if ("serviceWorker" in navigator) navigator.serviceWorker.register(localPath("/sw.js")).catch(() => {});
   window.tiny = {root, localPath, sha256hex, authorization, signedFetch};
   window.tinySignedFetch = signedFetch;
 

@@ -1,0 +1,14 @@
+{
+  "name": "NAME",
+  "short_name": "NAME",
+  "description": "A tiny Nostr relay",
+  "start_url": "BASE/",
+  "scope": "BASE/",
+  "display": "standalone",
+  "background_color": "#fbfaf7",
+  "theme_color": "#f4f2ec",
+  "icons": [
+    {"src": "BASE/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any"},
+    {"src": "BASE/icon-mono.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "monochrome"}
+  ]
+}

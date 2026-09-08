@@ -1,6 +1,5 @@
-{{define "people"}}<main>
-<h2>People</h2>
-{{template "manageNav" .}}
+{{define "people"}}<section>
+<h1>People</h1>
 <h3>Members</h3>
 <rpc-form method="listmembers"><button>List members</button></rpc-form>
 <rpc-form method="setmember" compose="member">
@@ -27,12 +26,11 @@
 <h3>Lists</h3>
 <rpc-form method="listallowedpubkeys"><button>Allowed pubkeys</button></rpc-form>
 <rpc-form method="listbannedpubkeys"><button>Banned pubkeys</button></rpc-form>
-</main>
+</section>
 {{end}}
 
-{{define "moderation"}}<main>
-<h2>Moderation</h2>
-{{template "manageNav" .}}
+{{define "moderation"}}<section>
+<h1>Moderation</h1>
 <h3>Reports</h3>
 <rpc-form method="listreports"><button>List reports</button></rpc-form>
 <rpc-form method="resolvereport">
@@ -52,12 +50,11 @@
 <rpc-form method="unpinevent"><label>Event ID or address <input name="param" required></label><button>Unpin</button></rpc-form>
 <h3>Pubkeys</h3>
 <rpc-form method="banpubkey"><label>Pubkey <input name="param" required></label><button>Ban</button></rpc-form>
-</main>
+</section>
 {{end}}
 
-{{define "rules"}}<main>
-<h2>Rules</h2>
-{{template "manageNav" .}}
+{{define "rules"}}<section>
+<h1>Rules</h1>
 <h3>Policy</h3>
 <rpc-form method="getpolicy"><button>Load policy</button></rpc-form>
 <rpc-form method="setpolicy" compose="memberInvites">
@@ -75,12 +72,11 @@
 <label>Keep days <input name="param" type="number" min="0" required></label>
 <button>Save retention</button>
 </rpc-form>
-</main>
+</section>
 {{end}}
 
-{{define "identity"}}<main>
-<h2>Identity</h2>
-{{template "manageNav" .}}
+{{define "identity"}}<section>
+<h1>Identity</h1>
 <h3>Profile</h3>
 <rpc-form method="changerelayname"><label>Name <input name="param" value="{{.Policy.Name}}"></label><button>Save name</button></rpc-form>
 <rpc-form method="changerelaydescription"><label>Description <textarea name="param">{{.Policy.Description}}</textarea></label><button>Save description</button></rpc-form>
@@ -98,14 +94,13 @@
 </rpc-form>
 <h3>Ownership</h3>
 <rpc-form method="transferowner"><label>New owner pubkey <input name="param" required></label><button>Transfer ownership</button></rpc-form>
-</main>
+</section>
 {{end}}
 
-{{define "connect"}}<main>
-<h2>Connect</h2>
+{{define "connect"}}<section>
+<h1>Connect</h1>
 {{if .Private}}<p>This private relay requires current membership. Connect a signer to sign in.</p>
-{{end}}{{template "manageNav" .}}
-<h3>Connections</h3>
+{{end}}<h3>Connections</h3>
 <p><button fx-action="/connect/fragment" fx-method="get" fx-trigger="click" fx-target="#connections-preview" fx-swap="morph">Preview connections</button></p>
 <scroll-box><table id="connections-preview" aria-live="polite"><tbody><tr><td>No preview loaded.</td></tr></tbody></table></scroll-box>
 <rpc-form method="listconnections"><button>List connections</button></rpc-form>
@@ -123,12 +118,11 @@
 </publish-list>
 <h3>Sign in</h3>
 {{template "signerControls" .}}
-</main>
+</section>
 {{end}}
 
-{{define "data"}}<main>
-<h2>Data</h2>
-{{template "manageNav" .}}
+{{define "data"}}<section>
+<h1>Data</h1>
 <h3>Files</h3>
 <signed-form action="/upload" method="PUT"><label>Upload file <input type="file" name="file" required></label><button>Upload</button></signed-form>
 <rpc-form method="listblobs"><button>List blobs</button></rpc-form>
@@ -155,12 +149,11 @@
 <rpc-form method="deletebackup"><label>Backup name <input name="param" required></label><button>Delete backup</button></rpc-form>
 <h3>Import</h3>
 <signed-form action="/import" method="PUT"><label>Event JSONL <input type="file" name="file" accept=".jsonl,.json,application/json" required></label><button>Import events</button></signed-form>
-</main>
+</section>
 {{end}}
 
-{{define "sync"}}<main>
-<h2>Sync and delivery</h2>
-{{template "manageNav" .}}
+{{define "sync"}}<section>
+<h1>Sync and delivery</h1>
 <h3>Jobs</h3>
 <p><button id="watch-jobs" fx-action="/manage/jobs/status" fx-method="get" fx-trigger="click" fx-target="#job-status" fx-swap="innerHTML">Watch job status</button></p>
 <scroll-box><table id="job-status"><tbody><tr><td>Job status is idle.</td></tr></tbody></table></scroll-box>
@@ -177,38 +170,34 @@
 <rpc-form method="pullstatus"><button>Pull status</button></rpc-form>
 <rpc-form method="deliverystatus"><button>Delivery status</button></rpc-form>
 <rpc-form method="backfill"><label>JSON backfill plan <input name="param" value="{}"></label><button>Backfill</button></rpc-form>
-</main>
+</section>
 {{end}}
 
-{{define "views"}}<main>
-<h2>Views</h2>
-{{template "manageNav" .}}
+{{define "views"}}<section>
+<h1>Views</h1>
 <rpc-form method="listviews"><button>List views</button></rpc-form>
 <rpc-form method="publishview"><label>View name <input name="param" required></label><button>Publish view</button></rpc-form>
-</main>
+</section>
 {{end}}
 
-{{define "health"}}<main>
-<h2>Health</h2>
-{{template "manageNav" .}}
+{{define "health"}}<section>
+<h1>Health</h1>
 <rpc-form method="stats"><button>Relay stats</button></rpc-form>
 <rpc-form method="listaudit"><label>Before sequence <input name="param" type="number" value="0"></label><button>Audit log</button></rpc-form>
 <rpc-form method="supportedmethods"><button>Supported methods</button></rpc-form>
-</main>
+</section>
 {{end}}
 
-{{define "status"}}<main>
-<h2>Service status</h2>
-{{template "manageNav" .}}
+{{define "status"}}<section>
+<h1>Service status</h1>
 {{if .Error}}{{template "alert" .Error}}
 {{else}}{{template "jsonView" .Event}}
 <p><a href="/manage/sync">Jobs and delivery</a> | <a href="/manage/data">Storage and backups</a> | <a href="/manage/health">Relay health</a></p>
-{{end}}</main>
+{{end}}</section>
 {{end}}
 
-{{define "owner"}}<main>
-<h2>Owner operations</h2>
-{{template "manageNav" .}}
+{{define "owner"}}<section>
+<h1>Owner operations</h1>
 <p>Destructive actions ask the signer. The browser never receives or submits a private key.</p>
 <h3>Configuration</h3>
 <rpc-form method="exportconfig"><button>Export configuration</button></rpc-form>
@@ -231,5 +220,5 @@
 <label>JSON parameters <input name="param" value="[]"></label>
 <button>Run method</button>
 </rpc-form>
-</main>
+</section>
 {{end}}

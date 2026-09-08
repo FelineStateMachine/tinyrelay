@@ -32,6 +32,72 @@ var bridgeJS string
 //go:embed components.js
 var componentsJS string
 
+// Installable app assets. The manifest is a template: NAME and BASE are
+// replaced per request so tenant prefixes and relay names stay correct.
+//
+//go:embed manifest.webmanifest
+var manifestTemplate string
+
+//go:embed sw.js
+var serviceWorkerJS []byte
+
+//go:embed icon.svg
+var iconSVG []byte
+
+//go:embed icon-mono.svg
+var iconMonoSVG []byte
+
+// navItem is one rail entry. Tab matches PageData.Tab for the active state.
+type navItem struct{ Label, Href, Tab string }
+
+var relayNav = []navItem{{"/home", "/", "home"}, {"/search", "/search", "search"}, {"/repos", "/repos", "repos"}, {"/files", "/files", "files"}, {"/sites", "/sites", "sites"}, {"/inbox", "/inbox", "inbox"}, {"/outbox", "/outbox", "outbox"}, {"/articles", "/articles", "articles"}, {"/manage", "/manage/people", "manage"}}
+
+var manageNav = []navItem{{"/people", "/manage/people", "people"}, {"/moderation", "/manage/moderation", "moderation"}, {"/rules", "/manage/rules", "rules"}, {"/identity", "/manage/identity", "identity"}, {"/connect", "/manage/connect", "connect"}, {"/data", "/manage/data", "data"}, {"/sync", "/manage/sync", "sync"}, {"/views", "/manage/views", "views"}, {"/health", "/manage/health", "health"}, {"/owner", "/manage/owner", "owner"}, {"/status", "/manage/status", "status"}, {"/tools", "/tools", "tools"}}
+
+// railKind picks the sitemap for a tab: one repository, management, or the relay.
+func railKind(tab string) string {
+	if tab == "repo" {
+		return "repo"
+	}
+	for _, item := range manageNav {
+		if item.Tab == tab {
+			return "manage"
+		}
+	}
+	return "relay"
+}
+
+// promptPath renders the footer prompt: the path after the relay name, with
+// repository pages spelled out as repos/<name>/<view>.
+func promptPath(path string, query url.Values) string {
+	path = strings.Trim(path, "/")
+	switch {
+	case path == "":
+		return "home"
+	case path == "repo" && query.Get("repo") != "":
+		return "repos/" + query.Get("repo") + "/" + repoView(query)
+	case path == "file" && (query.Get("sha") != "" || query.Get("hash") != ""):
+		return "files/" + shortID(query.Get("sha")+query.Get("hash"))
+	}
+	return path
+}
+
+// short renders a Unix timestamp as a compact UTC stamp for list rows.
+func short(value any) string {
+	seconds := unixSeconds(value)
+	if seconds <= 0 {
+		return ""
+	}
+	return time.Unix(seconds, 0).UTC().Format("Jan 2 15:04")
+}
+
+func repoView(query url.Values) string {
+	if view := query.Get("view"); view != "" {
+		return view
+	}
+	return "tree"
+}
+
 func parseTemplates() (*template.Template, error) {
 	scripts := map[string]string{"bridge.js": bridgeJS, "components.js": componentsJS}
 	funcs := template.FuncMap{
@@ -50,18 +116,21 @@ func parseTemplates() (*template.Template, error) {
 			}
 			return string(encoded)
 		},
-		"join":     strings.Join,
-		"urlquery": url.QueryEscape,
-		"asMap":    valueMap,
-		"str":      plainString,
-		"datetime": datetime,
-		"when":     when,
-		"selectedView": func(query url.Values, view string) string {
-			if query.Get("view") == view || (query.Get("view") == "" && view == "tree") {
-				return " selected"
-			}
-			return ""
-		},
+		"join":            strings.Join,
+		"urlquery":        url.QueryEscape,
+		"asMap":           valueMap,
+		"str":             plainString,
+		"datetime":        datetime,
+		"when":            when,
+		"markdown":        renderMarkdown,
+		"npub":            identityNpub,
+		"short":           short,
+		"prompt":          promptPath,
+		"railKind":        railKind,
+		"repoView":        repoView,
+		"relayItems":      func() []navItem { return relayNav },
+		"manageItems":     func() []navItem { return manageNav },
+		"add":             func(a, b int) int { return a + b },
 		"repoCommitURL":   repoCommitURL,
 		"hasNextOffset":   hasNextOffset,
 		"repoURL":         repoURL,
