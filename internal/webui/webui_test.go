@@ -313,16 +313,24 @@ func TestJobStatusRequiresActorAndEmitsHTMLSSE(t *testing.T) {
 	}
 }
 
-func TestConnectionFragmentEscapesValues(t *testing.T) {
+func TestConnectPageEditsConnectionsAsList(t *testing.T) {
 	backend := &fakeBackend{policy: policy.Defaults(strings.Repeat("a", 64))}
-	app, err := New(backend, Options{Actor: func(*http.Request) (string, error) { return "owner", nil }})
+	app, err := New(backend, Options{Actor: func(*http.Request) (string, error) { return backend.policy.Owner, nil }})
 	if err != nil {
 		t.Fatal(err)
 	}
 	recorder := httptest.NewRecorder()
-	app.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/connect/fragment", nil))
-	if recorder.Code != http.StatusOK || !strings.Contains(recorder.Header().Get("content-type"), "text/html") || !strings.Contains(recorder.Body.String(), "connections-preview") {
-		t.Fatalf("invalid connection fragment: status=%d body=%s", recorder.Code, recorder.Body.String())
+	app.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/manage/connect", nil))
+	body := recorder.Body.String()
+	for _, want := range []string{"<connect-list>", `<select name="template">`, `<button type="button" name="add">`, `method="setconnections"`} {
+		if !strings.Contains(body, want) {
+			t.Errorf("connect page missing %q", want)
+		}
+	}
+	for _, gone := range []string{"connect/fragment", "Preview connections", `method="listconnections"`} {
+		if strings.Contains(body, gone) {
+			t.Errorf("connect page still carries %q", gone)
+		}
 	}
 }
 
@@ -333,9 +341,9 @@ func TestTenantPrefixRewritesUIEndpoints(t *testing.T) {
 		t.Fatal(err)
 	}
 	recorder := httptest.NewRecorder()
-	app.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/r/alice/manage/connect", nil))
+	app.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/r/alice/manage/sync", nil))
 	body := recorder.Body.String()
-	for _, want := range []string{`src="/r/alice/fixi.js"`, `src="/r/alice/signer.js"`, `fx-action="/r/alice/connect/fragment"`, `localPath(this.getAttribute("action")||"/manage/rpc")`, `signedSession("/session")`, `replace(/^http/,"ws")+root`} {
+	for _, want := range []string{`src="/r/alice/fixi.js"`, `src="/r/alice/signer.js"`, `fx-action="/r/alice/manage/jobs/status"`, `localPath(action || "/manage/rpc")`, `signedSession("/session")`, `replace(/^http/,"ws")+root`} {
 		if !strings.Contains(body, want) {
 			t.Errorf("tenant prefix missing %q", want)
 		}
@@ -348,11 +356,11 @@ func TestTenantPrefixHeaderSurvivesDaemonPathStripping(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	request := httptest.NewRequest(http.MethodGet, "/manage/connect", nil)
-	request.RequestURI = "/r/alice/manage/connect"
+	request := httptest.NewRequest(http.MethodGet, "/manage/sync", nil)
+	request.RequestURI = "/r/alice/manage/sync"
 	recorder := httptest.NewRecorder()
 	app.ServeHTTP(recorder, request)
-	if !strings.Contains(recorder.Body.String(), `fx-action="/r/alice/connect/fragment"`) {
+	if !strings.Contains(recorder.Body.String(), `fx-action="/r/alice/manage/jobs/status"`) {
 		t.Fatal("daemon prefix header was not applied")
 	}
 }

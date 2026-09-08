@@ -8,7 +8,7 @@ The vendored file's SHA-256 is:
 b70458c212d0409f8a6319c286351865d92587292ad4f9bc0dfd1c46ffcad855
 ```
 
-`/fixi.js` is served locally with no CDN dependency. The page loads it before the existing signer bundle. The Connect page uses Fixi's `fx-action` fragment request for a read-only connection preview; `/connect/fragment` renders server-escaped table HTML, while `/connect.json` remains a JSON API. Mutation forms remain handled by the existing signer bridge because every request body must be serialized once, hashed exactly, signed as NIP-98, and submitted once. Fixi is not allowed to issue those signed mutations or retry them.
+`/fixi.js` is served locally with no CDN dependency. The page loads it before the existing signer bundle. The Sync page uses Fixi's `fx-action` request for the job status stream, which renders server-escaped table HTML; `/connect.json` remains a JSON API for the configured connections. Mutation forms remain handled by the existing signer bridge because every request body must be serialized once, hashed exactly, signed as NIP-98, and submitted once. Fixi is not allowed to issue those signed mutations or retry them.
 
 The signer bridge handles NIP-07, NIP-46, Nostr Connect, Amber links, session login and management actions. Fixi updates page links and GET forms within the current tenant without a full reload. Filters, repository refs, browser history and page titles remain available. Downloads, external links and modified clicks retain normal browser behavior. A failed request displays an error in the footer and leaves the current page usable. Navigation and content also work without JavaScript, including on phones.
 

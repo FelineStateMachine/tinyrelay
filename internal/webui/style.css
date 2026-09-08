@@ -111,6 +111,7 @@ rpc-form output,signed-form output,publish-list output{display:block;font:12px v
 rpc-form output[data-error]{color:var(--alert)}
 #content>section>h3{border-bottom:0;margin-top:22px;font-size:15px}
 
+connect-list{display:block}connect-list #rows td{height:auto;padding:8px 10px;white-space:normal;vertical-align:middle}connect-list #rows td:first-child{width:150px}connect-list #rows td:nth-child(2){color:var(--muted)}connect-list #rows td:nth-child(2) b{color:var(--ink);font-weight:normal}connect-list #rows td:nth-child(3){width:110px}connect-list #rows td:last-child{width:190px;white-space:nowrap}connect-list button,connect-list select{font-size:12px}connect-list output{display:block;font:12px var(--mono);color:var(--muted);margin-top:4px}connect-list output[data-error]{color:var(--alert)}
 relay-lists{display:block}relay-lists #rows td{height:auto;padding:8px 10px;white-space:normal;vertical-align:middle}relay-lists #rows td:last-child{width:230px;text-align:left;color:var(--ink);white-space:nowrap}relay-lists #rows td:first-child{width:170px;color:var(--ink);font-family:var(--sans)}relay-lists output{display:block;font:12px var(--mono);color:var(--muted);white-space:normal}relay-lists button{font-size:12px}
 
 connect-card{display:block;border-bottom:1px solid var(--line);padding:10px 0;max-width:720px}connect-card h3{margin:0 0 4px;border:0;font-size:15px}connect-card h3 small{font:12px var(--mono);color:var(--muted)}connect-card p{margin:0 0 6px;color:var(--muted)}connect-card label{display:inline-block;font:13px var(--sans);color:var(--muted);margin:0 10px 6px 0}connect-card label input{display:block;font:13px var(--mono);min-width:200px}connect-card a,connect-card button{margin-right:10px;font-size:13px}connect-card output{display:block;font:12px var(--mono);color:var(--muted);overflow-wrap:anywhere}connect-card details img{display:block;margin:6px 0;background:#fff;padding:6px;border:1px solid var(--line)}
@@ -194,6 +195,6 @@ html,body{overflow:auto}
 #navigation-status:not(:empty),#session-status:not(:empty){position:absolute;bottom:100%;left:0;right:0;padding:6px 12px;background:var(--rail);border-top:1px solid var(--line);white-space:normal}
 #split,#split>tbody,#split>tbody>tr,#split>tbody>tr>td{display:block;width:auto}
 #tree{border-right:0;border-bottom:1px solid var(--line)}
-#rows{table-layout:fixed}#rows td{white-space:normal;overflow-wrap:anywhere;height:auto;padding:8px 6px;line-height:1.35}#rows td:first-child{width:90px}#rows td:last-child{width:80px}
+#rows{table-layout:fixed}#rows td{white-space:normal;overflow-wrap:anywhere;height:auto;padding:8px 6px;line-height:1.35}#rows td:first-child{width:90px}#rows td:last-child{width:80px}connect-list #rows td:nth-child(2),connect-list #rows th:nth-child(2){display:none}connect-list #rows td:nth-child(3),connect-list #rows td:last-child{width:auto}connect-list #rows td:last-child{white-space:normal}connect-list #rows td:last-child button{margin:2px 0}
 #grid,#gridhead,h2:has(+#gridhead){display:none}
 }

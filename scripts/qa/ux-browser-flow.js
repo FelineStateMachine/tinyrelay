@@ -59,28 +59,23 @@ async page => {
       check(current.length > 0 && current.every(x => x.form && x.output && !x.nested), 'detached or nested forms: '+JSON.stringify(current));
     }
     await page.waitForFunction(() => !!window.nostr?.signEvent);
-    const list = page.locator('rpc-form[method=listconnections]');
+    await page.waitForFunction(() => document.querySelector('connect-list #rows tbody tr[data-index]') !== null);
+    check(await page.locator('connect-list select[name=template] option').count() > 1, 'connect list offers no catalog cards');
+    await clickNav('/people');
+    const list = page.locator('rpc-form[method=listmembers]');
     let submissions = 0;
     const count = request => { if (request.method()==='POST' && request.url().endsWith('/manage/rpc')) submissions++; };
     page.on('request', count);
     try {
       await list.evaluate(node => { node.form.requestSubmit(); node.form.requestSubmit(); });
-      await page.waitForFunction(() => document.querySelector('rpc-form[method=listconnections] output')?.textContent === 'Done.');
+      await page.waitForFunction(() => document.querySelector('rpc-form[method=listmembers] output')?.textContent === 'Done.');
       check(submissions===1, 'duplicate form submissions sent '+submissions+' signed requests');
     } finally { page.off('request',count); }
-    await page.getByRole('button', {name:'Preview connections',exact:true}).click();
-    await page.waitForFunction(() => document.querySelector('#connections-preview thead') !== null);
+    await clickNav('/connect');
+    await page.waitForFunction(() => document.querySelector('connect-list #rows tbody tr[data-index]') !== null);
     const result = await forms();
     await page.screenshot({path:'output/playwright/ux/connect-desktop.png'});
     return result;
-  });
-  await run('refused previews show an error without destroying the table', async () => {
-    await page.evaluate(async () => { await fetch(window.tiny.localPath('/session/logout'), {method:'POST'}); });
-    try {
-      await page.getByRole('button', {name:'Preview connections',exact:true}).click();
-      await page.waitForFunction(() => document.querySelector('#navigation-status')?.textContent.includes('Sign in again'));
-      check(await page.locator('#connections-preview').count()===1, 'refused preview removed table');
-    } finally { await page.evaluate(async () => { await window.tiny.signedFetch('/session','POST',''); }); }
   });
   await run('job status stream closes when leaving the page', async () => {
     await clickNav('/sync');

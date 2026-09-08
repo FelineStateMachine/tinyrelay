@@ -5,6 +5,9 @@
 //   <rpc-form method="…" [compose="…"] [action="…"] [terms="…"] [json-params]>
 //     One signed NIP-86 management call. Children become the form body; the
 //     element appends an <output> status line and a <json-view> result.
+//   <connect-list>
+//     The home page cards: lists, reorders, retargets and removes configured
+//     connections and adds from the catalog, saving with setconnections.
 //   <signed-form action="…" method="PUT|POST|GET" [download]>
 //     A NIP-98 signed upload of one file, or a signed download by name.
 //   <publish-list kind="…" tag="…" [scheme="ws"]>
@@ -84,6 +87,24 @@
     }]
   };
 
+  // rpc makes one signed management call: the body is serialised once,
+  // signed as NIP-98, and sent once. Returns the result or throws the error.
+  const rpc = async (method, params = [], action) => {
+    const body = JSON.stringify({method, params});
+    const endpoint = tiny.localPath(action || "/manage/rpc");
+    const url = new URL(endpoint, location.href).href;
+    const response = await fetch(endpoint, {
+      method: "POST",
+      headers: {"content-type": "application/json", authorization: await tiny.authorization(url, "POST", new TextEncoder().encode(body))},
+      body
+    });
+    const text = await response.text();
+    let payload;
+    try { payload = JSON.parse(text); } catch { payload = undefined; }
+    if (!response.ok || payload?.error) throw Error(payload?.error || text || "Request failed (" + response.status + ")");
+    return payload && "result" in payload ? payload.result : payload ?? text;
+  };
+
   class RpcForm extends FormElement {
     params(form) {
       const compose = composers[this.getAttribute("compose")];
@@ -105,20 +126,8 @@
         const terms = this.getAttribute("terms");
         if (terms) params = [params[0], await tiny.sha256hex(new TextEncoder().encode(terms))];
       }
-      const body = JSON.stringify({method, params});
       this.report("Signing…");
-      const endpoint = tiny.localPath(this.getAttribute("action")||"/manage/rpc");
-      const url = new URL(endpoint, location.href).href;
-      const response = await fetch(endpoint, {
-        method: "POST",
-        headers: {"content-type": "application/json", authorization: await tiny.authorization(url, "POST", new TextEncoder().encode(body))},
-        body
-      });
-      const text = await response.text();
-      let payload;
-      try { payload = JSON.parse(text); } catch { payload = undefined; }
-      if (!response.ok || payload?.error) throw Error(payload?.error || text || "Request failed (" + response.status + ")");
-      const result = payload && "result" in payload ? payload.result : payload ?? text;
+      const result = await rpc(method, params, this.getAttribute("action"));
       this.report("Done.");
       this.show(result);
     }
@@ -390,6 +399,130 @@
     }
   }
 
+  // ConnectList edits the cards on the home page: the configured connections
+  // in order, each with its audience, plus add from the catalog. Every change
+  // saves the whole list with one signed call.
+  class ConnectList extends HTMLElement {
+    connectedCallback() {
+      if (this.bound) return;
+      this.bound = true;
+      this.body = this.querySelector("tbody");
+      this.select = this.querySelector("select[name=template]");
+      this.output = this.querySelector("output");
+      this.rows = [];
+      this.catalog = [];
+      this.addEventListener("click", event => {
+        const button = event.target.closest("button[name]");
+        if (!button) return;
+        button.disabled = true;
+        this.change(button.name, button.closest("tr")).catch(err => this.say("error: " + err.message, true)).finally(() => { button.disabled = false; });
+      });
+      this.addEventListener("change", event => {
+        const select = event.target.closest("select[name=visibility]");
+        if (select) this.change("visibility", select.closest("tr"), select.value).catch(err => this.say("error: " + err.message, true));
+      });
+      this.whenSigned(() => this.load().catch(err => this.say("error: " + err.message, true)));
+    }
+
+    // whenSigned waits briefly for a signer, since a remote one resumes async.
+    whenSigned(fn, tries = 20) {
+      if (window.nostr?.signEvent) return fn();
+      if (tries <= 0) { this.say("connect a signer, then reload this page"); return; }
+      setTimeout(() => this.whenSigned(fn, tries - 1), 500);
+    }
+
+    say(text, error) {
+      this.output.textContent = text;
+      if (error) this.output.dataset.error = "";
+      else delete this.output.dataset.error;
+    }
+
+    async load() {
+      this.say("loading…");
+      [this.rows, this.catalog] = await Promise.all([rpc("listconnections"), rpc("listconnectiontemplates")]);
+      this.render();
+      this.say("");
+    }
+
+    entry(name) { return this.catalog.find(c => c.name === name) || {name, title: name, visibility: "public", available: true}; }
+
+    render() {
+      const audiences = ["public", "members", "owner"];
+      const rows = this.rows.map((row, index) => {
+        const name = row.template || row.name;
+        const c = this.entry(name);
+        const tr = el("tr");
+        tr.dataset.index = index;
+        tr.dataset.template = name;
+        const app = el("td");
+        if (c.app) app.append(el("b", c.app), " ");
+        app.append(c.about || "");
+        if (c.available === false) app.append(" ", el("small", "(feature off, hidden)"));
+        const audience = el("select");
+        audience.name = "visibility";
+        const current = row.visibility === "auth" || row.visibility === "member" ? "members" : row.visibility || c.visibility;
+        for (const value of audiences.includes(current) ? audiences : [current, ...audiences]) {
+          const option = el("option", value);
+          option.value = value;
+          option.selected = value === current;
+          audience.append(option);
+        }
+        const actions = el("td");
+        for (const [label, action] of [["up", "up"], ["down", "down"], ["remove", "remove"]]) {
+          const button = el("button", label);
+          button.type = "button";
+          button.name = action;
+          if ((action === "up" && index === 0) || (action === "down" && index === this.rows.length - 1)) button.disabled = true;
+          actions.append(button, " ");
+        }
+        const cell = el("td");
+        cell.append(audience);
+        tr.append(el("td", c.title || name), app, cell, actions);
+        return tr;
+      });
+      if (!rows.length) {
+        const empty = el("tr");
+        const cell = el("td", "No cards. Add one from the catalog below.");
+        cell.colSpan = 4;
+        empty.append(cell);
+        rows.push(empty);
+      }
+      this.body.replaceChildren(...rows);
+      const used = new Set(this.rows.map(row => row.template || row.name));
+      const options = [el("option", "choose one")];
+      options[0].value = "";
+      for (const c of this.catalog) {
+        if (used.has(c.name)) continue;
+        const option = el("option", c.title + (c.app ? " (" + c.app + ")" : "") + (c.available === false ? ", feature off" : ""));
+        option.value = c.name;
+        options.push(option);
+      }
+      this.select.replaceChildren(...options);
+    }
+
+    async change(action, row, value) {
+      const index = Number(row?.dataset.index);
+      const next = this.rows.map(entry => ({...entry}));
+      switch (action) {
+        case "remove": next.splice(index, 1); break;
+        case "up": if (index > 0) [next[index - 1], next[index]] = [next[index], next[index - 1]]; break;
+        case "down": if (index < next.length - 1) [next[index + 1], next[index]] = [next[index], next[index + 1]]; break;
+        case "visibility": next[index].visibility = value; break;
+        case "add": {
+          const name = this.select.value;
+          if (!name) { this.say("choose a card to add"); return; }
+          next.push({template: name, visibility: this.entry(name).visibility || "public"});
+          break;
+        }
+        default: return;
+      }
+      this.say("saving…");
+      this.rows = await rpc("setconnections", [next]);
+      this.render();
+      this.say("saved");
+    }
+  }
+
   // ConnectCard copies a command or address, filling {input:name} from the
   // card's inputs, so a clone command carries the repository name typed.
   class ConnectCard extends HTMLElement {
@@ -413,6 +546,7 @@
 
   customElements.define("rpc-form", RpcForm);
   customElements.define("connect-card", ConnectCard);
+  customElements.define("connect-list", ConnectList);
   customElements.define("relay-lists", RelayLists);
   customElements.define("signed-form", SignedForm);
   customElements.define("publish-list", PublishList);

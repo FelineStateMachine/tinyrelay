@@ -167,10 +167,6 @@ func (a *App) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
 		a.connectJSON(writer, request)
 		return
 	}
-	if request.URL.Path == "/connect/fragment" {
-		a.connectFragment(writer, request)
-		return
-	}
 	if strings.HasPrefix(request.URL.Path, "/e/") || strings.HasPrefix(request.URL.Path, "/a/") {
 		if !a.pageFeatureEnabled(request.URL.Path) {
 			http.NotFound(writer, request)
@@ -402,27 +398,6 @@ func (a *App) connectJSON(writer http.ResponseWriter, request *http.Request) {
 		return
 	}
 	writeJSON(writer, http.StatusOK, result)
-}
-
-func (a *App) connectFragment(writer http.ResponseWriter, request *http.Request) {
-	actor, actorErr := a.resolveActor(request)
-	if actorErr != nil || actor == "" {
-		http.Error(writer, "authentication required", http.StatusUnauthorized)
-		return
-	}
-	result, err := a.backend.Query(request.Context(), "listconnections", nil, actor)
-	if err != nil {
-		http.Error(writer, "connections unavailable", http.StatusNotFound)
-		return
-	}
-	rows := make([][]string, 0)
-	for _, row := range browseRows(result) {
-		values, _ := row.(map[string]any)
-		rows = append(rows, []string{plainString(firstValue(values, "label", "title", "name", "template")), plainString(firstValue(values, "url", "href", "relay")), plainString(firstValue(values, "status", "visibility"))})
-	}
-	fragment := `<table id="connections-preview" aria-live="polite">` + tableRows([]string{"Label", "Relay", "Status"}, rows) + `</table>`
-	writer.Header().Set("content-type", "text/html; charset=utf-8")
-	_, _ = writer.Write([]byte(fragment))
 }
 
 func (a *App) eventPage(writer http.ResponseWriter, request *http.Request) {

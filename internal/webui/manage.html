@@ -101,11 +101,15 @@
 <h1>Connect</h1>
 {{if .Private}}<p>This private relay requires current membership. Connect a signer to sign in.</p>
 {{end}}<h3>Connections</h3>
-<p><button fx-action="/connect/fragment" fx-method="get" fx-trigger="click" fx-target="#connections-preview" fx-swap="morph">Preview connections</button></p>
-<scroll-box><table id="connections-preview" aria-live="polite"><tbody><tr><td>No preview loaded.</td></tr></tbody></table></scroll-box>
-<rpc-form method="listconnections"><button>List connections</button></rpc-form>
-<rpc-form method="setconnections"><label>JSON connections <textarea name="param">[]</textarea></label><button>Save connections</button></rpc-form>
-<rpc-form method="listconnectiontemplates"><button>List templates</button></rpc-form>
+<p>The cards on the home page, in order. Remove what you will not use; add more from the catalog. Cards whose feature is off stay hidden.</p>
+<connect-list>
+<table id="rows"><thead><tr><th>card</th><th>app</th><th>audience</th><th></th></tr></thead><tbody><tr><td colspan="4">Loading…</td></tr></tbody></table>
+<p><label>Add a card <select name="template"><option value="">choose one</option></select></label> <button type="button" name="add">add</button></p>
+<output role="status"></output>
+</connect-list>
+<details><summary>Edit as JSON</summary>
+<rpc-form method="setconnections"><label>Connections <textarea name="param">[]</textarea></label><button>Save connections</button></rpc-form>
+</details>
 <h3>Publish signed relay records</h3>
 <p>These actions open the configured signer and publish owner-authored Nostr records.</p>
 <publish-list kind="10317" tag="g" scheme="ws">
