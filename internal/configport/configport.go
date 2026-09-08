@@ -159,7 +159,7 @@ func warnPolicy(c *Config) {
 			c.Warnings = append(c.Warnings, "policy.lease: legacy lease imported disabled; explicit owner mapping required")
 		} else if key == "owner" {
 			c.Warnings = append(c.Warnings, "policy.owner: never imported; tenant owner must be assigned by the operator")
-		} else if key == "succession" || key == "customHosts" || key == "fuel" || strings.Contains(strings.ToLower(key), "limit") || strings.HasPrefix(strings.ToLower(key), "free") || strings.HasPrefix(strings.ToLower(key), "sats") {
+		} else if key != "fileLimits" && (key == "succession" || key == "customHosts" || key == "fuel" || strings.Contains(strings.ToLower(key), "limit") || strings.HasPrefix(strings.ToLower(key), "free") || strings.HasPrefix(strings.ToLower(key), "sats")) {
 			c.Warnings = append(c.Warnings, "policy."+key+": removed from self-hosted runtime")
 		}
 	}

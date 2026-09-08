@@ -62,6 +62,12 @@ type Inbox struct {
 	Targeted bool `json:"targeted"`
 }
 
+// FileLimits controls a tenant's file storage allowances. Zero is unlimited.
+type FileLimits struct {
+	MaxFileBytes     int64 `json:"maxFileBytes"`
+	UserStorageBytes int64 `json:"userStorageBytes"`
+}
+
 type CustomHost struct {
 	Host      string `json:"host"`
 	ID        string `json:"id"`
@@ -109,6 +115,7 @@ type Policy struct {
 	Features           Features          `json:"features"`
 	PushCallbacks      []string          `json:"pushCallbacks"`
 	PrivatePeers       []string          `json:"privatePeers,omitempty"`
+	FileLimits         FileLimits        `json:"fileLimits"`
 	LetteredNips       bool              `json:"letteredNips"`
 	Delivery           Delivery          `json:"delivery"`
 	Inbox              Inbox             `json:"inbox"`
@@ -126,6 +133,9 @@ func Defaults(owner string) Policy {
 }
 
 func Validate(p Policy) error {
+	if p.FileLimits.MaxFileBytes < 0 || p.FileLimits.UserStorageBytes < 0 {
+		return errors.New("fileLimits: byte allowances cannot be negative")
+	}
 	if p.Writes != "open" && p.Writes != "allowlist" && p.Writes != "wot" && p.Writes != "owner" {
 		return fmt.Errorf("writes: invalid rule %q", p.Writes)
 	}
@@ -203,7 +213,7 @@ func Patch(cur Policy, raw map[string]json.RawMessage) (Policy, error) {
 		if _, ok := merged[key]; !ok {
 			continue
 		}
-		if key == "features" || key == "notify" || key == "memberInvites" || key == "delivery" || key == "inbox" {
+		if key == "features" || key == "notify" || key == "memberInvites" || key == "delivery" || key == "inbox" || key == "fileLimits" {
 			var patchMap, currentMap map[string]json.RawMessage
 			if json.Unmarshal(value, &patchMap) == nil && json.Unmarshal(merged[key], &currentMap) == nil {
 				if key == "features" {
