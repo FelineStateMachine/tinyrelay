@@ -34,7 +34,7 @@
     const event = await window.nostr.signEvent({
       kind: 27235,
       created_at: Math.floor(Date.now() / 1000),
-      tags: [["u", url], ["method", method], ["payload", await sha256hex(bytes)]],
+      tags: [["u", url], ["method", method], ["payload", await sha256hex(bytes)], ["nonce", randomHex()]],
       content: ""
     });
     return "Nostr " + btoa(JSON.stringify(event));

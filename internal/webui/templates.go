@@ -32,6 +32,21 @@ var bridgeJS string
 //go:embed components.js
 var componentsJS string
 
+//go:embed blossom-encryption.js
+var blossomEncryptionJS string
+
+//go:embed blossom-manifests.js
+var blossomManifestsJS string
+
+//go:embed file-messages.js
+var fileMessagesJS string
+
+//go:embed blossom-upload.js
+var blossomUploadJS string
+
+//go:embed file-workspace.js
+var fileWorkspaceJS string
+
 // Installable app assets. The manifest is a template: NAME and BASE are
 // replaced per request so tenant prefixes and relay names stay correct.
 //
@@ -110,7 +125,7 @@ func repoView(query url.Values) string {
 }
 
 func parseTemplates() (*template.Template, error) {
-	scripts := map[string]string{"bridge.js": bridgeJS, "components.js": componentsJS}
+	scripts := map[string]string{"bridge.js": bridgeJS, "components.js": componentsJS, "blossom-encryption.js": blossomEncryptionJS, "blossom-manifests.js": blossomManifestsJS, "blossom-upload.js": blossomUploadJS, "file-messages.js": fileMessagesJS, "file-workspace.js": fileWorkspaceJS}
 	funcs := template.FuncMap{
 		"stylesheet": func() template.CSS { return template.CSS(styleCSS) },
 		"script": func(name string) (template.JS, error) {
