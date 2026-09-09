@@ -286,7 +286,11 @@ func (s *Service) groupRecords(ctx context.Context, now int64) ([]event.Event, e
 		if err := rows.Scan(&pk, &role); err != nil {
 			return nil, err
 		}
-		members = append(members, []string{"p", pk})
+		if role == "agent" {
+			members = append(members, []string{"p", pk, role})
+		} else {
+			members = append(members, []string{"p", pk})
+		}
 		if role == "owner" || role == "moderator" {
 			admins = append(admins, []string{"p", pk, role})
 		}
@@ -297,8 +301,7 @@ func (s *Service) groupRecords(ctx context.Context, now int64) ([]event.Event, e
 	if !p.DirectoryPublic {
 		members = nil
 	}
-	rolesAbout := map[string]string{"owner": "relay owner", "moderator": "relay moderator", "member": "relay member"}
-	for _, role := range []string{"owner", "moderator", "member"} {
+	for _, role := range roleOrder {
 		roleTags = append(roleTags, []string{"role", role, rolesAbout[role]})
 	}
 	vals := []struct {
@@ -319,7 +322,7 @@ func (s *Service) groupRecords(ctx context.Context, now int64) ([]event.Event, e
 		}
 		out = append(out, e)
 	}
-	for i, role := range []string{"owner", "moderator", "member"} {
+	for i, role := range roleOrder {
 		e, err := s.signed(ctx, event.KIND_ROLE_DEF, [][]string{{"-"}, {"d", role}, {"label", role}, {"description", rolesAbout[role]}, {"order", strconv.Itoa(i + 1)}}, "", now)
 		if err != nil {
 			return nil, err
@@ -328,6 +331,10 @@ func (s *Service) groupRecords(ctx context.Context, now int64) ([]event.Event, e
 	}
 	return out, nil
 }
+
+// roleOrder lists the roles the group advertises, in display order.
+var roleOrder = []string{"owner", "moderator", "member", "agent"}
+var rolesAbout = map[string]string{"owner": "relay owner", "moderator": "relay moderator", "member": "relay member", "agent": "agent under an owner-signed grant"}
 
 func (s *Service) groupRecordsEmpty(ctx context.Context, now int64, p policy.Policy) ([]event.Event, error) {
 	_ = p
@@ -343,6 +350,7 @@ func (s *Service) groupRecordsEmpty(ctx context.Context, now int64, p policy.Pol
 		{event.KIND_ROLE_DEF, [][]string{{"-"}, {"d", "owner"}, {"label", "owner"}, {"description", "relay owner"}, {"order", "1"}}, ""},
 		{event.KIND_ROLE_DEF, [][]string{{"-"}, {"d", "moderator"}, {"label", "moderator"}, {"description", "relay moderator"}, {"order", "2"}}, ""},
 		{event.KIND_ROLE_DEF, [][]string{{"-"}, {"d", "member"}, {"label", "member"}, {"description", "relay member"}, {"order", "3"}}, ""},
+		{event.KIND_ROLE_DEF, [][]string{{"-"}, {"d", "agent"}, {"label", "agent"}, {"description", "agent under an owner-signed grant"}, {"order", "4"}}, ""},
 	}
 	out := make([]event.Event, 0, len(vals))
 	for _, v := range vals {

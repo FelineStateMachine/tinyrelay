@@ -101,7 +101,7 @@ func New(ctx context.Context, store *storage.Store, owner string) (*Service, err
 		return nil, errors.New("community: invalid owner pubkey")
 	}
 	s := &Service{store: store, owner: owner}
-	if _, err := store.DB().ExecContext(ctx, schema); err != nil {
+	if _, err := store.DB().ExecContext(ctx, schema+agentSchema); err != nil {
 		return nil, fmt.Errorf("community schema: %w", err)
 	}
 	if err := store.WithTx(ctx, func(tx *sql.Tx) error {
