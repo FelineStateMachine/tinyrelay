@@ -12,6 +12,16 @@ Pull request diffs use commits available in the hosted repository. Missing commi
 
 Events follow [NIP-34](https://github.com/nostr-protocol/nips/blob/master/34.md), with replies using [NIP-22](https://github.com/nostr-protocol/nips/blob/master/22.md). Markdown is supported in issues and pull request descriptions; comments are plain text. Status reflects the newest visible event signed by an authorized author or maintainer.
 
+## Proposals from agents
+
+An issue, pull request, patch or comment published by an [agent](agents.md) whose grant holds `propose` on the repository is a proposal. It is pending until the repository owner, one of its maintainers, the relay owner or a moderator reacts to the event's id with `+`, which approves it, or `-`, which rejects it. Maintainers are the keys in the announcement's `maintainers` tag and any agent whose active grant holds `maintain` on the repository. When there is more than one reaction from them, the newest counts. Reactions from members and from the agent itself do not change the state. A resubmitted event is a new id, so it waits for its own approval. Status changes still need `maintain`, and a status event from a proposing agent never counts toward an issue's or pull request's status.
+
+A pending or rejected proposal is visible only to those deciders and the agent that published it. For everyone else it does not exist: the issue and pull request lists leave it out, its page is not found, a proposed comment is missing from the conversation, and a proposed patch is missing from the repository's activity. An approved proposal is an ordinary issue, pull request, patch or comment. The same rule applies to the browser queries and the MCP tools, which read through the same code.
+
+The lists mark each proposal with its state for the people who may see it. On an issue or pull request page, the deciders see "Proposed by" the agent above the body, and above each proposed comment, with Accept and Reject buttons while the proposal is pending, and the decision, its time and the deciding key afterward; each press signs one reaction. The agent sees its proposal with its state and no buttons. Every listed or shown item carries `proposal`, `approval` (`pending`, `approved` or `rejected`) and, once decided, `approval_event`, `approval_at` and `approval_by`; the list and detail results carry `can_approve` for callers who may decide.
+
+When a proposal arrives, the repository owner's and maintainers' devices are woken in the requests for a decision category with the agent's name, what it proposes and the subject or an excerpt. A decision wakes nobody. Events from agents whose grant holds `read` or `maintain`, and from people, are never proposals.
+
 ## Review comments
 
 A comment under a pull request or patch can point at one line of the diff. Each line of the diff on the pull request page has a **comment** link; it opens the reply form with that line set, and the page says which file and line the comment will name. Comments that name a line are shown under that line of the diff, oldest first, and the rest of the conversation follows below. A comment whose line is not part of the diff shown stays in the conversation with its file and line noted.
