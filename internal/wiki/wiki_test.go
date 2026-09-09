@@ -67,7 +67,7 @@ func TestRenderHTMLSupportedSyntax(t *testing.T) {
 		"<h2>Lists</h2>",
 		"<ul>\n<li>one <a href=\"/wiki/wiki-page\">Wiki Page</a></li>\n<li>two <a href=\"/wiki/%D0%B4%D1%80%D1%83%D0%B3%D0%B0%D1%8F\">shown</a></li>\n</ul>",
 		"<ol>\n<li>first</li>\n<li>second</li>\n</ol>",
-		"<pre><code class=\"language-go\">func main() {}\n&lt;script&gt;alert(1)&lt;/script&gt;\n</code></pre>",
+		"<pre><code data-lang=\"go\">func main() {}\n&lt;script&gt;alert(1)&lt;/script&gt;\n</code></pre>",
 		"<a href=\"/open?target=nostr%3Anpub1bob\">Bob</a>",
 		"<a href=\"/wiki/reference\">reference</a>",
 		"<a href=\"https://example.org/\">defined</a>",

@@ -98,7 +98,7 @@ func RenderHTML(content string) template.HTML {
 		case "pre":
 			b.WriteString("<pre><code")
 			if block.lang != "" {
-				b.WriteString(` class="language-` + template.HTMLEscapeString(block.lang) + `"`)
+				b.WriteString(` data-lang="` + template.HTMLEscapeString(block.lang) + `"`)
 			}
 			b.WriteString(">" + template.HTMLEscapeString(block.text) + "</code></pre>\n")
 		case "heading":
