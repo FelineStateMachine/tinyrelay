@@ -73,6 +73,8 @@ func (b *roomsBackend) Query(_ context.Context, method string, params []json.Raw
 		return map[string]any{"room": roomRecord(id, "General", "open", ""), "root": root, "replies": []any{reply}, "next_cursor": ""}, nil
 	}
 	messages := []any{
+		roomEvent(strings.Repeat("a", 64), roomAgent, 40003, 1757203650, "hello again, edited", []string{"h", id}, []string{"e", roomHello}),
+		roomEvent(strings.Repeat("b", 64), roomOwner, 40003, 1757203660, "not my message", []string{"h", id}, []string{"e", roomHello}),
 		roomEvent(roomLike, roomOwner, 7, 1757203600, "+", []string{"h", id}, []string{"e", roomChat}),
 		reply,
 		root,
@@ -146,6 +148,7 @@ func TestRoomPageRendersMessagesOldestFirstWithMarkers(t *testing.T) {
 		`&lt;script&gt;alert(1)&lt;/script&gt;`,
 		`<span>to <nostr-key hex="` + roomAgent + `"`,
 		`<span data-reaction="&#43;1">&#43;1 1</span>`,
+		`data-pubkey="` + roomAgent + `" data-agent data-edited>`, `<p>hello again, edited</p>`, `<span data-edited>edited</span>`,
 		`<a href="/rooms/general/thread/` + roomThread + `">thread | 1 reply</a>`,
 		`<a href="/rooms/general/thread/` + roomThread + `">in thread</a>`,
 		`<room-live room="general"></room-live>`,

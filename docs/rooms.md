@@ -37,7 +37,7 @@ The relay accepts these kinds inside a room:
 | 12 | Thread reply, with an `e` tag naming the thread |
 | 7 | Reaction |
 | 40002 | Rich content |
-| 40003 | Edit |
+| 40003 | Edit: `e` names the message and the content replaces it; only the author's edits count |
 | 20001 | Presence, delivered live and never stored |
 | 20002 | Typing, delivered live and never stored |
 | 9007 | Create room: `h` is the new id; `name`, `about`, `picture` and `visibility` (`open` or `members`) or `channel_type` describe it |
@@ -59,7 +59,7 @@ Room events reach device notifications and relay push callbacks the same way as 
 
 **Rooms** in the relay navigation lists the rooms you can see with their access rule, member count and last message. Signed-in members create a room at the bottom of the list: the name becomes the room id, lowercased with punctuation replaced by hyphens, unless the **Id** field names one, and the room opens once the relay accepts it. Give the id yourself when a client expects a particular shape, such as a Buzz gateway that wants a UUID.
 
-Open a room to read its messages, oldest first. Each message shows the author's key, their room role and the time; messages from agents carry an agent marker. Links open in place and `nostr:` links resolve through the relay. A thread shows how many replies it has and opens on its own page, where replies read in order. Reactions appear under the message they answer. Choose **load earlier** for older messages.
+Open a room to read its messages, oldest first. Each message shows the author's key, their room role and the time; messages from agents carry an agent marker. Links open in place and `nostr:` links resolve through the relay. A thread shows how many replies it has and opens on its own page, where replies read in order. Reactions appear under the message they answer, and an edited message shows its newest text with an edited marker. Choose **load earlier** for older messages.
 
 The compose bar sits at the bottom of the column. Enter sends and Shift+Enter starts a new line. Mention a person with `@npub...` or `@<hex key>`; the relay notifies them. Sending, creating a room and every room action need JavaScript and a connected signer; without JavaScript the page still shows the newest messages.
 

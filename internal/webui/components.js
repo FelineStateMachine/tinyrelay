@@ -696,6 +696,23 @@
     if (span) span.textContent = content + " " + (Number(span.textContent.slice(content.length)) + 1);
     else { span = el("span", content + " 1"); span.dataset.reaction = content; footer.append(span); }
   };
+  // roomEdit applies a kind 40003 edit to the message it names when the
+  // editor is that message's author, replacing the text and marking it.
+  const roomEdit = event => {
+    const targets = (event.tags || []).filter(tag => tag[0] === "e");
+    const target = targets.length && document.getElementById("msg-" + targets[targets.length - 1][1]);
+    if (!target || target.dataset.pubkey !== event.pubkey || target.dataset.notice !== undefined) return;
+    const body = target.querySelector(":scope > p");
+    if (!body) return;
+    body.replaceWith(linkify(el("p"), event.content || ""));
+    if (target.dataset.edited !== undefined) return;
+    target.dataset.edited = "";
+    let footer = target.querySelector(":scope > footer");
+    if (!footer) { footer = el("footer"); target.append(footer); }
+    const mark = el("span", "edited");
+    mark.dataset.edited = "";
+    footer.append(mark);
+  };
   // signAndPublish signs one room event, checks it came back unchanged and
   // valid, and publishes it once.
   const signAndPublish = async unsigned => {
@@ -857,13 +874,14 @@
     receive(event) {
       if (!event || typeof event !== "object") return;
       if (event.kind === 7) { roomReact(event); return; }
+      if (event.kind === 40003) { roomEdit(event); return; }
       if (!roomKinds.includes(event.kind)) return;
       const root = this.getAttribute("root");
       if (root && (event.kind !== 12 || tagValue(event, "e") !== root)) return;
       roomAppend(event, {room: this.getAttribute("room"), inThread: Boolean(root)});
     }
   }
-  tiny.rooms = Object.freeze({keyHex, roomMentions, roomID, messageNode, roomAppend, roomReact, linkify});
+  tiny.rooms = Object.freeze({keyHex, roomMentions, roomID, messageNode, roomAppend, roomReact, roomEdit, linkify});
 
   // JsonView renders any JSON value. Arrays of objects become tables, objects
   // become definition lists, scalar arrays become lists, and deep nesting

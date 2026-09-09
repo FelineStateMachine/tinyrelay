@@ -17,6 +17,7 @@ class FakeNode {
   get isConnected() { return Boolean(this.parent) && (this.parent === document || this.parent.isConnected); }
   append(...nodes) { for (const node of nodes) { if (node instanceof FakeNode) { node.remove(); node.parent = this; this.childNodes.push(node); } else if (String(node)) this.childNodes.push(String(node)); } }
   remove() { if (this.parent) { this.parent.childNodes = this.parent.childNodes.filter(node => node !== this); this.parent = null; } }
+  replaceWith(node) { if (!this.parent) return; const index = this.parent.childNodes.indexOf(this); node.remove(); node.parent = this.parent; this.parent.childNodes[index] = node; this.parent = null; }
   get textContent() { return this.childNodes.map(node => typeof node === "string" ? node : node.textContent).join(""); }
   set textContent(value) { this.childNodes = value ? [String(value)] : []; }
   setAttribute(name, value) { if (name === "id") this.id = value; else this.attributes[name] = String(value); }
@@ -196,6 +197,16 @@ test("room-live appends streamed messages once, summarizes reactions and reconne
   const summary = node.querySelector("footer span[data-reaction]");
   assert.equal(summary.dataset.reaction, "+1");
   assert.equal(summary.textContent, "+1 2");
+  const edit = finalizeEvent({kind: 40003, created_at: 1757203750, tags: [["h", "build"], ["e", message.id]], content: "see https://example.com/y instead"}, secret);
+  source.emit("message", {data: JSON.stringify(edit)});
+  assert.equal(node.querySelector("p").textContent, "see https://example.com/y instead");
+  assert.equal(node.querySelector("p a").href, "https://example.com/y");
+  assert.equal(node.dataset.edited, "");
+  assert.equal(node.querySelectorAll("footer span[data-edited]").length, 1);
+  const stranger = finalizeEvent({kind: 40003, created_at: 1757203760, tags: [["h", "build"], ["e", message.id]], content: "hijacked"}, generateSecretKey());
+  source.emit("message", {data: JSON.stringify(stranger)});
+  assert.equal(node.querySelector("p").textContent, "see https://example.com/y instead");
+  assert.equal(s.list.children.length, 1);
   // An agent's message carries the marker from the members list.
   const agent = finalizeEvent({kind: 11, created_at: 1757203800, tags: [["h", "build"]], content: "draft"}, secret);
   s.rooms.roomAppend({...agent, pubkey: "b".repeat(64)}, {room: "build"});

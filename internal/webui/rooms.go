@@ -100,6 +100,40 @@ type reaction struct {
 }
 
 // reactionSummary groups the page's reactions by the message they answer.
+// roomEdit is the newest kind 40003 edit aimed at one message.
+type roomEdit struct {
+	PubKey, Content string
+	CreatedAt       int64
+}
+
+// editSummary maps message ids to the newest edit (kind 40003, Buzz's
+// in-place message edit) per editing key found in the page's messages and
+// replies, so a stranger's edit never shadows the author's own.
+func editSummary(value any) map[string]map[string]roomEdit {
+	edits := map[string]map[string]roomEdit{}
+	for _, field := range []string{"messages", "replies"} {
+		for _, row := range roomSlice(value, field) {
+			e := valueMap(row)
+			if plainString(e["kind"]) != "40003" {
+				continue
+			}
+			targets := tagValues(row, "e")
+			if len(targets) == 0 {
+				continue
+			}
+			target := targets[len(targets)-1]
+			edit := roomEdit{PubKey: plainString(e["pubkey"]), Content: plainString(e["content"]), CreatedAt: unixSeconds(e["created_at"])}
+			if edits[target] == nil {
+				edits[target] = map[string]roomEdit{}
+			}
+			if prior, found := edits[target][edit.PubKey]; !found || edit.CreatedAt > prior.CreatedAt {
+				edits[target][edit.PubKey] = edit
+			}
+		}
+	}
+	return edits
+}
+
 func reactionSummary(value any) map[string][]reaction {
 	counts := map[string]map[string]int{}
 	for _, row := range roomSlice(value, "messages") {
@@ -215,7 +249,7 @@ func clock(value any) string {
 type roomItem struct {
 	ID, PubKey, Kind, Content, Room, Root, Role, Notice string
 	CreatedAt                                           int64
-	Agent, InThread                                     bool
+	Agent, InThread, Edited                             bool
 	Mentions                                            []string
 	Replies                                             int
 	Reactions                                           []reaction
@@ -229,12 +263,17 @@ func roomItems(value any, field string) []roomItem {
 	members := memberIndex(value)
 	replies := replyCounts(value)
 	reactions := reactionSummary(value)
+	edits := editSummary(value)
 	rows := roomSlice(value, field)
 	items := make([]roomItem, 0, len(rows))
 	for i := len(rows) - 1; i >= 0; i-- {
 		item, ok := newRoomItem(rows[i], room, members)
 		if !ok {
 			continue
+		}
+		// Only the author edits their own message, and only forward in time.
+		if edit, found := edits[item.ID][item.PubKey]; found && edit.CreatedAt >= item.CreatedAt {
+			item.Content, item.Edited = edit.Content, true
 		}
 		item.Replies = replies[item.ID]
 		item.Reactions = reactions[item.ID]
