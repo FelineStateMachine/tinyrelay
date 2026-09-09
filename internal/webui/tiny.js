@@ -1,4 +1,5 @@
-// Shared browser helpers. This file is loaded before feature modules.
+// Shared browser helpers. This file is loaded before every feature module
+// and the signer bridge, so each helper exists exactly once.
 (() => {
   "use strict";
   const tiny = globalThis.tiny || {};
@@ -10,7 +11,52 @@
   };
   const hex = value => Array.from(bytes(value), byte => byte.toString(16).padStart(2, "0")).join("");
   const sha256 = async value => new Uint8Array(await crypto.subtle.digest("SHA-256", bytes(value)));
-  tiny.util = Object.freeze({...tiny.util, bytes, hex, sha256});
+  // fromHex parses a 64-character lowercase hex hash or key.
+  const fromHex = (value, message = "expected a 64-character lowercase hex value") => {
+    if (typeof value !== "string" || !/^[0-9a-f]{64}$/.test(value)) throw Error(message);
+    return Uint8Array.from(value.match(/../g), byte => parseInt(byte, 16));
+  };
+  const element = (tag, text) => {
+    const node = document.createElement(tag);
+    if (text !== undefined) node.textContent = text;
+    return node;
+  };
+  // relayURL normalizes a ws or wss URL without credentials or a fragment, or
+  // returns null. Strict mode also rejects query strings, which operator-entered
+  // relay lists never need.
+  const relayURL = (value, {strict = false} = {}) => {
+    if (typeof value !== "string" || value.length > 2048) return null;
+    let url;
+    try {
+      url = new URL(value.trim());
+    } catch {
+      return null;
+    }
+    if (
+      (url.protocol !== "wss:" && url.protocol !== "ws:") ||
+      !url.hostname ||
+      url.username ||
+      url.password ||
+      url.hash
+    )
+      return null;
+    if (strict && url.search) return null;
+    url.hostname = url.hostname.toLowerCase();
+    if (url.pathname.length > 1) url.pathname = url.pathname.replace(/\/+$/, "");
+    return url.toString().replace(/\/$/, "");
+  };
+  tiny.util = Object.freeze({...tiny.util, bytes, hex, sha256, fromHex, element, relayURL});
+  // signer returns the active signer: a resumed remote signer first, then a
+  // NIP-07 extension.
+  tiny.signer = () => globalThis.tinySigner || globalThis.nostr;
+  const nip44 = (method, pubkey, text, signer = tiny.signer()) => {
+    if (typeof signer?.["nip44" + method] === "function") return signer["nip44" + method](pubkey, text);
+    const inner = signer?.nip44?.[method.toLowerCase()];
+    if (typeof inner === "function") return inner.call(signer.nip44, pubkey, text);
+    throw Error("The connected signer does not support NIP-44.");
+  };
+  tiny.nip44Encrypt = (pubkey, text, signer) => nip44("Encrypt", pubkey, text, signer);
+  tiny.nip44Decrypt = (pubkey, text, signer) => nip44("Decrypt", pubkey, text, signer);
   // Feature modules add to these groups; guards can read them before load.
   tiny.blossom = tiny.blossom || {};
   tiny.files = tiny.files || {};

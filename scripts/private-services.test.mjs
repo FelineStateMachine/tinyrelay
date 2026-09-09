@@ -3,6 +3,7 @@ import {readFile} from "node:fs/promises";
 import test from "node:test";
 import vm from "node:vm";
 
+const shared = await readFile(new URL("../internal/webui/tiny.js", import.meta.url), "utf8");
 const source = await readFile(new URL("../internal/webui/private-services.js", import.meta.url), "utf8");
 class Element {}
 const sandbox = {
@@ -19,7 +20,7 @@ const sandbox = {
 };
 sandbox.window = sandbox;
  sandbox.tiny = {files: {}};
-vm.runInNewContext(source, sandbox);
+vm.runInNewContext(shared + source, sandbox);
 const api = sandbox.tiny.files.privateServices;
 
 test("accepts tenant paths while rejecting unsafe relay URLs", () => {

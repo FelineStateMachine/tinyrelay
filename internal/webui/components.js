@@ -378,7 +378,7 @@
       const recipient = form.elements.namedItem("recipient").value.trim();
       if (!recipient) { this.say("Enter a public key or npub.", true); return; }
       const params = new URLSearchParams(this.fileFragment || location.hash.slice(1));
-      const signer = globalThis.tinySigner || globalThis.nostr;
+      const signer = tiny.signer();
       if (!tiny.files.messages || !signer) { this.say("Connect a NIP-44 signer first. Use the encrypted link, which keeps its key in the URL fragment.", true); return; }
       if (!params.get("key") || !params.get("iv")) { this.say("NIP-17 sharing currently requires a random AES-GCM encrypted file.", true); return; }
       this.sharing = true;

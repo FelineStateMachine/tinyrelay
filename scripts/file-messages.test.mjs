@@ -6,6 +6,7 @@ import { finalizeEvent, generateSecretKey, getEventHash, getPublicKey, nip19, ni
 
 globalThis.NostrSigner = { generateSecretKey, getEventHash, getPublicKey, finalizeEvent, verifyEvent, nip44, decodeNpub: (value) => nip19.decode(value).data };
 globalThis.tiny = {files: {}};
+vm.runInThisContext(fs.readFileSync("internal/webui/tiny.js", "utf8"), { filename: "tiny.js" });
 vm.runInThisContext(fs.readFileSync("internal/webui/file-messages.js", "utf8"), { filename: "file-messages.js" });
 const fileMessages = globalThis.tiny.files.messages;
 

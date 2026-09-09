@@ -7,34 +7,25 @@
   const MAX_DEPTH = 64;
   const MAX_MANIFEST_BYTES = 16 * 1024 * 1024;
   const textEncoder = new TextEncoder(),
-    textDecoder = new TextDecoder("utf-8", { fatal: true });
+    textDecoder = new TextDecoder("utf-8", {fatal: true});
   const {bytes: asBytes, hex, sha256} = globalThis.tiny.util;
-  const hashBytes = (h) => {
-    if (typeof h !== "string" || !/^[0-9a-f]{64}$/.test(h))
-      throw new Error("expected lowercase SHA-256 hash");
-    return Uint8Array.from(h.match(/../g), (x) => parseInt(x, 16));
-  };
-  const keyBytes = (k) => {
+  const hashBytes = h => globalThis.tiny.util.fromHex(h, "expected lowercase SHA-256 hash");
+  const keyBytes = k => {
     if (k === undefined) return;
     const b = asBytes(k);
     if (b.length !== 32) throw new Error("manifest keys must be 32 bytes");
     return b;
   };
-  const wellFormed = (value) => {
+  const wellFormed = value => {
     for (let i = 0; i < value.length; i++) {
       const c = value.charCodeAt(i);
       if (c >= 55296 && c <= 56319) {
-        if (
-          ++i >= value.length ||
-          value.charCodeAt(i) < 56320 ||
-          value.charCodeAt(i) > 57343
-        )
-          return false;
+        if (++i >= value.length || value.charCodeAt(i) < 56320 || value.charCodeAt(i) > 57343) return false;
       } else if (c >= 56320 && c <= 57343) return false;
     }
     return true;
   };
-  const nameOK = (n) =>
+  const nameOK = n =>
     typeof n === "string" &&
     n.length > 0 &&
     n !== "." &&
@@ -43,12 +34,11 @@
     !n.includes("/") &&
     !n.includes("\0") &&
     textEncoder.encode(n).length <= 1024;
-  const int = (n) => Number.isSafeInteger(n) && n >= 0;
+  const int = n => Number.isSafeInteger(n) && n >= 0;
   const utf8cmp = (a, b) => {
     const x = textEncoder.encode(a),
       y = textEncoder.encode(b);
-    for (let i = 0; i < Math.min(x.length, y.length); i++)
-      if (x[i] !== y[i]) return x[i] - y[i];
+    for (let i = 0; i < Math.min(x.length, y.length); i++) if (x[i] !== y[i]) return x[i] - y[i];
     return x.length - y.length;
   };
   class MessagePackWriter {
@@ -66,8 +56,7 @@
     }
   }
   const writeInteger = (w, n) => {
-    if (!Number.isSafeInteger(n))
-      throw new Error("manifest integers must be safe integers");
+    if (!Number.isSafeInteger(n)) throw new Error("manifest integers must be safe integers");
     if (n >= 0) {
       if (n < 128) w.u8(n);
       else if (n < 256) w.push(204, n);
@@ -121,7 +110,7 @@
       if (v.length < 16) w.u8(144 | v.length);
       else if (v.length < 65536) w.push(220, v.length >> 8, v.length);
       else throw new Error("array too large");
-      v.forEach((x) => writeValue(w, x));
+      v.forEach(x => writeValue(w, x));
       return;
     }
     if (v && typeof v === "object") {
@@ -129,7 +118,7 @@
       if (keys.length < 16) w.u8(128 | keys.length);
       else if (keys.length < 65536) w.push(222, keys.length >> 8, keys.length);
       else throw new Error("map too large");
-      keys.forEach((k) => {
+      keys.forEach(k => {
         writeValue(w, k);
         writeValue(w, v[k]);
       });
@@ -160,8 +149,7 @@
     const o = Object.create(null);
     for (let i = 0; i < n; i++) {
       const k = readValue(r, depth + 1);
-      if (typeof k !== "string" || Object.prototype.hasOwnProperty.call(o, k))
-        throw Error("invalid map key");
+      if (typeof k !== "string" || Object.prototype.hasOwnProperty.call(o, k)) throw Error("invalid map key");
       o[k] = readValue(r, depth + 1);
     }
     return o;
@@ -172,8 +160,7 @@
     if (t <= 127) return t;
     if (t >= 224) return t - 256;
     if ((t & 224) === 160) return textDecoder.decode(r.n(t & 31));
-    if ((t & 240) === 144)
-      return Array.from({ length: t & 15 }, () => readValue(r, depth + 1));
+    if ((t & 240) === 144) return Array.from({length: t & 15}, () => readValue(r, depth + 1));
     if ((t & 240) === 128) return readMap(r, t & 15, depth);
     if (t === 192) return null;
     if (t === 194) return false;
@@ -181,13 +168,11 @@
     let n;
     if (t === 204) n = r.u8();
     else if (t === 205) n = (r.u8() << 8) | r.u8();
-    else if (t === 206)
-      n = r.u8() * 16777216 + (r.u8() << 16) + (r.u8() << 8) + r.u8();
+    else if (t === 206) n = r.u8() * 16777216 + (r.u8() << 16) + (r.u8() << 8) + r.u8();
     else if (t === 207) {
       let x = 0n;
       for (let i = 0; i < 8; i++) x = (x << 8n) | BigInt(r.u8());
-      if (x > BigInt(Number.MAX_SAFE_INTEGER))
-        throw Error("integer exceeds safe range");
+      if (x > BigInt(Number.MAX_SAFE_INTEGER)) throw Error("integer exceeds safe range");
       n = Number(x);
     } else if (t === 208) n = (r.u8() << 24) >> 24;
     else if (t === 209) {
@@ -200,10 +185,7 @@
       let x = 0n;
       for (let i = 0; i < 8; i++) x = (x << 8n) | BigInt(r.u8());
       if (x & 0x8000000000000000n) x -= 0x10000000000000000n;
-      if (
-        x > BigInt(Number.MAX_SAFE_INTEGER) ||
-        x < BigInt(Number.MIN_SAFE_INTEGER)
-      )
+      if (x > BigInt(Number.MAX_SAFE_INTEGER) || x < BigInt(Number.MIN_SAFE_INTEGER))
         throw Error("integer exceeds safe range");
       n = Number(x);
     } else if (t === 202) {
@@ -222,7 +204,7 @@
     else if (t === 197) n = r.n((r.u8() << 8) | r.u8());
     else if (t === 220) {
       n = (r.u8() << 8) | r.u8();
-      return Array.from({ length: n }, () => readValue(r, depth + 1));
+      return Array.from({length: n}, () => readValue(r, depth + 1));
     } else if (t === 222) {
       n = (r.u8() << 8) | r.u8();
       return readMap(r, n, depth);
@@ -231,19 +213,12 @@
   };
   const validateMeta = (m, depth = 0) => {
     if (m === undefined) return;
-    if (
-      depth > MAX_DEPTH ||
-      !m ||
-      Array.isArray(m) ||
-      typeof m !== "object" ||
-      m instanceof Uint8Array
-    )
+    if (depth > MAX_DEPTH || !m || Array.isArray(m) || typeof m !== "object" || m instanceof Uint8Array)
       throw Error("metadata must be a JSON map");
     const keys = Object.keys(m);
     if (keys.length > 64) throw Error("too many metadata keys");
     for (const [k, v] of Object.entries(m)) {
-      if (typeof k !== "string" || textEncoder.encode(k).length > 256)
-        throw Error("invalid metadata key");
+      if (typeof k !== "string" || textEncoder.encode(k).length > 256) throw Error("invalid metadata key");
       if (
         v === undefined ||
         typeof v === "bigint" ||
@@ -255,32 +230,25 @@
       if (v && typeof v === "object") {
         if (Array.isArray(v)) {
           if (v.length > 256) throw Error("metadata array too large");
-          v.forEach((x) => validateMeta({ x }, depth + 1));
+          v.forEach(x => validateMeta({x}, depth + 1));
         } else validateMeta(v, depth + 1);
       }
     }
   };
   const validateLink = (x, nodeType) => {
-    if (!x || typeof x !== "object" || Array.isArray(x))
-      throw Error("invalid manifest link");
-    if (Object.keys(x).some((k) => !["h", "k", "m", "n", "s", "t"].includes(k)))
+    if (!x || typeof x !== "object" || Array.isArray(x)) throw Error("invalid manifest link");
+    if (Object.keys(x).some(k => !["h", "k", "m", "n", "s", "t"].includes(k)))
       throw Error("unknown manifest link field");
-    if (!(x.h instanceof Uint8Array) || x.h.length !== 32)
-      throw Error("link hash must be 32 bytes");
+    if (!(x.h instanceof Uint8Array) || x.h.length !== 32) throw Error("link hash must be 32 bytes");
     if (x.k !== undefined) keyBytes(x.k);
     if (x.m !== undefined) validateMeta(x.m);
     if (!int(x.s)) throw Error("invalid link size");
     if (!int(x.t) || x.t < 0 || x.t > 3) throw Error("unsupported link type");
-    if (nodeType === 1 && x.t !== 0 && x.t !== 1)
-      throw Error("invalid file link type");
-    if (nodeType === 1 && x.n !== undefined)
-      throw Error("file links cannot have names");
-    if (nodeType === 3 && x.n !== undefined)
-      throw Error("fanout links cannot have names");
-    if (nodeType === 3 && x.t !== 2 && x.t !== 3)
-      throw Error("invalid fanout child type");
-    if (nodeType === 2 && !nameOK(x.n))
-      throw Error("invalid directory entry name");
+    if (nodeType === 1 && x.t !== 0 && x.t !== 1) throw Error("invalid file link type");
+    if (nodeType === 1 && x.n !== undefined) throw Error("file links cannot have names");
+    if (nodeType === 3 && x.n !== undefined) throw Error("fanout links cannot have names");
+    if (nodeType === 3 && x.t !== 2 && x.t !== 3) throw Error("invalid fanout child type");
+    if (nodeType === 2 && !nameOK(x.n)) throw Error("invalid directory entry name");
   };
   const validateNode = (node, depth = 0) => {
     if (depth > MAX_DEPTH) throw Error("manifest recursion limit exceeded");
@@ -291,7 +259,7 @@
       !Array.isArray(node.l) ||
       !int(node.t) ||
       ![1, 2, 3].includes(node.t) ||
-      Object.keys(node).some((k) => k !== "l" && k !== "t")
+      Object.keys(node).some(k => k !== "l" && k !== "t")
     )
       throw Error("invalid manifest node");
     if (node.l.length > MAX_LINKS) throw Error("too many manifest links");
@@ -315,14 +283,11 @@
           throw Error("invalid fanout bounds");
       }
     }
-    if (
-      node.t === 2 &&
-      links.some((x, i) => i && utf8cmp(links[i - 1].n, x.n) >= 0)
-    )
+    if (node.t === 2 && links.some((x, i) => i && utf8cmp(links[i - 1].n, x.n) >= 0))
       throw Error("directory links are not canonical");
     return node;
   };
-  const encodeManifest = (node) => {
+  const encodeManifest = node => {
     validateNode(node);
     const w = new MessagePackWriter();
     w.u8(130);
@@ -336,7 +301,7 @@
         ...(x.m !== undefined ? ["m"] : []),
         ...(x.n !== undefined ? ["n"] : []),
         "s",
-        "t",
+        "t"
       ];
       if (fields.length < 16) w.u8(128 | fields.length);
       else w.push(222, fields.length >> 8, fields.length);
@@ -360,78 +325,71 @@
     validateNode(node);
     if (node.t === 3)
       for (const x of node.l) {
-        if (x.m.count > Number(options.maxEntries || 1e9))
-          throw Error("fanout count limit exceeded");
+        if (x.m.count > Number(options.maxEntries || 1e9)) throw Error("fanout count limit exceeded");
       }
     return node;
   };
-  const manifestHash = async (node) => hex(await sha256(encodeManifest(node)));
+  const manifestHash = async node => hex(await sha256(encodeManifest(node)));
   const leaf = (hash, size, key) => {
-    const x = { h: hashBytes(hash), s: size, t: 0 };
+    const x = {h: hashBytes(hash), s: size, t: 0};
     if (key !== undefined) x.k = keyBytes(key);
     return x;
   };
   const storeNode = async (node, options, manifests) => {
     const bytes = encodeManifest(node),
       computed = hex(await sha256(bytes));
-    let result = { hash: computed };
+    let result = {hash: computed};
     if (options.store) {
-      const stored = await options.store({ hash: computed, bytes, node });
+      const stored = await options.store({hash: computed, bytes, node});
       if (stored) {
         if (typeof stored === "string") result.hash = stored;
-        else result = { ...result, ...stored };
+        else result = {...result, ...stored};
       }
     }
-    if (!/^[0-9a-f]{64}$/.test(result.hash))
-      throw Error("store returned invalid manifest hash");
+    if (!/^[0-9a-f]{64}$/.test(result.hash)) throw Error("store returned invalid manifest hash");
     if (result.key !== undefined) keyBytes(result.key);
-    manifests.push({ hash: result.hash, bytes, node, key: result.key });
+    manifests.push({hash: result.hash, bytes, node, key: result.key});
     return result;
   };
   const buildFile = async (chunks, options = {}) => {
     const max = options.maxLinks ?? MAX_LINKS;
-    if (!Number.isInteger(max) || max < 2 || max > MAX_LINKS)
-      throw Error("invalid maxLinks");
-    const leaves = chunks.map((c) =>
-      typeof c === "string"
-        ? leaf(c, options.chunkSize || 0)
-        : leaf(c.hash, c.size, c.key),
+    if (!Number.isInteger(max) || max < 2 || max > MAX_LINKS) throw Error("invalid maxLinks");
+    const leaves = chunks.map(c =>
+      typeof c === "string" ? leaf(c, options.chunkSize || 0) : leaf(c.hash, c.size, c.key)
     );
-    if (leaves.some((x) => x.s < 0 || x.s > CHUNK_SIZE))
-      throw Error("invalid chunk size");
+    if (leaves.some(x => x.s < 0 || x.s > CHUNK_SIZE)) throw Error("invalid chunk size");
     const manifests = [];
     let level = leaves;
     while (level.length > max) {
       const next = [];
       for (let i = 0; i < level.length; i += max) {
         const group = level.slice(i, i + max),
-          child = { l: group, t: 1 },
+          child = {l: group, t: 1},
           stored = await storeNode(child, options, manifests);
         next.push({
           h: hashBytes(stored.hash),
-          ...(stored.key ? { k: keyBytes(stored.key) } : {}),
+          ...(stored.key ? {k: keyBytes(stored.key)} : {}),
           s: group.reduce((n, x) => n + x.s, 0),
-          t: 1,
+          t: 1
         });
       }
       level = next;
     }
-    const root = { l: level, t: 1 };
+    const root = {l: level, t: 1};
     await storeNode(root, options, manifests);
-    return options.returnDetails ? { root, manifests } : root;
+    return options.returnDetails ? {root, manifests} : root;
   };
   const buildDirectory = async (entries, options = {}) => {
     if (!Array.isArray(entries)) throw Error("entries must be an array");
     const max = options.maxLinks ?? MAX_LINKS;
-    if (!Number.isInteger(max) || max < 2 || max > MAX_LINKS)
-      throw Error("invalid maxLinks");
+    if (!Number.isInteger(max) || max < 2 || max > MAX_LINKS) throw Error("invalid maxLinks");
     const sorted = entries
-      .map((e) => {
+      .map(e => {
         const x = {
           h: hashBytes(e.hash),
           n: e.name,
           s: e.size || 0,
-          t: e.type || 0,
+          t: e.type || 0
         };
         if (e.key !== undefined) x.k = keyBytes(e.key);
         if (e.metadata !== undefined) x.m = e.metadata;
@@ -439,50 +397,49 @@
       })
       .sort((a, b) => utf8cmp(a.n, b.n));
     for (let i = 1; i < sorted.length; i++)
-      if (sorted[i - 1].n === sorted[i].n)
-        throw Error("duplicate directory entry");
+      if (sorted[i - 1].n === sorted[i].n) throw Error("duplicate directory entry");
     const manifests = [];
     if (sorted.length <= max) {
-      const directory = { l: sorted, t: 2 };
+      const directory = {l: sorted, t: 2};
       await storeNode(directory, options, manifests);
-      return options.returnDetails ? { root: directory, manifests } : directory;
+      return options.returnDetails ? {root: directory, manifests} : directory;
     }
     let level = [];
     for (let i = 0; i < sorted.length; i += max) {
       const l = sorted.slice(i, i + max),
-        child = { l, t: 2 },
+        child = {l, t: 2},
         stored = await storeNode(child, options, manifests);
       level.push({
         h: hashBytes(stored.hash),
-        ...(stored.key ? { k: keyBytes(stored.key) } : {}),
-        m: { count: l.length, first: l[0].n, last: l[l.length - 1].n },
+        ...(stored.key ? {k: keyBytes(stored.key)} : {}),
+        m: {count: l.length, first: l[0].n, last: l[l.length - 1].n},
         s: l.reduce((n, x) => n + x.s, 0),
-        t: 2,
+        t: 2
       });
     }
     while (level.length > max) {
       const next = [];
       for (let i = 0; i < level.length; i += max) {
         const l = level.slice(i, i + max),
-          child = { l, t: 3 },
+          child = {l, t: 3},
           stored = await storeNode(child, options, manifests);
         next.push({
           h: hashBytes(stored.hash),
-          ...(stored.key ? { k: keyBytes(stored.key) } : {}),
+          ...(stored.key ? {k: keyBytes(stored.key)} : {}),
           m: {
             count: l.reduce((n, x) => n + x.m.count, 0),
             first: l[0].m.first,
-            last: l[l.length - 1].m.last,
+            last: l[l.length - 1].m.last
           },
           s: l.reduce((n, x) => n + x.s, 0),
-          t: 3,
+          t: 3
         });
       }
       level = next;
     }
-    const root = { l: level, t: 3 };
+    const root = {l: level, t: 3};
     await storeNode(root, options, manifests);
-    return options.returnDetails ? { root, manifests } : root;
+    return options.returnDetails ? {root, manifests} : root;
   };
   const flattenDirectory = (node, out = []) => {
     validateNode(node);
@@ -500,11 +457,7 @@
       maxEntries = options.maxEntries ?? 1e5,
       maxManifests = options.maxManifests ?? 1e4,
       maxBytes = options.maxBytes ?? 64 * 1024 * 1024;
-    if (
-      [maxDepth, maxEntries, maxManifests, maxBytes].some(
-        (value) => !Number.isSafeInteger(value) || value < 0,
-      )
-    )
+    if ([maxDepth, maxEntries, maxManifests, maxBytes].some(value => !Number.isSafeInteger(value) || value < 0))
       throw Error("invalid directory limits");
     let count = 0,
       manifestCount = 0,
@@ -512,8 +465,7 @@
     const active = new Set();
     const walk = async (node, depth) => {
       if (depth > maxDepth) throw Error("directory recursion limit exceeded");
-      if (++manifestCount > maxManifests)
-        throw Error("manifest count limit exceeded");
+      if (++manifestCount > maxManifests) throw Error("manifest count limit exceeded");
       validateNode(node);
       if (node.t === 2) {
         count += node.l.length;
@@ -524,8 +476,7 @@
       const result = [];
       let previous = "";
       for (const link of node.l) {
-        if (previous && utf8cmp(previous, link.m.first) >= 0)
-          throw Error("fanout bounds are not ordered");
+        if (previous && utf8cmp(previous, link.m.first) >= 0) throw Error("fanout bounds are not ordered");
         previous = link.m.last;
         const linkHash = hex(link.h);
         if (active.has(linkHash)) throw Error("manifest cycle detected");
@@ -533,28 +484,21 @@
         let raw = asBytes(await fetchNode(linkHash, link));
         fetched += raw.length;
         if (fetched > maxBytes) throw Error("directory byte limit exceeded");
-        if (hex(await sha256(raw)) !== linkHash)
-          throw Error("manifest hash mismatch");
+        if (hex(await sha256(raw)) !== linkHash) throw Error("manifest hash mismatch");
         if (link.k) {
-          if (typeof options.decrypt !== "function")
-            throw Error("encrypted manifest requires decrypt callback");
+          if (typeof options.decrypt !== "function") throw Error("encrypted manifest requires decrypt callback");
           raw = asBytes(await options.decrypt(raw, link));
         }
         const child = decodeManifest(raw);
         if (child.t !== link.t) throw Error("fanout child type mismatch");
         const links = await walk(child, depth + 1);
         active.delete(linkHash);
-        if (
-          links.length !== link.m.count ||
-          links[0]?.n !== link.m.first ||
-          links.at(-1)?.n !== link.m.last
-        )
+        if (links.length !== link.m.count || links[0]?.n !== link.m.first || links.at(-1)?.n !== link.m.last)
           throw Error("fanout bounds mismatch");
         result.push(...links);
       }
       for (let i = 1; i < result.length; i++)
-        if (utf8cmp(result[i - 1].n, result[i].n) >= 0)
-          throw Error("duplicate or unordered directory entry");
+        if (utf8cmp(result[i - 1].n, result[i].n) >= 0) throw Error("duplicate or unordered directory entry");
       return result;
     };
     return walk(root, 0);
@@ -564,13 +508,8 @@
     const maxDepth = options.maxDepth ?? MAX_DEPTH,
       maxBytes = options.maxBytes ?? 512 * 1024 * 1024,
       maxManifests = options.maxManifests ?? 1e4;
-    const maxFetchedBytes =
-      options.maxFetchedBytes ?? maxBytes + 16 * 1024 * 1024;
-    if (
-      [maxDepth, maxBytes, maxManifests, maxFetchedBytes].some(
-        (value) => !Number.isSafeInteger(value) || value < 0,
-      )
-    )
+    const maxFetchedBytes = options.maxFetchedBytes ?? maxBytes + 16 * 1024 * 1024;
+    if ([maxDepth, maxBytes, maxManifests, maxFetchedBytes].some(value => !Number.isSafeInteger(value) || value < 0))
       throw Error("invalid file limits");
     let used = 0,
       fetched = 0,
@@ -581,16 +520,14 @@
       if (depth > maxDepth) throw Error("file recursion limit exceeded");
       validateNode(node);
       if (node.t !== 1) throw Error("not a file manifest");
-      if (++manifests > maxManifests)
-        throw Error("manifest count limit exceeded");
+      if (++manifests > maxManifests) throw Error("manifest count limit exceeded");
       for (const link of node.l) {
         const hash = hex(link.h);
         if (active.has(hash)) throw Error("manifest cycle detected");
         active.add(hash);
         let raw = asBytes(await fetchBlob(hash, link));
         fetched += raw.length;
-        if (fetched > maxFetchedBytes)
-          throw Error("file fetched byte limit exceeded");
+        if (fetched > maxFetchedBytes) throw Error("file fetched byte limit exceeded");
         if (hex(await sha256(raw)) !== hash) throw Error("blob hash mismatch");
         if (link.t === 1) {
           if (typeof options.decrypt !== "function" && link.k)
@@ -600,11 +537,9 @@
           if (child.t !== 1) throw Error("file child type mismatch");
           const before = used;
           await readNode(child, depth + 1);
-          if (used - before !== link.s)
-            throw Error("file manifest size mismatch");
+          if (used - before !== link.s) throw Error("file manifest size mismatch");
         } else {
-          if (link.k && typeof options.decrypt !== "function")
-            throw Error("encrypted chunk requires decrypt callback");
+          if (link.k && typeof options.decrypt !== "function") throw Error("encrypted chunk requires decrypt callback");
           const data = link.k ? asBytes(await options.decrypt(raw, link)) : raw;
           if (data.length !== link.s) throw Error("file chunk size mismatch");
           used += data.length;
@@ -637,8 +572,8 @@
     resolveDirectory,
     readFile,
     sha256,
-    hex,
+    hex
   });
   globalThis.tiny = globalThis.tiny || {};
-  globalThis.tiny.blossom = { ...globalThis.tiny.blossom, manifests: api };
+  globalThis.tiny.blossom = {...globalThis.tiny.blossom, manifests: api};
 })();
