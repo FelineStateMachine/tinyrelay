@@ -682,6 +682,12 @@ func (s *Service) audit(ctx context.Context) (any, error) {
 	}
 	return out, rows.Err()
 }
+
+// Record writes one audit row for an action another service carried out.
+func (s *Service) Record(ctx context.Context, actor, action, target, detail string) error {
+	return s.store.WithTx(ctx, func(tx *sql.Tx) error { return s.recordTx(ctx, tx, actor, action, target, detail) })
+}
+
 func (s *Service) recordTx(ctx context.Context, tx *sql.Tx, actor, action, target, detail string) error {
 	_, err := tx.ExecContext(ctx, `INSERT INTO community_audit(at,actor,action,target,detail) VALUES(?,?,?,?,?)`, now(), actor, action, target, detail)
 	return err

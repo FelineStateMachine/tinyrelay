@@ -43,6 +43,9 @@ func (t *Tenant) initServices(ctx context.Context) error {
 	if err := t.initPush(ctx); err != nil {
 		return err
 	}
+	if err := t.initCallbacks(ctx); err != nil {
+		return err
+	}
 	t.blobs, err = blob.New(ctx, blob.Config{
 		Root: t.meta.Paths.Root, PublicURL: t.publicURL, Store: t.store, Authorize: t.authorizeBlob,
 		Limits: func() blob.Limits {
@@ -506,11 +509,12 @@ func (t *Tenant) workHandlers() map[string]work.Handler {
 		handlers[kind] = handler
 	}
 	handlers[notificationPush] = t.handleNotificationPush
+	handlers[callbackDelivery] = t.handleCallbackDelivery
 	return handlers
 }
 
 func (t *Tenant) releaseGit(ctx context.Context, id string) error {
-	_, err := t.router.CommitGenerated(ctx, func(ctx context.Context) (event.Event, error) {
+	released, err := t.router.CommitGenerated(ctx, func(ctx context.Context) (event.Event, error) {
 		var promoted event.Event
 		err := t.store.WithTx(ctx, func(tx *sql.Tx) error {
 			result, err := tx.ExecContext(ctx, "DELETE FROM pending_events WHERE id=?", id)
@@ -537,6 +541,11 @@ func (t *Tenant) releaseGit(ctx context.Context, id string) error {
 		})
 		return promoted, err
 	})
+	if err == nil && released.ID != "" {
+		// A repository state is hidden until its objects arrive, so agents
+		// that wait for pushes are woken here rather than at publish time.
+		t.notifyCallbacks(ctx, released)
+	}
 	return err
 }
 
@@ -674,6 +683,7 @@ func (t *Tenant) commitImported(ctx context.Context, e event.Event, origin repli
 	_, err := t.store.Save(ctx, e, opts)
 	if err == nil {
 		t.notifyDevices(ctx, e)
+		t.notifyCallbacks(ctx, e)
 		t.notifyWikiMerge(ctx, e)
 	}
 	return err

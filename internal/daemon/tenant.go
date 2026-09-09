@@ -41,37 +41,41 @@ type tenantConfig struct {
 }
 
 type Tenant struct {
-	app           *App
-	meta          catalog.Tenant
-	store         *storage.Store
-	community     *community.Service
-	gate          *gates.Gate
-	router        *relay.Router
-	auth          *auth.Validator
-	blobs         *blob.Service
-	sites         *sites.Service
-	records       *records.Service
-	config        *configport.ConfigStore
-	replication   *replication.Service
-	git           *gitrelay.GitRelay
-	ui            *webui.App
-	mcp           *mcp.Server
-	schedulerWake chan struct{}
-	workCtx       context.Context
-	workCancel    context.CancelFunc
-	workWG        sync.WaitGroup
-	workErrMu     sync.Mutex
-	workErr       error
-	publicURL     string
-	mu            sync.RWMutex
-	policyWrite   sync.Mutex
-	policy        policy.Policy
-	maintenance   maintenanceGate
-	gitLegacy     *replication.LegacyCache
-	pushMu        sync.Mutex
-	pushVAPID     *webpush.Keys
-	pushClient    *http.Client
-	pushRecent    map[string]time.Time
+	app            *App
+	meta           catalog.Tenant
+	store          *storage.Store
+	community      *community.Service
+	gate           *gates.Gate
+	router         *relay.Router
+	auth           *auth.Validator
+	blobs          *blob.Service
+	sites          *sites.Service
+	records        *records.Service
+	config         *configport.ConfigStore
+	replication    *replication.Service
+	git            *gitrelay.GitRelay
+	ui             *webui.App
+	mcp            *mcp.Server
+	schedulerWake  chan struct{}
+	workCtx        context.Context
+	workCancel     context.CancelFunc
+	workWG         sync.WaitGroup
+	workErrMu      sync.Mutex
+	workErr        error
+	publicURL      string
+	mu             sync.RWMutex
+	policyWrite    sync.Mutex
+	policy         policy.Policy
+	maintenance    maintenanceGate
+	gitLegacy      *replication.LegacyCache
+	pushMu         sync.Mutex
+	pushVAPID      *webpush.Keys
+	pushClient     *http.Client
+	pushRecent     map[string]time.Time
+	callbackMu     sync.Mutex
+	callbackIndex  map[int][]callbackRecord
+	callbackLocks  map[string]*sync.Mutex
+	callbackClient *http.Client
 }
 
 func newTenant(ctx context.Context, cfg tenantConfig) (*Tenant, error) {
@@ -381,6 +385,7 @@ func (t *Tenant) Publish(ctx context.Context, e event.Event, s relay.Session) (s
 		return "", err
 	}
 	t.notifyDevices(ctx, e)
+	t.notifyCallbacks(ctx, e)
 	t.notifyWikiMerge(ctx, e)
 	// Stage Git metadata before acknowledging the event. This closes the
 	// publish-ACK/receive-pack race: the signed pending refs and hook exist

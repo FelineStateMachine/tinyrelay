@@ -44,6 +44,12 @@ func (t *Tenant) executeManagement(ctx context.Context, actor, method string, pa
 	if publicManagementMethod(method) {
 		return t.executePublicManagement(ctx, actor, method, params)
 	}
+	if callbackMethod(method) {
+		// Members and agents manage their own callbacks, so the role rule
+		// lives with the methods.
+		result, err = t.callbackExecute(ctx, actor, method, params)
+		return result, true, err
+	}
 	if !managementAdapterMethod(method) {
 		return nil, false, nil
 	}
@@ -132,7 +138,7 @@ func publicManagementMethod(method string) bool {
 // ManagementMethods is the source-compatible NIP-86 registry. The hosted
 // lease, trial, fuel, and entitlement controls are intentionally absent.
 func ManagementMethods() []string {
-	return []string{"supportedmethods", "listaudit", "stats", "getpolicy", "setpolicy", "listviews", "banpubkey", "setblockedwords", "allowpubkey", "setmember", "unrulepubkey", "removemember", "listbannedpubkeys", "listallowedpubkeys", "listmembers", "listpeople", "createinvite", "listinvites", "revokeinvite", "listclaims", "listlisthistory", "restorelist", "createclaim", "deleteclaim", "removesubtree", "banevent", "allowevent", "listeventsneedingmoderation", "blockip", "unblockip", "listblockedips", "listreports", "resolvereport", "exportconfig", "importconfig", "deleterelay", "listblobs", "listsites", "deleteblob", "deleteevent", "listrecentevents", "searchevents", "pinevent", "unpinevent", "listpins", "allowkind", "disallowkind", "unrulekind", "storagestats", "gitstorage", "setretention", "listretention", "purgekind", "listallowedkinds", "listblockedkinds", "notifytest", "resetrules", "listpresets", "listconnectiontemplates", "listconnections", "setconnections", "applypreset", "forkrelay", "pullfrom", "pullstatus", "listjobs", "deliverystatus", "addjob", "removejob", "runjob", "backfill", "transferowner", "listdumps", "deletedump", "dumpnow", "backupnow", "listbackups", "deletebackup", "setsuccession", "clearsuccession", "successionstatus", "changerelayname", "changerelaydescription", "changerelayicon", "adddomain", "setdomainsite", "checkdomain", "removedomain", "listdomains", "listagents", "pauseagent", "resumeagent", "revokeagent", "pauseallagents", "resumeallagents"}
+	return []string{"supportedmethods", "listaudit", "stats", "getpolicy", "setpolicy", "listviews", "banpubkey", "setblockedwords", "allowpubkey", "setmember", "unrulepubkey", "removemember", "listbannedpubkeys", "listallowedpubkeys", "listmembers", "listpeople", "createinvite", "listinvites", "revokeinvite", "listclaims", "listlisthistory", "restorelist", "createclaim", "deleteclaim", "removesubtree", "banevent", "allowevent", "listeventsneedingmoderation", "blockip", "unblockip", "listblockedips", "listreports", "resolvereport", "exportconfig", "importconfig", "deleterelay", "listblobs", "listsites", "deleteblob", "deleteevent", "listrecentevents", "searchevents", "pinevent", "unpinevent", "listpins", "allowkind", "disallowkind", "unrulekind", "storagestats", "gitstorage", "setretention", "listretention", "purgekind", "listallowedkinds", "listblockedkinds", "notifytest", "resetrules", "listpresets", "listconnectiontemplates", "listconnections", "setconnections", "applypreset", "forkrelay", "pullfrom", "pullstatus", "listjobs", "deliverystatus", "addjob", "removejob", "runjob", "backfill", "transferowner", "listdumps", "deletedump", "dumpnow", "backupnow", "listbackups", "deletebackup", "setsuccession", "clearsuccession", "successionstatus", "changerelayname", "changerelaydescription", "changerelayicon", "adddomain", "setdomainsite", "checkdomain", "removedomain", "listdomains", "listagents", "pauseagent", "resumeagent", "revokeagent", "pauseallagents", "resumeallagents", "listcallbacks", "addcallback", "removecallback", "pausecallback", "resumecallback"}
 }
 
 func managementRoleAllows(method, role string) bool {

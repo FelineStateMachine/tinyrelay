@@ -8,7 +8,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 )
 
-var queueMetricKinds = []string{"delivery", "push", "replication", "webhook", "job", "records-projection", "site-mirror", "git-metadata", "catalog-owner", "callback", "delivery-discovery", "notification-delivery", "notification-broadcast", "notification", "other"}
+var queueMetricKinds = []string{"delivery", "push", "replication", "webhook", "job", "records-projection", "site-mirror", "git-metadata", "catalog-owner", "callback", "delivery-discovery", "notification-delivery", "notification-broadcast", "notification", "callback-delivery", "other"}
 
 type queueCollector struct {
 	app      *App

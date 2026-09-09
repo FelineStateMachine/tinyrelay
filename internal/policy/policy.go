@@ -126,7 +126,10 @@ type Policy struct {
 	DumpsKeep          int               `json:"dumpsKeep"`
 	// Rooms caps the chat rooms a tenant may create beside its main group.
 	// Zero switches room creation off.
-	Rooms        int             `json:"rooms"`
+	Rooms int `json:"rooms"`
+	// Callbacks caps the event callbacks one key may register. The owner is
+	// not limited. Zero switches registration off for everyone else.
+	Callbacks    int             `json:"callbacks"`
 	BlockedKinds []int           `json:"-"`
 	AllowedKinds []int           `json:"-"`
 	Retention    []RetentionRule `json:"-"`
@@ -135,12 +138,16 @@ type Policy struct {
 // DefaultRooms is the room allowance applied when a policy does not name one.
 const DefaultRooms = 64
 
-// UnmarshalJSON keeps the room allowance and the long task switch at their
-// defaults when a stored policy predates the fields, so existing tenants do
-// not lose room creation or job traffic.
+// DefaultCallbacks is the callback allowance per key when a policy does not
+// name one.
+const DefaultCallbacks = 4
+
+// UnmarshalJSON keeps the room and callback allowances and the long task
+// switch at their defaults when a stored policy predates the fields, so
+// existing tenants do not lose room creation, callbacks or job traffic.
 func (p *Policy) UnmarshalJSON(data []byte) error {
 	type plain Policy
-	decoded := plain{Rooms: DefaultRooms}
+	decoded := plain{Rooms: DefaultRooms, Callbacks: DefaultCallbacks}
 	decoded.Features.Jobs = true
 	if err := json.Unmarshal(data, &decoded); err != nil {
 		return err
@@ -150,7 +157,7 @@ func (p *Policy) UnmarshalJSON(data []byte) error {
 }
 
 func Defaults(owner string) Policy {
-	return Policy{Owner: owner, CustomHosts: []CustomHost{}, Writes: "open", Reads: "open", DirectoryPublic: true, MaxFuture: 900, Dumps: "off", DumpsKeep: 7, Rooms: DefaultRooms,
+	return Policy{Owner: owner, CustomHosts: []CustomHost{}, Writes: "open", Reads: "open", DirectoryPublic: true, MaxFuture: 900, Dumps: "off", DumpsKeep: 7, Rooms: DefaultRooms, Callbacks: DefaultCallbacks,
 		Features: Features{Search: "prose", Sync: true, Count: true, Discovery: true, Names: true, Files: true, Pages: true, Signer: true, Sites: Sites{Enabled: true, Mirror: true}, Jobs: true},
 		Notify:   Notify{}, Views: map[string]string{}, Tags: []string{}, LanguageTags: []string{}, RelayCountries: []string{}, OpenKinds: []int{}, BlockedWords: []string{}, PushCallbacks: []string{}, Delivery: Delivery{}}
 }
@@ -212,7 +219,7 @@ func Validate(p Policy) error {
 			}
 		}
 	}
-	if p.ReportThreshold < 0 || p.MinPow < 0 || p.MaxFuture < 0 || p.MemberInvites.Depth < 0 || p.MemberInvites.Quota < 0 || p.Rooms < 0 {
+	if p.ReportThreshold < 0 || p.MinPow < 0 || p.MaxFuture < 0 || p.MemberInvites.Depth < 0 || p.MemberInvites.Quota < 0 || p.Rooms < 0 || p.Callbacks < 0 {
 		return errors.New("policy: numeric values cannot be negative")
 	}
 	if p.Succession != nil && (p.Succession.Heir == "" || p.Succession.AfterDays <= 0) {
