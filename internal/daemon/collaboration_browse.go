@@ -24,6 +24,7 @@ type collaborationItem struct {
 	Content   string   `json:"content"`
 	Labels    []string `json:"labels"`
 	Status    string   `json:"status"`
+	collaborationProposal
 }
 
 type collaborationDetail struct {
@@ -35,6 +36,7 @@ type collaborationDetail struct {
 	Statuses        []event.Event        `json:"statuses"`
 	Diff            string               `json:"diff,omitempty"`
 	CanStatus       bool                 `json:"can_status"`
+	CanApprove      bool                 `json:"can_approve"`
 	DiffUnavailable string               `json:"diff_unavailable,omitempty"`
 	DiffTruncated   bool                 `json:"diff_truncated,omitempty"`
 	ReplyCursor     string               `json:"reply_cursor,omitempty"`
@@ -80,6 +82,14 @@ func (t *Tenant) browseCollaboration(ctx context.Context, actor string, q client
 	if _, err := t.gate.Read(ctx, filters, session); err != nil {
 		return nil, err
 	}
+	roles := t.collaborationRoles(r)
+	canApprove, err := roles.decides(ctx, actor)
+	if err != nil {
+		return nil, err
+	}
+	result := func(items []collaborationItem, next string) map[string]any {
+		return map[string]any{"repository": t.collaborationRepository(ctx, r), "items": items, "next_cursor": next, "can_approve": canApprove}
+	}
 	items := make([]collaborationItem, 0, q.Limit)
 	next := ""
 	for scan := 0; scan < 100; scan++ {
@@ -99,13 +109,21 @@ func (t *Tenant) browseCollaboration(ctx context.Context, actor string, q client
 			rows = rows[:100]
 			more = true
 		}
-		visible := make([]event.Event, 0, len(rows))
+		matching := make([]event.Event, 0, len(rows))
 		for _, root := range rows {
 			if t.gate.CanSee(ctx, root, session, nil) && collaborationMatches(root, q.Query) && matchesCollaborationLabel(root, q.Label) {
-				visible = append(visible, root)
+				matching = append(matching, root)
 			}
 		}
-		statuses, err := t.collaborationStatuses(ctx, actor, visible, r)
+		visible, states, err := t.collaborationVisible(ctx, roles, actor, matching)
+		if err != nil {
+			return nil, err
+		}
+		proposals := make(map[string]collaborationProposal, len(visible))
+		for i, root := range visible {
+			proposals[root.ID] = states[i]
+		}
+		statuses, err := t.collaborationStatuses(ctx, actor, roles, visible)
 		if err != nil {
 			return nil, err
 		}
@@ -116,21 +134,22 @@ func (t *Tenant) browseCollaboration(ctx context.Context, actor string, q client
 				continue
 			}
 			if len(items) == q.Limit {
-				return map[string]any{"repository": t.collaborationRepository(ctx, r), "items": items, "next_cursor": next}, nil
+				return result(items, next), nil
 			}
 			item := collaborationItemFrom(root)
 			item.Status = status
+			item.collaborationProposal = proposals[root.ID]
 			items = append(items, item)
 			next = collaborationCursor(item)
 		}
 		if !more {
-			return map[string]any{"repository": t.collaborationRepository(ctx, r), "items": items, "next_cursor": ""}, nil
+			return result(items, ""), nil
 		}
 	}
 	if cursor != nil {
 		next = strconv.FormatInt(cursor.CreatedAt, 10) + ":" + cursor.ID
 	}
-	return map[string]any{"repository": t.collaborationRepository(ctx, r), "items": items, "next_cursor": next}, nil
+	return result(items, next), nil
 }
 
 func parseCollaborationCursor(raw string) (*storage.EventCursor, error) {
@@ -172,8 +191,20 @@ func (t *Tenant) browseCollaborationDetail(ctx context.Context, actor string, q 
 	if len(rows) != 1 || rows[0].Kind != kind || !hasCoordinate(rows[0], r) {
 		return nil, errors.New("not found: collaboration event")
 	}
-	root := rows[0]
+	roles := t.collaborationRoles(r)
+	roots, states, err := t.collaborationVisible(ctx, roles, actor, rows[:1])
+	if err != nil {
+		return nil, err
+	}
+	if len(roots) != 1 {
+		return nil, errors.New("not found: collaboration event")
+	}
+	root := roots[0]
 	detail := collaborationDetail{Repository: t.collaborationRepository(ctx, r), Root: root, Item: collaborationItemFrom(root), CanStatus: actor != "" && (actor == root.PubKey || t.IsMaintainer(ctx, r, actor))}
+	detail.Item.collaborationProposal = states[0]
+	if detail.CanApprove, err = roles.decides(ctx, actor); err != nil {
+		return nil, err
+	}
 	replyCursor, err := parseCollaborationCursor(q.Cursor)
 	if err != nil {
 		return nil, err
@@ -187,11 +218,16 @@ func (t *Tenant) browseCollaborationDetail(ctx context.Context, actor string, q 
 	if err != nil {
 		return nil, err
 	}
+	if statuses, err = t.collaborationDecided(ctx, roles, statuses); err != nil {
+		return nil, err
+	}
 	detail.Statuses = statuses
 	detail.Item.Status = statusFromEvents(root, statuses)
 	replyFilters := []event.Filter{
 		{Kinds: []int{1111}, Tags: map[string][]string{"E": {root.ID}, "K": {strconv.Itoa(root.Kind)}, "P": {root.PubKey}}},
 	}
+	// Pending replies are dropped after the page is cut, so a hidden
+	// proposal never shifts the cursor for the people who cannot see it.
 	replies, err := t.queryCollaborationThread(ctx, actor, replyFilters, replyCursor, replyLimit+1)
 	if err != nil {
 		return nil, err
@@ -200,7 +236,11 @@ func (t *Tenant) browseCollaborationDetail(ctx context.Context, actor string, q 
 		replies = replies[:replyLimit]
 		detail.ReplyCursor = collaborationCursor(collaborationItemFrom(replies[replyLimit-1]))
 	}
-	detail.Replies = collaborationReplies(replies)
+	replies, replyStates, err := t.collaborationVisible(ctx, roles, actor, replies)
+	if err != nil {
+		return nil, err
+	}
+	detail.Replies = collaborationReplies(replies, replyStates)
 	if kind == event.KIND_GIT_PR {
 		detail.Updates, err = t.Query(ctx, []event.Filter{{Authors: []string{root.PubKey}, Kinds: []int{1619}, Tags: map[string][]string{"E": {root.ID}, "P": {root.PubKey}}, Limit: intPtr(100)}}, browseSession(t, actor))
 		if err != nil {
@@ -273,14 +313,14 @@ func collaborationLabels(e event.Event, query string) bool {
 
 // collaborationStatuses resolves the status of every root on a list page with
 // one query. Only the root author, the owner and current maintainers can set a
-// status, and the newest authorized event wins.
-func (t *Tenant) collaborationStatuses(ctx context.Context, actor string, roots []event.Event, r gitrelay.Repository) (map[string]string, error) {
+// status, a proposer never can, and the newest authorized event wins.
+func (t *Tenant) collaborationStatuses(ctx context.Context, actor string, roles *collaborationRoles, roots []event.Event) (map[string]string, error) {
 	statuses := make(map[string]string, len(roots))
 	if len(roots) == 0 {
 		return statuses, nil
 	}
 	ids := make([]string, 0, len(roots))
-	maintainers := t.maintainerKeys(ctx, r)
+	maintainers := t.maintainerKeys(ctx, roles.repo)
 	authors := append([]string(nil), maintainers...)
 	for _, root := range roots {
 		ids = append(ids, root.ID)
@@ -289,6 +329,9 @@ func (t *Tenant) collaborationStatuses(ctx context.Context, actor string, roots 
 	limit := 1000
 	rows, err := t.Query(ctx, []event.Filter{{Authors: uniqueStrings(authors), Kinds: []int{1630, 1631, 1632, 1633}, Tags: map[string][]string{"e": ids}, Limit: &limit}}, browseSession(t, actor))
 	if err != nil {
+		return nil, err
+	}
+	if rows, err = t.collaborationDecided(ctx, roles, rows); err != nil {
 		return nil, err
 	}
 	byRoot := make(map[string][]event.Event, len(roots))

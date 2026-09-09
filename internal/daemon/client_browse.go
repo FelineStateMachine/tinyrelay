@@ -212,6 +212,11 @@ func (t *Tenant) browseRepoEvents(ctx context.Context, actor string, r gitrelay.
 		}
 		rows = append(rows, replies...)
 	}
+	// Pending and rejected proposals from agents are left out for everyone
+	// but the deciders and their author.
+	if rows, _, err = t.collaborationVisible(ctx, t.collaborationRoles(r), actor, rows); err != nil {
+		return nil, err
+	}
 	sort.Slice(rows, func(i, j int) bool {
 		if rows[i].CreatedAt == rows[j].CreatedAt {
 			return rows[i].ID < rows[j].ID

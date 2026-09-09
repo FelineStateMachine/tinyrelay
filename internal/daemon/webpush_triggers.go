@@ -91,6 +91,11 @@ func (t *Tenant) pushNotices(ctx context.Context, e event.Event) []pushNotice {
 	if kind, ok := approvalRequest(e); ok {
 		return t.approvalNotices(e, kind)
 	}
+	// A proposal from an agent asks the repository's maintainers for a
+	// decision the same way, and wakes nobody else.
+	if notices, ok := t.collaborationProposalNotices(ctx, e); ok {
+		return notices
+	}
 	// A job result, or feedback that needs the requester's attention,
 	// reaches the requester as a mention.
 	if status, ok := jobNotice(e); ok {

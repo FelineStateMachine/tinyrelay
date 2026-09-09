@@ -25,17 +25,24 @@ type reviewAnchor struct {
 }
 
 // collaborationReply is one comment in a thread with its anchor, when it has
-// one, alongside the event fields.
+// one, and its proposal state alongside the event fields.
 type collaborationReply struct {
 	event.Event
 	reviewAnchor
+	collaborationProposal
 }
 
-func collaborationReplies(rows []event.Event) []collaborationReply {
+// collaborationReplies pairs each reply with its anchor and the proposal
+// state at the same index of states.
+func collaborationReplies(rows []event.Event, states []collaborationProposal) []collaborationReply {
 	out := make([]collaborationReply, 0, len(rows))
-	for _, row := range rows {
+	for i, row := range rows {
 		anchor, _, _ := reviewAnchorOf(row)
-		out = append(out, collaborationReply{Event: row, reviewAnchor: anchor})
+		reply := collaborationReply{Event: row, reviewAnchor: anchor}
+		if i < len(states) {
+			reply.collaborationProposal = states[i]
+		}
+		out = append(out, reply)
 	}
 	return out
 }
