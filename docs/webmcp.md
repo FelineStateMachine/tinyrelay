@@ -1,6 +1,10 @@
 # Browser tools
 
-Every page registers tools for your browser agent; **Manage > Health** reports whether they are ready, and Chrome's Application panel lists them with their calls. The agent can browse repositories, files, issues and pull requests, inspect service status, manage background jobs, create backups, update relay settings, open Nostr links and the Files page, read this device's notification state and, as the owner, send a test notification. Turning notifications on stays a manual step, since the browser asks the person for permission.
+Every page registers tools for your browser agent; **Manage > Health** reports whether they are ready, and Chrome's Application panel lists them with their calls. The agent can browse repositories, files, issues and pull requests, list the requests that wait for your decision, inspect service status, manage background jobs, create backups, update relay settings, open Nostr links, the Files page and the Approvals page, read this device's notification state and, as the owner, send a test notification. Turning notifications on stays a manual step, since the browser asks the person for permission.
+
+## Approvals
+
+Three tools cover requests for a decision. `tiny.list_approvals` lists the requests addressed to the signed-in person with each one's asker, subject, expiry, state and answer, plus counts of open, answered and expired requests; `state` narrows the list to `open`, `answered`, `expired` or `all`. `tiny.read_approval` returns one request by event id with every reaction and reply from the people asked. `tiny.open_approvals` opens the Approvals page, focused on one request when `id` is given. Answering stays a manual step: the person approves, denies or replies with their own signer. To make a request, publish an event as described in [Asking a person](agents.md#asking-a-person).
 
 Choose **Sign in** in the main navigation and connect your Nostr signer. Reading protected information uses your browser session. Management actions request a signature and follow your account permissions. A queued backup or job has not finished until its status says so.
 
