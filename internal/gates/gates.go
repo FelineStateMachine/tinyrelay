@@ -81,6 +81,9 @@ func (g *Gate) agentAdmission(ctx context.Context, e event.Event, now int64) err
 	if err := grant.Check(e, now); err != nil {
 		return err
 	}
+	if err := g.jobReply(ctx, e, now, true); err != nil {
+		return err
+	}
 	if !g.agents.allow(e.PubKey, grant.Scope.Rate, now) {
 		return fmt.Errorf("restricted: agent grant does not allow more than %d events per minute", grant.Scope.Rate)
 	}
@@ -144,6 +147,12 @@ func (g *Gate) Write(ctx context.Context, e event.Event, s relay.Session, now in
 		return err
 	}
 	if err := nip43Shape(e, now); err != nil {
+		return err
+	}
+	if err := jobFeature(p, e); err != nil {
+		return err
+	}
+	if err := JobShape(e); err != nil {
 		return err
 	}
 	if p.MaxFuture > 0 && e.CreatedAt > now+p.MaxFuture {
@@ -221,6 +230,12 @@ func (g *Gate) Write(ctx context.Context, e event.Event, s relay.Session, now in
 		}
 		writeAccess = accessFor(ctx, g.cfg.Community, p, relay.Session{PubKeys: []string{principal}})
 	}
+	if err := jobWriter(e, writeAccess); err != nil {
+		return err
+	}
+	if err := g.jobReply(ctx, e, now, false); err != nil {
+		return err
+	}
 	ownerReplaceable := writeAccess.Owner && (event.IsReplaceable(e.Kind) || event.IsAddressable(e.Kind))
 	allowed, blocked, rulesErr := g.kindRules(ctx, p, e.Kind)
 	if rulesErr != nil {
@@ -280,6 +295,12 @@ func (g *Gate) Import(ctx context.Context, e event.Event, now int64) error {
 		return err
 	}
 	if err := nip43Shape(e, now); err != nil {
+		return err
+	}
+	if err := jobFeature(p, e); err != nil {
+		return err
+	}
+	if err := JobShape(e); err != nil {
 		return err
 	}
 	if p.MaxFuture > 0 && e.CreatedAt > now+p.MaxFuture {

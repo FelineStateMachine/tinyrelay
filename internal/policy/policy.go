@@ -52,6 +52,9 @@ type Features struct {
 	// not a repository visibility hint: all reads require current membership.
 	Grasp08 bool `json:"grasp08"`
 	Push    bool `json:"push"`
+	// Jobs admits NIP-90 job requests, results and feedback from members
+	// and agents. It is on unless the owner switches it off.
+	Jobs bool `json:"jobs"`
 }
 
 type Delivery struct {
@@ -132,11 +135,13 @@ type Policy struct {
 // DefaultRooms is the room allowance applied when a policy does not name one.
 const DefaultRooms = 64
 
-// UnmarshalJSON keeps the room allowance at its default when a stored policy
-// predates the field, so existing tenants do not lose room creation.
+// UnmarshalJSON keeps the room allowance and the long task switch at their
+// defaults when a stored policy predates the fields, so existing tenants do
+// not lose room creation or job traffic.
 func (p *Policy) UnmarshalJSON(data []byte) error {
 	type plain Policy
 	decoded := plain{Rooms: DefaultRooms}
+	decoded.Features.Jobs = true
 	if err := json.Unmarshal(data, &decoded); err != nil {
 		return err
 	}
@@ -146,7 +151,7 @@ func (p *Policy) UnmarshalJSON(data []byte) error {
 
 func Defaults(owner string) Policy {
 	return Policy{Owner: owner, CustomHosts: []CustomHost{}, Writes: "open", Reads: "open", DirectoryPublic: true, MaxFuture: 900, Dumps: "off", DumpsKeep: 7, Rooms: DefaultRooms,
-		Features: Features{Search: "prose", Sync: true, Count: true, Discovery: true, Names: true, Files: true, Pages: true, Signer: true, Sites: Sites{Enabled: true, Mirror: true}},
+		Features: Features{Search: "prose", Sync: true, Count: true, Discovery: true, Names: true, Files: true, Pages: true, Signer: true, Sites: Sites{Enabled: true, Mirror: true}, Jobs: true},
 		Notify:   Notify{}, Views: map[string]string{}, Tags: []string{}, LanguageTags: []string{}, RelayCountries: []string{}, OpenKinds: []int{}, BlockedWords: []string{}, PushCallbacks: []string{}, Delivery: Delivery{}}
 }
 

@@ -24,6 +24,26 @@ func TestPatchOmittedAndEmptySections(t *testing.T) {
 	}
 }
 
+func TestJobsDefaultOnUntilSwitchedOff(t *testing.T) {
+	if !Defaults("owner").Features.Jobs {
+		t.Fatal("long tasks are off by default")
+	}
+	var stored Policy
+	if err := json.Unmarshal([]byte(`{"owner":"owner","writes":"open","reads":"open","features":{"search":"prose"}}`), &stored); err != nil {
+		t.Fatal(err)
+	}
+	if !stored.Features.Jobs {
+		t.Fatal("a stored policy without the field lost long tasks")
+	}
+	patched, err := Patch(Defaults("owner"), map[string]json.RawMessage{"features": json.RawMessage(`{"jobs":false}`)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if patched.Features.Jobs || patched.Features.Search != "prose" {
+		t.Fatalf("patch did not switch long tasks off: %#v", patched.Features)
+	}
+}
+
 func TestPrivateReadRequiresRecipient(t *testing.T) {
 	p := Defaults("owner")
 	p.Reads = "members"

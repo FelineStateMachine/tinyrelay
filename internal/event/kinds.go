@@ -58,3 +58,54 @@ const (
 	KIND_ROOM_MEMBER_REMOVED = 44101
 	KIND_AGENT_GRANT         = 30392
 )
+
+// NIP-90 long tasks: a job request kind in 5000 to 5999 is answered by a
+// result kind 1000 higher and by feedback of kind 7000.
+const (
+	KIND_JOB_REQUEST_MIN = 5000
+	KIND_JOB_REQUEST_MAX = 5999
+	KIND_JOB_RESULT_MIN  = 6000
+	KIND_JOB_RESULT_MAX  = 6999
+	KIND_JOB_FEEDBACK    = 7000
+)
+
+// JobFeedbackStatuses is the NIP-90 vocabulary of the feedback status tag.
+var JobFeedbackStatuses = []string{"payment-required", "processing", "error", "success", "partial"}
+
+// JobInputTypes is the NIP-90 vocabulary of the i tag's input type.
+var JobInputTypes = []string{"url", "event", "job", "text"}
+
+func IsJobRequest(kind int) bool { return kind >= KIND_JOB_REQUEST_MIN && kind <= KIND_JOB_REQUEST_MAX }
+func IsJobResult(kind int) bool  { return kind >= KIND_JOB_RESULT_MIN && kind <= KIND_JOB_RESULT_MAX }
+
+// IsJobKind reports whether the kind is a job request, result or feedback.
+func IsJobKind(kind int) bool {
+	return IsJobRequest(kind) || IsJobResult(kind) || kind == KIND_JOB_FEEDBACK
+}
+
+// JobResultKind returns the result kind for a request kind, or 0 when the
+// kind is not a job request.
+func JobResultKind(request int) int {
+	if !IsJobRequest(request) {
+		return 0
+	}
+	return request + 1000
+}
+
+func IsJobFeedbackStatus(status string) bool {
+	for _, known := range JobFeedbackStatuses {
+		if known == status {
+			return true
+		}
+	}
+	return false
+}
+
+func IsJobInputType(kind string) bool {
+	for _, known := range JobInputTypes {
+		if known == kind {
+			return true
+		}
+	}
+	return false
+}

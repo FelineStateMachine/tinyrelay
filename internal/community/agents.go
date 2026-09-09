@@ -38,12 +38,22 @@ type AgentRepo struct {
 	Level      string `json:"level"`
 }
 
+// Long task grants. AgentJobsRequest lets the agent publish job requests,
+// AgentJobsServe lets it answer requests the relay holds with results and
+// feedback, and AgentJobsBoth does both.
+const (
+	AgentJobsRequest = "request"
+	AgentJobsServe   = "serve"
+	AgentJobsBoth    = "both"
+)
+
 // AgentScope is the part of a grant the gate checks on every event.
 type AgentScope struct {
 	Kinds []int       `json:"kinds"`
 	Rooms []string    `json:"rooms"`
 	Repos []AgentRepo `json:"repos"`
 	Wiki  string      `json:"wiki,omitempty"`
+	Jobs  string      `json:"jobs,omitempty"`
 	Rate  int         `json:"rate"`
 }
 
@@ -81,7 +91,25 @@ func (g AgentGrant) AllowsKind(kind int) bool {
 			return true
 		}
 	}
+	if event.IsJobRequest(kind) && g.RequestsJobs() {
+		return true
+	}
+	if (event.IsJobResult(kind) || kind == event.KIND_JOB_FEEDBACK) && g.ServesJobs() {
+		return true
+	}
 	return false
+}
+
+// RequestsJobs reports whether the jobs tag lets the agent publish job
+// requests.
+func (g AgentGrant) RequestsJobs() bool {
+	return g.Scope.Jobs == AgentJobsRequest || g.Scope.Jobs == AgentJobsBoth
+}
+
+// ServesJobs reports whether the jobs tag lets the agent answer job
+// requests with results and feedback.
+func (g AgentGrant) ServesJobs() bool {
+	return g.Scope.Jobs == AgentJobsServe || g.Scope.Jobs == AgentJobsBoth
 }
 
 // AllowsRoom reports whether the agent may publish into a room.
@@ -237,6 +265,12 @@ func ParseAgentGrant(e event.Event, now int64) (AgentGrant, error) {
 		grant.Scope.Wiki = wiki
 	default:
 		return AgentGrant{}, errors.New("invalid: agent grant wiki tag must be propose or edit")
+	}
+	switch jobs := event.Tag(e, "jobs"); jobs {
+	case "", AgentJobsRequest, AgentJobsServe, AgentJobsBoth:
+		grant.Scope.Jobs = jobs
+	default:
+		return AgentGrant{}, errors.New("invalid: agent grant jobs tag must be request, serve or both")
 	}
 	if value := event.Tag(e, "rate"); value != "" {
 		rate, err := strconv.Atoi(strings.TrimSpace(value))
