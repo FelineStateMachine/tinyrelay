@@ -131,36 +131,6 @@
 </section>
 {{end}}
 
-{{define "tools"}}<section>
-<h1>Browser tools</h1>
-<p>Use a browser agent to browse repositories and files, check relay health, manage jobs and create backups. Connect your signer to manage the relay.</p>
-<p id="webmcp-status" role="status">Checking browser support...</p>
-<ul id="webmcp-tools"></ul>
-<p id="webmcp-operation" role="status"></p>
-<details>
-<summary>Enable WebMCP</summary>
-<p>In Chrome, open <code>chrome://flags/#enable-webmcp-testing</code>, enable WebMCP for testing and relaunch. Your usual pages and signed forms work in other browsers.</p>
-</details>
-<script>(() => {
-  const update = () => {
-    const state = window.tinyWebMCP;
-    document.getElementById("webmcp-status").textContent = !state?.supported
-      ? "WebMCP is unavailable in this browser."
-      : state.errors.length ? "Some tools could not register: " + state.errors.join("; ") : state.registered.length + " tools available.";
-    document.getElementById("webmcp-tools").replaceChildren(...(state?.registered || []).map(name => {
-      const item = document.createElement("li");
-      item.textContent = name;
-      return item;
-    }));
-    document.getElementById("webmcp-operation").textContent = state?.lastOperation || "";
-  };
-  window.addEventListener("tiny:webmcp", update);
-  update();
-  window.tinyWebMCP?.ready.then(update);
-})();</script>
-</section>
-{{end}}
-
 {{define "private"}}<section>
 <h1>Private messages</h1>
 <p>Sign in with a Nostr client to view addressed private events.</p>

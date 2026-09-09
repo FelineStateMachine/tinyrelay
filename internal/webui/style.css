@@ -37,11 +37,12 @@ img{max-width:100%}
 #who{color:var(--muted)}#who b,#who nostr-key{color:var(--ink)}
 #who button{border:0;background:none;padding:0;color:var(--accent);font:inherit}#who button:hover{text-decoration:underline}
 #railbox{box-sizing:border-box;padding-bottom:44px}
-#rail-tools{position:absolute;right:0;bottom:0;margin:0;padding:10px 2ch 10px 2.5ch}
+#rail nav+nav{margin-top:14px}
+#rail-tools{position:absolute;left:0;right:0;bottom:0;margin:0;padding:10px 2ch 10px 2.5ch;font:12px var(--mono)}#rail-tools a{float:left;color:var(--muted)}#rail-tools a:hover{color:var(--ink)}#rail-tools button{float:right}
 /* The install hint sits on the footer's centre line so it never moves the prompt or the session. */
 #install{position:absolute;left:50%;top:0;transform:translateX(-50%);border:0;background:none;padding:0;color:var(--muted);font:12px var(--mono);line-height:27px;cursor:pointer}#install:hover{color:var(--ink);text-decoration:underline}#install[hidden]{display:none}
 share-link{display:inline-block}share-link:empty{display:none}
-#theme{border:0;background:none;padding:0;color:var(--muted);font:12px var(--mono)}#theme:hover{color:var(--ink);text-decoration:underline}
+#theme{border:0;background:none;padding:0;color:var(--muted);font:inherit}#theme:hover{color:var(--ink);text-decoration:underline}
 
 /* Rail */
 #rail header{height:60px;box-sizing:border-box;border-bottom:1px solid var(--line);font:13px var(--mono);display:table;width:100%}

@@ -49,7 +49,7 @@ func TestBrowseRoutesUseObjectContractsAndRenderData(t *testing.T) {
 		{"/repo?owner=alice&repo=notes&view=file", "browserepo", "one"},
 		{"/files", "browsefiles", "deadbeef"},
 		{"/file?hash=deadbeef", "browsefile", "blob"},
-		{"/manage/status", "browsestatus", "manage this relay"},
+		{"/manage/health", "browsestatus", "manage this relay"},
 	}
 	for _, test := range tests {
 		recorder := httptest.NewRecorder()

@@ -123,7 +123,7 @@ func (t *Tenant) initServices(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	t.ui, err = webui.New(backend{tenant: t}, webui.Options{Actor: t.resolveUIActor})
+	t.ui, err = webui.New(backend{tenant: t}, webui.Options{Actor: t.resolveUIActor, Version: t.app.cfg.Version, Revision: t.app.cfg.Revision})
 	if err != nil {
 		return err
 	}

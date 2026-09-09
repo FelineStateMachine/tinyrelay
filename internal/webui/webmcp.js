@@ -128,7 +128,7 @@
     object({...repository, id: hash, view: {type: "string", enum: ["tree", "file", "history", "commit", "activity", "issues", "prs", "issue", "pr"]}}, ["owner", "repo"]), {}, input => open(repoURL(input)));
   register("tiny.open_file", "Open a stored file by its SHA-256 hash in this tab. For repository source, use tiny.open_repository with view=file.",
     object({hash}, ["hash"]), {}, input => open("/file?hash=" + encodeURIComponent(input.hash)));
-  register("tiny.open_status", "Open the relay status page in this tab.", object(), {}, () => open("/manage/status"));
+  register("tiny.open_status", "Open the relay health page in this tab: build versions, service status and browser tool readiness.", object(), {}, () => open("/manage/health"));
   register("tiny.open_files", "Open the Files page in this tab, where files and folders upload and shared items wait.", object(), {}, () => open("/files"));
   register("tiny.open_link", "Open a nostr link in this tab: an npub, nprofile, note, nevent, naddr or 64-character event id, with or without a nostr: or web+nostr: prefix.",
     object({target: {type: "string", minLength: 1, maxLength: 512}}, ["target"]), {}, input => open("/open?target=" + encodeURIComponent(input.target)));

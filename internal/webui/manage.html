@@ -193,18 +193,33 @@
 
 {{define "health"}}<section>
 <h1>Health</h1>
+<table id="facts">
+<tr><th>relay</th><td><code>{{or .Version "dev"}}</code>{{with .Revision}} <small>{{.}}</small>{{end}}</td></tr>
+<tr><th>scripts</th><td><code>{{scriptsVersion}}</code></td></tr>
+<tr><th>browser tools</th><td><span id="webmcp-status" role="status">Needs JavaScript to report.</span></td></tr>
+</table>
+<details><summary>About browser tools</summary><p>Browser agents use WebMCP tools registered on every page; Chrome's Application panel lists them and their calls. In Chrome, open <code>chrome://flags/#enable-webmcp-testing</code>, enable WebMCP for testing and relaunch. Your usual pages and signed forms work in other browsers.</p></details>
+<script>(() => {
+  const update = () => {
+    const state = window.tinyWebMCP;
+    const node = document.getElementById("webmcp-status");
+    if (!node) return;
+    node.textContent = !state?.supported ? "WebMCP is unavailable in this browser."
+      : state.errors.length ? "Some tools could not register: " + state.errors.join("; ")
+      : "ready, " + state.registered.length + " tools registered" + (state.lastOperation ? ", last: " + state.lastOperation : "");
+  };
+  window.addEventListener("tiny:webmcp", update);
+  update();
+  window.tinyWebMCP?.ready.then(update);
+})();</script>
+<h3>Service</h3>
+{{if .Error}}{{template "alert" .Error}}{{else}}{{template "jsonView" .Event}}{{end}}
+<p><a href="/manage/sync">Jobs and delivery</a> | <a href="/manage/data">Storage and backups</a></p>
+<h3>Reports</h3>
 <rpc-form method="stats"><button>Relay stats</button></rpc-form>
 <rpc-form method="listaudit"><label>Before sequence <input name="param" type="number" value="0"></label><button>Audit log</button></rpc-form>
 <rpc-form method="supportedmethods"><button>Supported methods</button></rpc-form>
 </section>
-{{end}}
-
-{{define "status"}}<section>
-<h1>Service status</h1>
-{{if .Error}}{{template "alert" .Error}}
-{{else}}{{template "jsonView" .Event}}
-<p><a href="/manage/sync">Jobs and delivery</a> | <a href="/manage/data">Storage and backups</a> | <a href="/manage/health">Relay health</a></p>
-{{end}}</section>
 {{end}}
 
 {{define "owner"}}<section>

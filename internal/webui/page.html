@@ -47,13 +47,11 @@
 {{else if eq .Tab "sync"}}{{template "sync" .}}
 {{else if eq .Tab "views"}}{{template "views" .}}
 {{else if eq .Tab "health"}}{{template "health" .}}
-{{else if eq .Tab "status"}}{{template "status" .}}
 {{else if eq .Tab "owner"}}{{template "owner" .}}
 {{else if eq .Tab "repos"}}{{template "repos" .}}
 {{else if eq .Tab "repo"}}{{template "repo" .}}
 {{else if eq .Tab "files"}}{{template "files" .}}
 {{else if eq .Tab "file"}}{{template "file" .}}
-{{else if eq .Tab "tools"}}{{template "tools" .}}
 {{else if eq .Tab "event"}}{{template "event" .}}
 {{else if eq .Tab "view"}}{{template "view" .}}
 {{else if eq .Tab "invite"}}{{template "invite" .}}
@@ -81,13 +79,11 @@
 <p>Private relay. Sign in with a Nostr signer to continue.</p>
 {{else if eq $kind "repo"}}<header><span><a href="/">{{.Slug}}</a>/<a href="/repos" title="{{.Query.Get "owner"}}">{{shortID (npub (.Query.Get "owner"))}}</a>/<b>{{.Query.Get "repo"}}</b></span></header>
 <nav>{{$v := repoView .Query}}<a href="{{repoURL .Query "home" ""}}"{{if eq $v "home"}} aria-current="page"{{end}}>/home</a><a href="{{repoURL .Query "tree" ""}}"{{if or (eq $v "tree") (eq $v "file")}} aria-current="page"{{end}}>/code</a><a href="{{repoURL .Query "history" ""}}"{{if or (eq $v "history") (eq $v "commit")}} aria-current="page"{{end}}>/history</a><a href="{{repoURL .Query "issues" ""}}"{{if or (eq $v "issues") (eq $v "issue")}} aria-current="page"{{end}}>/issues</a><a href="{{repoURL .Query "prs" ""}}"{{if or (eq $v "prs") (eq $v "pr")}} aria-current="page"{{end}}>/prs</a><a href="{{repoURL .Query "activity" ""}}"{{if eq $v "activity"}} aria-current="page"{{end}}>/activity</a></nav>
-<p>&larr; <a href="/repos">all repositories</a></p>
 {{else if eq $kind "manage"}}<header><span><a href="/">{{.Slug}}</a>/<b>manage</b></span></header>
-<nav>{{range $item := manageItems}}<a href="{{$item.Href}}"{{if eq $item.Tab $.Tab}} aria-current="page"{{end}}>{{$item.Label}}</a>{{end}}</nav>
-<p>&larr; <a href="/">relay</a></p>
+{{range $group := navGroups manageItems}}<nav>{{range $item := $group}}<a href="{{$item.Href}}"{{if eq $item.Tab $.Tab}} aria-current="page"{{end}}>{{$item.Label}}</a>{{end}}</nav>{{end}}
 {{else}}<header><span><a id="mark" href="/" title="{{.Slug}}"><i>t</i><i>i</i><i>n</i><i>y</i></a></span></header>
-<nav>{{range $item := relayItems}}<a href="{{$item.Href}}"{{if eq $item.Tab $.Tab}} aria-current="page"{{end}}>{{$item.Label}}</a>{{end}}</nav>
-{{end}}<p id="rail-tools"><button id="theme" type="button" aria-label="Switch theme">theme</button></p>{{end}}
+{{range $group := navGroups relayItems}}<nav>{{range $item := $group}}<a href="{{$item.Href}}"{{if eq $item.Tab $.Tab}} aria-current="page"{{end}}>{{$item.Label}}</a>{{end}}</nav>{{end}}
+{{end}}<p id="rail-tools">{{if eq $kind "repo"}}<a href="/repos">&larr; all repositories</a>{{else if eq $kind "manage"}}<a href="/">&larr; relay</a>{{end}}<button id="theme" type="button" aria-label="Switch theme">theme</button></p>{{end}}
 
 {{/* The panel holds facts and filters for the current page. */}}
 {{define "panel"}}{{$kind := railKind .Tab}}{{if .Private}}{{template "panel-signin" .}}

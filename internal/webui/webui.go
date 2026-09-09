@@ -46,18 +46,24 @@ type ActorResolver func(*http.Request) (string, error)
 type QRProvider func(string) ([]byte, error)
 
 type App struct {
-	backend Backend
-	actor   ActorResolver
-	qr      QRProvider
-	tmpl    *template.Template
+	backend  Backend
+	actor    ActorResolver
+	qr       QRProvider
+	tmpl     *template.Template
+	version  string
+	revision string
 }
 
 type Options struct {
 	Actor ActorResolver
 	QR    QRProvider
+	// Version and Revision identify the relay build on the health page.
+	Version, Revision string
 }
 
 type PageData struct {
+	Version  string
+	Revision string
 	Title    string
 	URL      string
 	Slug     string
@@ -96,7 +102,7 @@ func New(backend Backend, options Options) (*App, error) {
 	if qr == nil {
 		qr = defaultQR
 	}
-	return &App{backend: backend, actor: options.Actor, qr: qr, tmpl: tmpl}, nil
+	return &App{backend: backend, actor: options.Actor, qr: qr, tmpl: tmpl, version: options.Version, revision: options.Revision}, nil
 }
 
 func defaultQR(text string) ([]byte, error) {
@@ -147,7 +153,12 @@ func (a *App) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
 		a.webMCPQuery(writer, request)
 		return
 	}
-	if request.Method == http.MethodGet && (request.URL.Path == "/repos" || request.URL.Path == "/repo" || request.URL.Path == "/files" || request.URL.Path == "/file" || request.URL.Path == "/manage/status") {
+	if request.URL.Path == "/manage/status" || request.URL.Path == "/tools" {
+		// Service status and the browser tools report both live on Health now.
+		http.Redirect(writer, request, requestPrefix(request)+"/manage/health", http.StatusMovedPermanently)
+		return
+	}
+	if request.Method == http.MethodGet && (request.URL.Path == "/repos" || request.URL.Path == "/repo" || request.URL.Path == "/files" || request.URL.Path == "/file" || request.URL.Path == "/manage/health") {
 		a.browse(writer, request)
 		return
 	}
@@ -511,7 +522,7 @@ func (a *App) browse(writer http.ResponseWriter, request *http.Request) {
 		method = "browsefiles"
 	case "/file":
 		method = "browsefile"
-	case "/manage/status":
+	case "/manage/health":
 		method = "browsestatus"
 	}
 	params := []json.RawMessage{}
@@ -648,8 +659,6 @@ func browseTab(path string) string {
 		return "files"
 	case "/file":
 		return "file"
-	case "/manage/status":
-		return "status"
 	default:
 		return "health"
 	}
@@ -686,13 +695,14 @@ func (a *App) render(writer http.ResponseWriter, request *http.Request, data Pag
 	}
 	data.URL, data.Slug, data.Identity, data.Policy, data.Actor, data.Base = a.backend.URL(), a.backend.Slug(), a.backend.Identity(), a.backend.Policy(), actor, requestPrefix(request)
 	data.Owner = actor != "" && actor == data.Policy.Owner
+	data.Version, data.Revision = a.version, a.revision
 	data.Methods = supportedMethods
 	if data.Query == nil {
 		data.Query = request.URL.Query()
 	}
 	data.Path = strings.TrimPrefix(request.URL.Path, data.Base)
 	a.privatePageData(&data, request, actor)
-	if !data.Private && data.Actor == "" && railKind(data.Tab) == "manage" && data.Tab != "tools" {
+	if !data.Private && data.Actor == "" && railKind(data.Tab) == "manage" {
 		// Management pages are for signed-in people only. Guests see the
 		// sign-in page at the same address and come back after signing in.
 		data.Tab, data.Notice = "signin", "Sign in to manage this relay."
@@ -924,7 +934,7 @@ func tabForPath(path string) string {
 		return "files"
 	case "file":
 		return "file"
-	case "tools", "signin", "sites":
+	case "signin", "sites":
 		return path
 	case "people", "moderation", "rules", "identity", "connect", "data", "sync", "views", "health", "owner":
 		return path

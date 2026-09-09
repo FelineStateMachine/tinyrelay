@@ -3,6 +3,7 @@ package webui
 import (
 	"context"
 	"encoding/json"
+	"github.com/FelineStateMachine/tinyrelay/internal/policy"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -98,14 +99,25 @@ func TestPagesAdvertiseWebMCPScript(t *testing.T) {
 	}
 }
 
-func TestToolsPageExplainsNativeFallback(t *testing.T) {
-	app, err := New(&fakeBackend{}, Options{})
+func TestHealthPageReportsVersionsAndBrowserTools(t *testing.T) {
+	backend := &fakeBackend{policy: policy.Defaults(strings.Repeat("a", 64))}
+	app, err := New(backend, Options{Actor: func(*http.Request) (string, error) { return backend.policy.Owner, nil }, Version: "1.4.0", Revision: "abc1234"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	recorder := httptest.NewRecorder()
-	app.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/tools", nil))
-	if recorder.Code != http.StatusOK || !strings.Contains(recorder.Body.String(), "WebMCP is unavailable") || !strings.Contains(recorder.Body.String(), "signed forms") {
-		t.Fatalf("status=%d body=%s", recorder.Code, recorder.Body.String())
+	app.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/manage/health", nil))
+	body := recorder.Body.String()
+	for _, want := range []string{"<code>1.4.0</code>", "abc1234", "<code>" + scriptsVersion + "</code>", `id="webmcp-status"`, "WebMCP is unavailable", "signed forms"} {
+		if recorder.Code != http.StatusOK || !strings.Contains(body, want) {
+			t.Fatalf("health page missing %q: status=%d", want, recorder.Code)
+		}
+	}
+	for _, old := range []string{"/tools", "/manage/status"} {
+		moved := httptest.NewRecorder()
+		app.ServeHTTP(moved, httptest.NewRequest(http.MethodGet, old, nil))
+		if moved.Code != http.StatusMovedPermanently || moved.Header().Get("Location") != "/manage/health" {
+			t.Fatalf("%s: status=%d location=%q", old, moved.Code, moved.Header().Get("Location"))
+		}
 	}
 }

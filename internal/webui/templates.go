@@ -93,11 +93,32 @@ var iconSVG []byte
 var iconMonoSVG []byte
 
 // navItem is one rail entry. Tab matches PageData.Tab for the active state.
-type navItem struct{ Label, Href, Tab string }
+// navItem is one rail entry. Group orders entries by what they are for; the
+// rail leaves a small gap between groups.
+type navItem struct {
+	Label, Href, Tab string
+	Group            int
+}
 
-var relayNav = []navItem{{"/home", "/", "home"}, {"/search", "/search", "search"}, {"/repos", "/repos", "repos"}, {"/files", "/files", "files"}, {"/sites", "/sites", "sites"}, {"/articles", "/articles", "articles"}, {"/inbox", "/inbox", "inbox"}, {"/outbox", "/outbox", "outbox"}, {"/manage", "/manage/people", "manage"}}
+// relayNav: entry points, then conversation, then collaborative artifacts,
+// then what the relay publishes and stores, then what is yours.
+var relayNav = []navItem{{"/home", "/", "home", 0}, {"/search", "/search", "search", 0}, {"/inbox", "/inbox", "inbox", 1}, {"/repos", "/repos", "repos", 2}, {"/files", "/files", "files", 3}, {"/articles", "/articles", "articles", 3}, {"/sites", "/sites", "sites", 3}, {"/outbox", "/outbox", "outbox", 4}, {"/manage", "/manage/people", "manage", 4}}
 
-var manageNav = []navItem{{"/people", "/manage/people", "people"}, {"/moderation", "/manage/moderation", "moderation"}, {"/rules", "/manage/rules", "rules"}, {"/identity", "/manage/identity", "identity"}, {"/connect", "/manage/connect", "connect"}, {"/data", "/manage/data", "data"}, {"/sync", "/manage/sync", "sync"}, {"/views", "/manage/views", "views"}, {"/health", "/manage/health", "health"}, {"/owner", "/manage/owner", "owner"}, {"/status", "/manage/status", "status"}, {"/tools", "/tools", "tools"}}
+// manageNav: who is here, what they may do, what the relay is, what it does
+// over time, and how it is doing.
+var manageNav = []navItem{{"/people", "/manage/people", "people", 0}, {"/moderation", "/manage/moderation", "moderation", 1}, {"/rules", "/manage/rules", "rules", 1}, {"/identity", "/manage/identity", "identity", 2}, {"/connect", "/manage/connect", "connect", 2}, {"/owner", "/manage/owner", "owner", 2}, {"/sync", "/manage/sync", "sync", 3}, {"/data", "/manage/data", "data", 3}, {"/views", "/manage/views", "views", 3}, {"/health", "/manage/health", "health", 4}}
+
+// navGroups splits a rail list into its groups, in order.
+func navGroups(items []navItem) [][]navItem {
+	var groups [][]navItem
+	for _, item := range items {
+		if len(groups) == 0 || groups[len(groups)-1][0].Group != item.Group {
+			groups = append(groups, nil)
+		}
+		groups[len(groups)-1] = append(groups[len(groups)-1], item)
+	}
+	return groups
+}
 
 // railKind picks the sitemap for a tab: one repository, management, or the relay.
 func railKind(tab string) string {
@@ -207,6 +228,7 @@ func parseTemplates() (*template.Template, error) {
 		"repoView":        repoView,
 		"relayItems":      func() []navItem { return relayNav },
 		"manageItems":     func() []navItem { return manageNav },
+		"navGroups":       navGroups,
 		"add":             func(a, b int) int { return a + b },
 		"strs":            func(values ...string) []string { return values },
 		"repoCommitURL":   repoCommitURL,
