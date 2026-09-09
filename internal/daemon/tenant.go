@@ -387,6 +387,7 @@ func (t *Tenant) Publish(ctx context.Context, e event.Event, s relay.Session) (s
 	t.notifyDevices(ctx, e)
 	t.notifyCallbacks(ctx, e)
 	t.notifyWikiMerge(ctx, e)
+	t.notifyWikiProposal(ctx, e)
 	// Stage Git metadata before acknowledging the event. This closes the
 	// publish-ACK/receive-pack race: the signed pending refs and hook exist
 	// before a client can push objects for the state.

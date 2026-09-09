@@ -49,6 +49,8 @@ type wikiPage struct {
 	Merges        []wikiMerge    `json:"merges"`
 	RedirectsTo   []wikiRedirect `json:"redirects_to"`
 	RedirectsFrom []wikiRedirect `json:"redirects_from"`
+	// CanApprove reports whether the caller may accept or reject proposals.
+	CanApprove bool `json:"can_approve"`
 }
 
 type wikiMergeDetail struct {
@@ -110,7 +112,10 @@ func (t *Tenant) wikiQuery(ctx context.Context, session relay.Session, filters .
 	return rows, nil
 }
 
-func (t *Tenant) wikiVersions(ctx context.Context, session relay.Session, filter event.Filter) ([]wikiVersion, error) {
+// wikiVersions lists the versions the actor may see, with each proposal's
+// state filled in; pending and rejected proposals stay in the list only
+// for the owner, moderators and their author.
+func (t *Tenant) wikiVersions(ctx context.Context, roles *wikiRoles, actor string, session relay.Session, filter event.Filter) ([]wikiVersion, error) {
 	filter.Kinds = []int{kindWikiArticle}
 	rows, err := t.wikiQuery(ctx, session, filter)
 	if err != nil {
@@ -122,7 +127,10 @@ func (t *Tenant) wikiVersions(ctx context.Context, session relay.Session, filter
 			versions = append(versions, wikiVersionFrom(row, false))
 		}
 	}
-	return versions, nil
+	if err := t.wikiProposals(ctx, roles, versions); err != nil {
+		return nil, err
+	}
+	return t.wikiVisible(ctx, roles, actor, versions)
 }
 
 // wikiMerges lists the merge requests aimed at any of the coordinates with
@@ -162,7 +170,12 @@ func wikiMatches(v wikiVersion, query string) bool {
 
 func (t *Tenant) browseWiki(ctx context.Context, actor string, q wikiBrowseRequest) (any, error) {
 	session := browseSession(t, actor)
-	versions, err := t.wikiVersions(ctx, session, event.Filter{})
+	roles := t.wikiRoles()
+	versions, err := t.wikiVersions(ctx, roles, actor, session, event.Filter{})
+	if err != nil {
+		return nil, err
+	}
+	decides, err := roles.decides(ctx, actor)
 	if err != nil {
 		return nil, err
 	}
@@ -203,7 +216,7 @@ func (t *Tenant) browseWiki(ctx context.Context, actor string, q wikiBrowseReque
 		}
 		items = append(items, wikiPageItem{D: d, Title: preferred.Title, Summary: preferred.Summary, Version: preferred, Versions: len(page), OpenMerges: open})
 	}
-	return map[string]any{"items": items, "next_cursor": next}, nil
+	return map[string]any{"items": items, "next_cursor": next, "can_approve": decides}, nil
 }
 
 // wikiRankVersions fills in member likes when they decide the preferred
@@ -239,7 +252,12 @@ func (t *Tenant) browseWikiPage(ctx context.Context, actor string, q wikiBrowseR
 		return nil, errors.New("invalid: wiki page name")
 	}
 	session := browseSession(t, actor)
-	versions, err := t.wikiVersions(ctx, session, event.Filter{Tags: map[string][]string{"d": {d}}})
+	roles := t.wikiRoles()
+	versions, err := t.wikiVersions(ctx, roles, actor, session, event.Filter{Tags: map[string][]string{"d": {d}}})
+	if err != nil {
+		return nil, err
+	}
+	decides, err := roles.decides(ctx, actor)
 	if err != nil {
 		return nil, err
 	}
@@ -247,7 +265,7 @@ func (t *Tenant) browseWikiPage(ctx context.Context, actor string, q wikiBrowseR
 	if err != nil {
 		return nil, err
 	}
-	page := wikiPage{D: d, Title: d, Versions: versions, Merges: []wikiMerge{}, RedirectsTo: []wikiRedirect{}, RedirectsFrom: []wikiRedirect{}}
+	page := wikiPage{D: d, Title: d, Versions: versions, Merges: []wikiMerge{}, RedirectsTo: []wikiRedirect{}, RedirectsFrom: []wikiRedirect{}, CanApprove: decides}
 	for _, row := range redirects {
 		r := wikiRedirectFrom(row)
 		if r.D == d && r.TargetD != "" && r.TargetD != d {
@@ -290,6 +308,7 @@ func (t *Tenant) browseWikiPage(ctx context.Context, actor string, q wikiBrowseR
 	if len(rows) == 1 {
 		full := wikiVersionFrom(rows[0], true)
 		full.Likes = preferred.Likes
+		full.Proposal, full.Approval, full.ApprovalEvent, full.ApprovalAt, full.ApprovalBy = preferred.Proposal, preferred.Approval, preferred.ApprovalEvent, preferred.ApprovalAt, preferred.ApprovalBy
 		preferred = full
 	}
 	page.Title = preferred.Title
@@ -341,6 +360,19 @@ func (t *Tenant) browseWikiMerge(ctx context.Context, actor string, q wikiBrowse
 			v := wikiVersionFrom(target[0], true)
 			detail.Target = &v
 		}
+	}
+	// The versions keep their proposal state; a merge request's reader
+	// must see the proposed content to answer it, so nothing is hidden.
+	roles := t.wikiRoles()
+	for _, v := range []*wikiVersion{detail.Proposed, detail.Target} {
+		if v == nil {
+			continue
+		}
+		marked := []wikiVersion{*v}
+		if err := t.wikiProposals(ctx, roles, marked); err != nil {
+			return nil, err
+		}
+		*v = marked[0]
 	}
 	return detail, nil
 }

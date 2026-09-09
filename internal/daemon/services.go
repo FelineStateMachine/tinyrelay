@@ -685,6 +685,7 @@ func (t *Tenant) commitImported(ctx context.Context, e event.Event, origin repli
 		t.notifyDevices(ctx, e)
 		t.notifyCallbacks(ctx, e)
 		t.notifyWikiMerge(ctx, e)
+		t.notifyWikiProposal(ctx, e)
 	}
 	return err
 }

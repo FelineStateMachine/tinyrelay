@@ -51,6 +51,14 @@ type wikiVersion struct {
 	Defer      *wikiRef `json:"defer,omitempty"`
 	Content    string   `json:"content,omitempty"`
 	Links      []string `json:"links,omitempty"`
+	// Proposal marks a version from an agent whose grant says wiki:
+	// propose. Approval is pending, approved or rejected; the other fields
+	// name the deciding reaction, its time and its author once one exists.
+	Proposal      bool   `json:"proposal,omitempty"`
+	Approval      string `json:"approval,omitempty"`
+	ApprovalEvent string `json:"approval_event,omitempty"`
+	ApprovalAt    int64  `json:"approval_at,omitempty"`
+	ApprovalBy    string `json:"approval_by,omitempty"`
 }
 
 type wikiAnswer struct {

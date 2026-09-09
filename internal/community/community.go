@@ -194,6 +194,24 @@ func (s *Service) Role(ctx context.Context, pubkey string) (string, error) {
 	return role, nil
 }
 
+// Moderators lists the keys that hold the moderator role.
+func (s *Service) Moderators(ctx context.Context) ([]string, error) {
+	rows, err := s.store.DB().QueryContext(ctx, `SELECT pubkey FROM community_members WHERE role='moderator' ORDER BY pubkey`)
+	if err != nil {
+		return nil, fmt.Errorf("moderators: %w", err)
+	}
+	defer rows.Close()
+	var moderators []string
+	for rows.Next() {
+		var pubkey string
+		if err := rows.Scan(&pubkey); err != nil {
+			return nil, err
+		}
+		moderators = append(moderators, pubkey)
+	}
+	return moderators, rows.Err()
+}
+
 func (s *Service) Execute(ctx context.Context, actor, method string, params []json.RawMessage) (any, error) {
 	if method == "supportedmethods" {
 		return s.Methods(), nil
