@@ -26,6 +26,34 @@ type wikiView struct {
 	OpenCount     int
 	RedirectsTo   []map[string]any
 	RedirectsFrom []map[string]any
+	// CanApprove is set when the viewer may accept or reject proposals.
+	CanApprove bool
+}
+
+// wikiProposalView is how a version's proposal state reads for one viewer.
+// Shown is set for the people who may see the state: the owner and
+// moderators, and the version's author. Decide is set when the viewer may
+// accept or reject it, which is only while it is pending.
+type wikiProposalView struct {
+	Shown, Decide bool
+	State         string
+	At            any
+	By            string
+}
+
+// wikiProposal reads a version's proposal state for the viewer. canApprove
+// is the browse result's can_approve flag.
+func wikiProposal(version map[string]any, actor string, canApprove any) wikiProposalView {
+	if version == nil || version["proposal"] != true {
+		return wikiProposalView{}
+	}
+	approver, _ := canApprove.(bool)
+	if !approver && (actor == "" || actor != plainString(version["author"])) {
+		return wikiProposalView{}
+	}
+	view := wikiProposalView{Shown: true, State: plainString(version["approval"]), At: version["approval_at"], By: plainString(version["approval_by"])}
+	view.Decide = approver && view.State == "pending"
+	return view
 }
 
 func wikiMaps(value any) []map[string]any {
@@ -49,6 +77,7 @@ func wikiPageView(result any) wikiView {
 	view.Merges = wikiMaps(page["merges"])
 	view.RedirectsTo = wikiMaps(page["redirects_to"])
 	view.RedirectsFrom = wikiMaps(page["redirects_from"])
+	view.CanApprove, _ = page["can_approve"].(bool)
 	view.Count = len(view.Versions)
 	if current := valueMap(page["version"]); current != nil {
 		view.Version = current

@@ -279,6 +279,7 @@ func parseTemplates() (*template.Template, error) {
 		"approvalDevices": approvalDevices,
 		"wikiHTML":        wikiHTML,
 		"wikiView":        wikiPageView,
+		"wikiProposal":    wikiProposal,
 		"wikiURL":         wikiURL,
 		"roomItems":       roomItems,
 		"roomRoot":        roomRoot,

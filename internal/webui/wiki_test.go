@@ -27,6 +27,13 @@ type wikiBackend struct {
 	calls   []string
 	params  map[string]map[string]any
 	private bool
+	// proposal makes the second author's version a proposal in this state
+	// (pending, approved or rejected), decided by the owner when it is not
+	// pending. approver marks the caller as allowed to decide, and shown
+	// makes the proposal the page's shown version.
+	proposal string
+	approver bool
+	shown    bool
 }
 
 func (b *wikiBackend) Query(_ context.Context, method string, params []json.RawMessage, actor string) (any, error) {
@@ -46,14 +53,24 @@ func (b *wikiBackend) Query(_ context.Context, method string, params []json.RawM
 		"content": "# Highlights\n\nPrivate tenants and _encrypted_ uploads. See [[Files and Private Repositories]].\n\n<script>alert(1)</script>", "links": []any{"files-and-private-repositories"}}
 	other := map[string]any{"id": wikiOtherV, "author": wikiOther, "created_at": float64(1788880000), "d": "release-notes-1-4", "title": "Release notes 1.4", "coordinate": "30818:" + wikiOther + ":release-notes-1-4", "likes": float64(0), "fork": map[string]any{"a": owner["coordinate"], "e": wikiOwnerV}, "content": "# Highlights\n\nA proposed rewrite."}
 	merge := map[string]any{"id": wikiMerge, "author": wikiOther, "created_at": float64(1788881000), "content": "Please take my rewrite", "target": owner["coordinate"], "target_d": "release-notes-1-4", "destination": wikiOwner, "source": wikiOtherV, "status": "open"}
+	shown := owner
+	if b.proposal != "" {
+		other["proposal"], other["approval"] = true, b.proposal
+		if b.proposal != "pending" {
+			other["approval_event"], other["approval_at"], other["approval_by"] = wikiMerge, float64(1788882000), wikiOwner
+		}
+		if b.shown {
+			shown = other
+		}
+	}
 	switch method {
 	case "browsewiki":
-		return map[string]any{"items": []any{map[string]any{"d": "release-notes-1-4", "title": "Release notes 1.4 <b>", "version": owner, "versions": float64(2), "open_merges": float64(1)}}, "next_cursor": "release-notes-1-4"}, nil
+		return map[string]any{"items": []any{map[string]any{"d": "release-notes-1-4", "title": "Release notes 1.4 <b>", "version": shown, "versions": float64(2), "open_merges": float64(1)}}, "next_cursor": "release-notes-1-4", "can_approve": b.approver}, nil
 	case "browsewikipage":
 		if object["d"] != "release-notes-1-4" {
 			return nil, errors.New("not found: wiki page")
 		}
-		return map[string]any{"d": "release-notes-1-4", "title": "Release notes 1.4 <b>", "version": owner, "preferred_by": "owner", "versions": []any{other, owner}, "merges": []any{merge}, "redirects_to": []any{map[string]any{"d": "changelog-1-4", "target_d": "release-notes-1-4"}}, "redirects_from": []any{}}, nil
+		return map[string]any{"d": "release-notes-1-4", "title": "Release notes 1.4 <b>", "version": shown, "preferred_by": "owner", "versions": []any{other, owner}, "merges": []any{merge}, "redirects_to": []any{map[string]any{"d": "changelog-1-4", "target_d": "release-notes-1-4"}}, "redirects_from": []any{}, "can_approve": b.approver}, nil
 	case "browsewikimerge":
 		return map[string]any{"merge": merge, "proposed": other, "target": owner}, nil
 	}
@@ -195,4 +212,59 @@ func TestWikiGuestAccessFollowsTheReadsPolicy(t *testing.T) {
 		wantAll(t, path, body, "Release notes 1.4")
 		wantNone(t, path, body, `role="alert"`)
 	}
+}
+
+const wikiMember = "6666666666666666666666666666666666666666666666666666666666666666"
+
+func TestWikiProposalBarOffersTheDecisionToApprovers(t *testing.T) {
+	b := &wikiBackend{fakeBackend: fakeBackend{policy: policy.Defaults(wikiOwner)}, proposal: "pending", approver: true, shown: true}
+	path := "/wiki/release-notes-1-4"
+	body := wikiGet(t, wikiApp(t, b, wikiOwner), path)
+	wantAll(t, path, body,
+		`<wiki-proposal data-state="pending">Proposed by <nostr-name pubkey="`+wikiOther+`"`, `| pending<nostr-react event="`+wikiOtherV+`" pubkey="`+wikiOther+`" kind="30818"><button name="reaction" value="+">Accept</button><button name="reaction" value="-">Reject</button></nostr-react></wiki-proposal>`,
+		`<wiki-article><header>wiki | release-notes-1-4 | by <nostr-name pubkey="`+wikiOther+`"`, `A proposed rewrite.`)
+	// A decided proposal names the decision, its time and the deciding key,
+	// and offers no buttons.
+	for _, state := range []string{"approved", "rejected"} {
+		b.proposal = state
+		body = wikiGet(t, wikiApp(t, b, wikiOwner), path)
+		wantAll(t, path, body, `<wiki-proposal data-state="`+state+`">Proposed by <nostr-name pubkey="`+wikiOther+`"`, `| `+state+` 2026-09-08 15:40 UTC by <nostr-name pubkey="`+wikiOwner+`"`)
+		wantNone(t, path, body, "<nostr-react", ">Accept<")
+	}
+	// A pending proposal that is not the shown version is marked in the
+	// panel and the history, with no bar above the article.
+	b.proposal, b.shown = "pending", false
+	body = wikiGet(t, wikiApp(t, b, wikiOwner), path)
+	wantAll(t, path, body, `<h4>Other versions</h4><ul><li data-state="pending"><a href="/wiki/release-notes-1-4?version=`+wikiOtherV+`">222222222222</a> | fork | proposed pending <small>`)
+	wantNone(t, path, body, "<wiki-proposal")
+	body = wikiGet(t, wikiApp(t, b, wikiOwner), path+"?history=1")
+	wantAll(t, path, body, `<tr data-state="pending"><td><nostr-name pubkey="`+wikiOther+`"`, `fork of 444444444444 | proposed pending</td>`)
+}
+
+func TestWikiProposalAuthorSeesTheStateWithoutButtons(t *testing.T) {
+	b := &wikiBackend{fakeBackend: fakeBackend{policy: policy.Defaults(wikiOwner)}, proposal: "pending", shown: true}
+	path := "/wiki/release-notes-1-4"
+	body := wikiGet(t, wikiApp(t, b, wikiOther), path)
+	wantAll(t, path, body, `<wiki-proposal data-state="pending">Proposed by <nostr-name pubkey="`+wikiOther+`"`, `| pending</wiki-proposal>`)
+	wantNone(t, path, body, "<nostr-react", ">Accept<", ">Reject<")
+	body = wikiGet(t, wikiApp(t, b, wikiOther), "/wiki")
+	wantAll(t, "/wiki", body, `<tr data-state="pending"><td><a href="/wiki/release-notes-1-4">Release notes 1.4 &lt;b&gt;</a> <small>proposed | pending</small></td>`)
+}
+
+func TestWikiProposalStateIsHiddenFromMembers(t *testing.T) {
+	b := &wikiBackend{fakeBackend: fakeBackend{policy: policy.Defaults(wikiOwner)}, proposal: "approved", shown: true}
+	for _, path := range []string{"/wiki/release-notes-1-4", "/wiki/release-notes-1-4?history=1", "/wiki"} {
+		body := wikiGet(t, wikiApp(t, b, wikiMember), path)
+		wantAll(t, path, body, "Release notes 1.4")
+		wantNone(t, path, body, "<wiki-proposal", "<tr data-state=", "<li data-state=", "proposed | ", "| proposed ", "<nostr-react")
+	}
+}
+
+func TestWikiListMarksProposalRowsForApprovers(t *testing.T) {
+	b := &wikiBackend{fakeBackend: fakeBackend{policy: policy.Defaults(wikiOwner)}, proposal: "rejected", approver: true, shown: true}
+	body := wikiGet(t, wikiApp(t, b, wikiOwner), "/wiki")
+	wantAll(t, "/wiki", body, `<tr data-state="rejected"><td><a href="/wiki/release-notes-1-4">Release notes 1.4 &lt;b&gt;</a> <small>proposed | rejected</small></td><td><nostr-name pubkey="`+wikiOther+`"`)
+	b.proposal = ""
+	body = wikiGet(t, wikiApp(t, b, wikiOwner), "/wiki")
+	wantNone(t, "/wiki", body, "<tr data-state=", "proposed | ")
 }
