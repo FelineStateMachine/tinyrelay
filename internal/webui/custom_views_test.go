@@ -46,7 +46,7 @@ func (b *viewsBackend) Query(ctx context.Context, method string, params []json.R
 const mermaidSource = "graph TD;\n  A-->B & <C>;"
 
 func mermaidFigure(view string) string {
-	return `<figure data-view="` + view + `"><object data="/views/` + view + `/` + views.Hash("mermaid", mermaidSource) + `.svg" type="image/svg+xml"><pre><code data-lang="mermaid">graph TD;` + "\n" + `  A--&gt;B &amp; &lt;C&gt;;</code></pre></object></figure>`
+	return `<figure data-view="` + view + `"><view-artifact><img src="/views/` + view + `/` + views.Hash("mermaid", mermaidSource) + `" alt="Rendered mermaid block"><details><summary>Source</summary><pre><code data-lang="mermaid">graph TD;` + "\n" + `  A--&gt;B &amp; &lt;C&gt;;</code></pre></details></view-artifact></figure>`
 }
 
 func TestRenderersShowCustomViewArtifactsWithTheCodeAsFallback(t *testing.T) {
@@ -100,9 +100,9 @@ func TestPagesRenderCustomViewFiguresFromTheBackendSummary(t *testing.T) {
 		t.Fatalf("repo home: %d %s", recorder.Code, body)
 	}
 	hash := views.Hash("mermaid", "graph TD; a-->b;")
-	figure := `<figure data-view="diagrams"><object data="/views/diagrams/` + hash + `.svg" type="image/svg+xml"><pre><code data-lang="mermaid">graph TD; a--&gt;b;</code></pre></object></figure>`
+	figure := `<figure data-view="diagrams"><view-artifact><img src="/views/diagrams/` + hash + `" alt="Rendered mermaid block"><details><summary>Source</summary><pre><code data-lang="mermaid">graph TD; a--&gt;b;</code></pre></details></view-artifact></figure>`
 	wantAll(t, "repo home", body, figure, `href="/repo?owner=`)
-	if prefixed := injectBase(figure, "/r/work"); !strings.Contains(prefixed, `<object data="/r/work/views/diagrams/`+hash+`.svg"`) {
+	if prefixed := injectBase(figure, "/r/work"); !strings.Contains(prefixed, `<img src="/r/work/views/diagrams/`+hash+`"`) {
 		t.Fatalf("tenant prefix missed the object address: %s", prefixed)
 	}
 	// A backend without the summary keeps code blocks as code.

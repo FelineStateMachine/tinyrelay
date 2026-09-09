@@ -337,7 +337,8 @@ func (t *Tenant) changeCustomView(ctx context.Context, actor, method string, par
 		if !view.Enabled {
 			return nil, errors.New("invalid: resume the view before running it")
 		}
-		queued, err := t.queueCustomViewBackfill(ctx, view, 0, strconv.FormatInt(time.Now().UnixNano(), 10))
+		refresh := customViewRefreshParam(params)
+		queued, err := t.queueCustomViewBackfill(ctx, view, 0, strconv.FormatInt(time.Now().UnixNano(), 10), refresh)
 		if err != nil {
 			return nil, err
 		}
@@ -401,6 +402,19 @@ func customViewNameParam(params []json.RawMessage) string {
 	}
 	_ = json.Unmarshal(params[0], &options)
 	return strings.TrimSpace(options.Name)
+}
+
+func customViewRefreshParam(params []json.RawMessage) bool {
+	if len(params) == 0 {
+		return false
+	}
+	var options struct {
+		Refresh bool `json:"refresh"`
+	}
+	if err := json.Unmarshal(params[0], &options); err != nil {
+		return false
+	}
+	return options.Refresh
 }
 
 func (t *Tenant) customViewByName(ctx context.Context, name string) (customView, error) {
@@ -518,7 +532,7 @@ func (t *Tenant) queueCustomViews(ctx context.Context, e event.Event) {
 		if e.Kind != event.KIND_REPO_STATE && len(views.Matching(views.Blocks(e.Content), view.Languages)) == 0 {
 			continue
 		}
-		intents = append(intents, t.viewIntent(view, e, ""))
+		intents = append(intents, t.viewIntent(view, e, "", false))
 	}
 	if len(intents) == 0 {
 		return
@@ -536,8 +550,9 @@ func (t *Tenant) queueCustomViews(ctx context.Context, e event.Event) {
 // viewIntent is the transform intent for one source. The event travels in
 // the payload; run makes a backfill or an hourly pass distinct from the
 // write-time intent for the same event.
-func (t *Tenant) viewIntent(view customView, e event.Event, run string) storage.Intent {
-	payload, _ := json.Marshal(viewPayload{Event: e, Attempt: 1, Run: run})
+func (t *Tenant) viewIntent(view customView, e event.Event, run string, refresh ...bool) storage.Intent {
+	force := len(refresh) > 0 && refresh[0]
+	payload, _ := json.Marshal(viewPayload{Event: e, Attempt: 1, Run: run, Refresh: force})
 	id := e.ID
 	if run != "" {
 		id += "@" + run
@@ -556,7 +571,8 @@ func (t *Tenant) statePending(ctx context.Context, id string) bool {
 // queueCustomViewBackfill queues the newest sources of a view's kinds, at
 // most 500, written since the given time. Repository states are queued
 // whether or not their README has blocks; the handler reads it.
-func (t *Tenant) queueCustomViewBackfill(ctx context.Context, view customView, since int64, run string) (int, error) {
+func (t *Tenant) queueCustomViewBackfill(ctx context.Context, view customView, since int64, run string, refresh ...bool) (int, error) {
+	force := len(refresh) > 0 && refresh[0]
 	rows, err := t.store.Query(ctx, event.Filter{Kinds: view.Kinds, Tags: map[string][]string{}}, storage.QueryOptions{Now: time.Now().Unix(), Access: storage.Access{All: true}, Limit: viewBackfillLimit})
 	if err != nil {
 		return 0, err
@@ -573,7 +589,7 @@ func (t *Tenant) queueCustomViewBackfill(ctx context.Context, view customView, s
 		} else if len(views.Matching(views.Blocks(e.Content), view.Languages)) == 0 {
 			continue
 		}
-		intents = append(intents, t.viewIntent(view, e, run))
+		intents = append(intents, t.viewIntent(view, e, run, force))
 	}
 	if len(intents) == 0 {
 		return 0, nil
@@ -599,7 +615,7 @@ func (t *Tenant) tickCustomViews(ctx context.Context, now int64) error {
 		if view.LastRunAt == 0 {
 			since = 0
 		}
-		queued, err := t.queueCustomViewBackfill(ctx, view, since, strconv.FormatInt(now/viewHourlyPeriod, 10))
+		queued, err := t.queueCustomViewBackfill(ctx, view, since, strconv.FormatInt(now/viewHourlyPeriod, 10), false)
 		if err != nil {
 			return err
 		}

@@ -246,8 +246,8 @@
 <h1>Views</h1>
 <rpc-form method="listviews"><button>List views</button></rpc-form>
 <rpc-form method="publishview"><label>View name <input name="param" required></label><button>Publish view</button></rpc-form>
-{{if .Owner}}<h3>Custom views</h3>
-<p>A custom view sends fenced code blocks to a transform you run and keeps what comes back as relay-signed artifacts shown in place of the code.</p>
+{{if .Owner}}<h3>Block transforms</h3>
+<p>Block transforms render fenced code as images. Choose the event kinds and languages to send to your rendering service.</p>
 {{if .CustomViews}}<table id="custom-views">
 <thead><tr><th>name</th><th>kinds</th><th>languages</th><th>trigger</th><th>audience</th><th>state</th><th>last run</th><th></th></tr></thead>
 <tbody>{{range .CustomViews}}{{$v := asMap .}}<tr id="view-{{str (index $v "name")}}">
@@ -258,14 +258,14 @@
 <td>{{str (index $v "audience")}}</td>
 <td data-state="{{viewState $v}}">{{viewState $v}}{{with str (index $v "lastStatus")}} | {{.}}{{end}}</td>
 <td>{{with index $v "lastRun"}}{{when .}}{{else}}never{{end}}</td>
-<td>{{if eq (viewState $v) "paused"}}<rpc-form method="resumecustomview" refresh><input type="hidden" name="param" value="{{str (index $v "name")}}"><button>Resume</button></rpc-form>{{else}}<rpc-form method="pausecustomview" refresh><input type="hidden" name="param" value="{{str (index $v "name")}}"><button>Pause</button></rpc-form><rpc-form method="runcustomview" refresh><input type="hidden" name="param" value="{{str (index $v "name")}}"><button>Run now</button></rpc-form>{{end}}<rpc-form method="removecustomview" refresh><input type="hidden" name="param" value="{{str (index $v "name")}}"><button>Remove</button></rpc-form></td>
+<td>{{if eq (viewState $v) "paused"}}<rpc-form method="resumecustomview" refresh><input type="hidden" name="param" value="{{str (index $v "name")}}"><button>Resume</button></rpc-form>{{else}}<rpc-form method="pausecustomview" refresh><input type="hidden" name="param" value="{{str (index $v "name")}}"><button>Pause</button></rpc-form><rpc-form method="runcustomview" refresh><input type="hidden" name="param" value="{{str (index $v "name")}}"><button>Run now</button></rpc-form><rpc-form method="runcustomview" refresh><input type="hidden" name="param" value='{"name":"{{str (index $v "name")}}","refresh":true}'><button>Rebuild</button></rpc-form>{{end}}<rpc-form method="removecustomview" refresh><input type="hidden" name="param" value="{{str (index $v "name")}}"><button>Remove</button></rpc-form></td>
 </tr>{{end}}</tbody>
 </table>{{else}}<p id="custom-views-empty">No custom views yet.</p>{{end}}
 <view-form method="addcustomview">
 <label>Name <input name="view-name" pattern="[a-z0-9-]{1,32}" placeholder="diagrams" required></label>
 <label>Kinds <input name="view-kinds" placeholder="1, 30023, 30618" required></label>
 <label>Languages <input name="view-languages" placeholder="mermaid, dot" required></label>
-<label>Transform URL <input name="view-transform" type="url" placeholder="https://render.example/tiny" required></label>
+<label>Transform URL <input name="view-transform" type="url" placeholder="https://render.example/transform/blocks" required></label>
 <label>Trigger <select name="view-trigger"><option value="write">write</option><option value="hourly">hourly</option></select></label>
 <label>Audience <select name="view-audience"><option value="public">public</option><option value="members">members</option></select></label>
 <label>Max artifact bytes <input name="view-max-bytes" type="number" min="1" max="4194304" placeholder="1048576"></label>

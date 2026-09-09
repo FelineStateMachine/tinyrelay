@@ -367,6 +367,11 @@ func TestCustomViewTransformSendsBlocksAndKeepsSignedArtifacts(t *testing.T) {
 	if headers.Get("Content-Type") != "application/json" || headers.Get("X-Tiny-View") != "diagrams" || headers.Get("X-Tiny-Relay") != "http://127.0.0.1:8080" || headers.Get("X-Tiny-Signature") != "sha256="+hex.EncodeToString(mac.Sum(nil)) {
 		t.Fatalf("headers = %v", headers)
 	}
+	for _, field := range []string{"View", "Relay", "Signature"} {
+		if headers.Get("X-Transform-"+field) != headers.Get("X-Tiny-"+field) {
+			t.Fatalf("canonical transform header %s differs from its legacy value", field)
+		}
+	}
 	var request map[string]any
 	if err := json.Unmarshal(body, &request); err != nil {
 		t.Fatal(err)
@@ -414,14 +419,21 @@ func TestCustomViewTransformSendsBlocksAndKeepsSignedArtifacts(t *testing.T) {
 
 	// The route serves each artifact under a sandbox, by its own type.
 	res := getArtifact(t, tenant, "/views/diagrams/"+svgHash+".svg", "")
-	if res.Code != http.StatusOK || res.Body.String() != testSVG || res.Header().Get("Content-Type") != "image/svg+xml" || res.Header().Get("Content-Security-Policy") != "sandbox; default-src 'none'; style-src 'unsafe-inline'" || res.Header().Get("X-Content-Type-Options") != "nosniff" || res.Header().Get("Cache-Control") != "public, max-age=31536000, immutable" {
+	if res.Code != http.StatusOK || res.Body.String() != testSVG || res.Header().Get("Content-Type") != "image/svg+xml" || res.Header().Get("Content-Security-Policy") != "sandbox; default-src 'none'; style-src 'unsafe-inline'" || res.Header().Get("X-Content-Type-Options") != "nosniff" || res.Header().Get("Cache-Control") != "public, no-cache" || res.Header().Get("ETag") == "" {
 		t.Fatalf("svg route: %d %v %s", res.Code, res.Header(), res.Body.String())
+	}
+	conditional := httptest.NewRequest(http.MethodGet, "http://127.0.0.1:8080/views/diagrams/"+svgHash+".svg", nil)
+	conditional.Header.Set("If-None-Match", res.Header().Get("ETag"))
+	conditionalResponse := httptest.NewRecorder()
+	tenant.ServeHTTP(conditionalResponse, conditional)
+	if conditionalResponse.Code != http.StatusNotModified {
+		t.Fatalf("conditional artifact: %d %v", conditionalResponse.Code, conditionalResponse.Header())
 	}
 	res = getArtifact(t, tenant, "/views/diagrams/"+pngHash+".png", "")
 	if res.Code != http.StatusOK || res.Body.String() != testPNGRaw || res.Header().Get("Content-Type") != "image/png" {
 		t.Fatalf("png route: %d %v", res.Code, res.Header())
 	}
-	for _, path := range []string{"/views/diagrams/" + pngHash + ".svg", "/views/diagrams/" + strings.Repeat("0", 64) + ".svg", "/views/other/" + svgHash + ".svg", "/views/diagrams/" + svgHash + ".gif", "/views/diagrams/" + svgHash, "/views/diagrams"} {
+	for _, path := range []string{"/views/diagrams/" + pngHash + ".svg", "/views/diagrams/" + strings.Repeat("0", 64) + ".svg", "/views/other/" + svgHash + ".svg", "/views/diagrams/" + svgHash + ".gif", "/views/diagrams/" + svgHash + ".", "/views/diagrams"} {
 		if res := getArtifact(t, tenant, path, ""); res.Code != http.StatusNotFound {
 			t.Fatalf("%s: %d", path, res.Code)
 		}
@@ -559,6 +571,60 @@ func TestCustomViewReplacementReusesAndDropsBlocks(t *testing.T) {
 	}
 	if _, ok := storedArtifact(t, tenant, "diagrams", hashA); ok {
 		t.Fatal("A survived the address deletion")
+	}
+}
+
+func queueViewRebuild(t *testing.T, tenant *Tenant, source string) work.Intent {
+	t.Helper()
+	params := viewParams(map[string]any{"name": "diagrams", "refresh": true})
+	if _, err := tenant.Execute(context.Background(), tenant.Policy().Owner, "runcustomview", params); err != nil {
+		t.Fatal(err)
+	}
+	for _, intent := range pendingViewIntents(t, tenant, "diagrams", source) {
+		var payload viewPayload
+		if err := json.Unmarshal([]byte(intent.Payload), &payload); err != nil {
+			t.Fatal(err)
+		}
+		if payload.Attempt == 1 {
+			if !payload.Refresh {
+				t.Fatal("queued rebuild lost refresh flag")
+			}
+			return intent
+		}
+	}
+	t.Fatal("no rebuild was queued")
+	return work.Intent{}
+}
+
+func TestCustomViewRebuildReplacesOnlyAfterSuccess(t *testing.T) {
+	tenant, server, _ := viewTenant(t, []int{1}, nil)
+	note := signedEvent(t, testOwnerSecret, 1, time.Now().Unix(), nil, "```mermaid\nA\n```")
+	if err := publishAs(t, tenant, note); err != nil {
+		t.Fatal(err)
+	}
+	server.answer(http.StatusOK, svgArtifact(0))
+	runPendingView(t, tenant, "diagrams", note.ID)
+	path := views.Path("diagrams", views.Hash("mermaid", "A"), "")
+	before := getArtifact(t, tenant, path, "")
+	if before.Code != http.StatusOK {
+		t.Fatalf("initial artifact: %d", before.Code)
+	}
+	server.answer(http.StatusInternalServerError)
+	runViewIntent(t, tenant, queueViewRebuild(t, tenant, note.ID))
+	afterFailure := getArtifact(t, tenant, path, "")
+	if afterFailure.Body.String() != before.Body.String() || afterFailure.Header().Get("ETag") != before.Header().Get("ETag") {
+		t.Fatal("failed rebuild changed the stored artifact")
+	}
+	replacement := svgArtifact(0)
+	replacement["body"] = strings.Replace(testSVG, "<rect", `<rect fill="#334155"`, 1)
+	server.answer(http.StatusOK, replacement)
+	runViewIntent(t, tenant, queueViewRebuild(t, tenant, note.ID))
+	after := getArtifact(t, tenant, path, "")
+	if after.Body.String() != replacement["body"] || after.Header().Get("ETag") == before.Header().Get("ETag") {
+		t.Fatal("successful rebuild did not replace and revalidate the artifact")
+	}
+	if server.count() != 3 {
+		t.Fatalf("transform requests = %d", server.count())
 	}
 }
 
@@ -729,7 +795,7 @@ func TestCustomViewMembersAudienceStaysOffTheStore(t *testing.T) {
 	}
 	for _, secret := range []string{testMemberSecret, testOwnerSecret} {
 		res := getArtifact(t, tenant, path, secret)
-		if res.Code != http.StatusOK || res.Body.String() != testSVG || res.Header().Get("Cache-Control") != "private, max-age=31536000, immutable" {
+		if res.Code != http.StatusOK || res.Body.String() != testSVG || res.Header().Get("Cache-Control") != "private, no-cache" || res.Header().Get("ETag") == "" {
 			t.Fatalf("member: %d %v", res.Code, res.Header())
 		}
 	}

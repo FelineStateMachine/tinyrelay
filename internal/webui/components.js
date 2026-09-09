@@ -20,6 +20,9 @@
 //     Renders JSON as tables, lists and definition lists, keeping the raw
 //     text in a <details>. Server pages seed it with a <pre>; scripts set .value.
 //     Tables sit inside a <scroll-box> so wide rows scroll sideways.
+//   <view-artifact>
+//     Shows a custom view image and keeps its fenced source in a native
+//     disclosure when the image cannot be loaded.
 //   <nostr-key hex="…">
 //     Shortened key with the full hex as title; click copies it.
 //   <file-mirror action="/mirror">
@@ -178,6 +181,16 @@
         this.append(this.result);
       }
       this.result.value = result;
+    }
+  }
+
+  class ViewArtifact extends HTMLElement {
+    connectedCallback() {
+      const image = this.querySelector("img"), source = this.querySelector("details");
+      if (!image || !source) return;
+      const failed = () => { image.hidden = true; source.open = true; };
+      image.addEventListener("error", failed, {once: true});
+      if (image.complete && image.naturalWidth === 0) failed();
     }
   }
 
@@ -1715,6 +1728,7 @@
   ensureModules();
 
   customElements.define("rpc-form", RpcForm);
+  customElements.define("view-artifact", ViewArtifact);
   customElements.define("view-form", ViewForm);
   customElements.define("connect-card", ConnectCard);
   customElements.define("connect-list", ConnectList);

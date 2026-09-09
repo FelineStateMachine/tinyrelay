@@ -92,19 +92,27 @@ var HashPattern = regexp.MustCompile(`^[0-9a-f]{64}$`)
 
 // Path is the address an artifact is served at.
 func Path(view, hash, extension string) string {
-	return "/views/" + view + "/" + hash + "." + extension
+	path := "/views/" + view + "/" + hash
+	if extension != "" {
+		path += "." + extension
+	}
+	return path
 }
 
-// Figure is the markup for a block a custom view renders: the artifact as
-// an object with the escaped code block inside it, so a missing or failed
-// artifact shows the code without any script.
+// Figure is the markup for a block a custom view renders. The image remains
+// transparent and follows the page color scheme, while the native details
+// disclosure keeps the source available without requiring script.
 func Figure(view, lang, source string) string {
 	var b strings.Builder
-	b.WriteString(`<figure data-view="` + html.EscapeString(view) + `"><object data="` + Path(view, Hash(lang, source), "svg") + `" type="image/svg+xml"><pre><code`)
+	alt := "Rendered view"
+	if lang != "" {
+		alt = "Rendered " + lang + " block"
+	}
+	b.WriteString(`<figure data-view="` + html.EscapeString(view) + `"><view-artifact><img src="` + Path(view, Hash(lang, source), "") + `" alt="` + html.EscapeString(alt) + `"><details><summary>Source</summary><pre><code`)
 	if lang != "" {
 		b.WriteString(` data-lang="` + html.EscapeString(lang) + `"`)
 	}
-	b.WriteString(">" + html.EscapeString(source) + "</code></pre></object></figure>\n")
+	b.WriteString(">" + html.EscapeString(source) + "</code></pre></details></view-artifact></figure>\n")
 	return b.String()
 }
 

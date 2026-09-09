@@ -64,7 +64,7 @@ func TestHashCoversLanguageAndSource(t *testing.T) {
 func TestFigureEmbedsTheArtifactWithTheCodeAsFallback(t *testing.T) {
 	got := Figure("diagrams", "mermaid", "graph TD;\n  A-->B & <C>;")
 	hash := Hash("mermaid", "graph TD;\n  A-->B & <C>;")
-	want := `<figure data-view="diagrams"><object data="/views/diagrams/` + hash + `.svg" type="image/svg+xml"><pre><code data-lang="mermaid">graph TD;` + "\n" + `  A--&gt;B &amp; &lt;C&gt;;</code></pre></object></figure>` + "\n"
+	want := `<figure data-view="diagrams"><view-artifact><img src="/views/diagrams/` + hash + `" alt="Rendered mermaid block"><details><summary>Source</summary><pre><code data-lang="mermaid">graph TD;` + "\n" + `  A--&gt;B &amp; &lt;C&gt;;</code></pre></details></view-artifact></figure>` + "\n"
 	if got != want {
 		t.Fatalf("figure =\n%s\nwant\n%s", got, want)
 	}

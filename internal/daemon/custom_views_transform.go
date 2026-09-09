@@ -40,6 +40,7 @@ type viewPayload struct {
 	Event   event.Event `json:"event"`
 	Attempt int         `json:"attempt"`
 	Run     string      `json:"run,omitempty"`
+	Refresh bool        `json:"refresh,omitempty"`
 }
 
 // viewRequest is the body posted to a transform: only the blocks, with the
@@ -227,12 +228,18 @@ func (t *Tenant) handleViewTransform(ctx context.Context, intent work.Intent) (e
 	blocks = views.Matching(blocks, view.Languages)
 	source := viewSourceKey(payload.Event)
 	expires := event.Expiration(payload.Event)
-	// Attach the blocks that already have an artifact and keep the rest.
+	// A rebuild deliberately bypasses existing artifacts. The replacement is
+	// written only after the transform succeeds, so a failed rebuild preserves
+	// the previous artifact.
 	var pending []views.Block
 	hashes := make([]string, 0, len(blocks))
 	for _, block := range blocks {
 		hash := views.Hash(block.Lang, block.Source)
 		hashes = append(hashes, hash)
+		if payload.Refresh {
+			pending = append(pending, block)
+			continue
+		}
 		exists, err := t.attachArtifact(ctx, view, hash, source, block.Index, expires)
 		if err != nil {
 			return err
@@ -350,7 +357,11 @@ func (t *Tenant) postViewTransform(ctx context.Context, view customView, e event
 	request.Header.Set("Accept", "application/json")
 	request.Header.Set("X-Tiny-View", view.Name)
 	request.Header.Set("X-Tiny-Relay", t.publicURL)
-	request.Header.Set("X-Tiny-Signature", callbackSignature(view.secret, body))
+	signature := callbackSignature(view.secret, body)
+	request.Header.Set("X-Tiny-Signature", signature)
+	request.Header.Set("X-Transform-View", view.Name)
+	request.Header.Set("X-Transform-Relay", t.publicURL)
+	request.Header.Set("X-Transform-Signature", signature)
 	request.Header.Set("User-Agent", "tinyrelay")
 	response, err := t.viewHTTPClient().Do(request)
 	if err != nil {

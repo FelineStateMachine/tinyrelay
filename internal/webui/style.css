@@ -4,6 +4,7 @@
 html[data-theme=dark]{--paper:#171614;--ink:#d9d6cf;--muted:#8d887c;--rail:#1e1d1a;--line:#2c2a26;--accent:#8fc27a;--soft:#22301f;--hover:#242320;--add:#223521;--del:#3a2a24;--alert:#e08a7a;--g0:#26251f;--g1:#2a3d24;--g2:#3b5a2f;--g3:#4f7d3d;--g4:#8fc27a;--bark:#d3a15c;--w1:#d3a15c;--w2:#9cc48a;--w3:#6ea55a;--w4:#d98a5c}
 @media(prefers-color-scheme:dark){html:not([data-theme=light]){--paper:#171614;--ink:#d9d6cf;--muted:#8d887c;--rail:#1e1d1a;--line:#2c2a26;--accent:#8fc27a;--soft:#22301f;--hover:#242320;--add:#223521;--del:#3a2a24;--alert:#e08a7a;--g0:#26251f;--g1:#2a3d24;--g2:#3b5a2f;--g3:#4f7d3d;--g4:#8fc27a;--bark:#d3a15c;--w1:#d3a15c;--w2:#9cc48a;--w3:#6ea55a;--w4:#d98a5c}}
 
+html{color-scheme:light}html[data-theme=dark]{color-scheme:dark}@media(prefers-color-scheme:dark){html:not([data-theme=light]){color-scheme:dark}}
 html,body{margin:0;padding:0;height:100%;overflow:hidden;overscroll-behavior:none}
 body{font:14px/1.45 var(--sans);color:var(--ink);background:var(--paper)}
 a{color:var(--accent);text-decoration:none}a:hover{text-decoration:underline}
@@ -161,8 +162,8 @@ view-form{display:block;border-bottom:1px solid var(--line);padding:10px 0;max-w
 view-form label{display:inline-block;margin:0 10px 6px 0;vertical-align:top;font:13px var(--sans);color:var(--muted)}
 view-form label input,view-form label select{display:block;margin-top:2px;font:13px var(--mono);min-width:200px}
 view-form [role=alert]{color:var(--alert);font:13px var(--sans);margin:8px 0 4px}view-form label[data-secret] input{min-width:320px}
-/* figure[data-view]: an artifact a custom view rendered; the code inside the object shows when the artifact is missing. */
-figure[data-view]{margin:12px 0}figure[data-view] object{display:block;max-width:100%}figure[data-view] pre{margin:0}
+/* figure[data-view]: a transparent artifact with a native source disclosure. */
+figure[data-view]{margin:12px 0}view-artifact{display:block}view-artifact img{display:block;max-width:100%;height:auto;background:transparent}view-artifact img[hidden]{display:none}view-artifact details{margin-top:6px}view-artifact details>summary{cursor:pointer;color:var(--muted);font:12px var(--mono)}view-artifact pre{margin:6px 0 0}
 /* agent-callback: one registered callback on an agent card, with its controls. */
 agent-callback{display:block;margin:0 0 4px}agent-callback code{color:inherit}
 agent-callback rpc-form{display:inline-block;border:0;padding:0;margin:0 0 0 6px;vertical-align:middle}agent-callback rpc-form output:empty{display:none}agent-callback button{font-size:12px;padding:1px 6px}

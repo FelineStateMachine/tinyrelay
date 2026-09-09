@@ -1,10 +1,12 @@
 package daemon
 
-// GET /views/<name>/<hash>.<svg|png> serves a custom view artifact under a
+// GET /views/<name>/<hash>[.<svg|png>] serves a custom view artifact under a
 // sandbox policy. A members-only view answers only members; a public one
 // follows the relay's read rule.
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"net/http"
 	"strconv"
 	"strings"
@@ -33,8 +35,8 @@ func (t *Tenant) viewArtifactHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	name := parts[0]
-	hash, extension, _ := strings.Cut(parts[1], ".")
-	if !views.NamePattern.MatchString(name) || !views.HashPattern.MatchString(hash) || (extension != "svg" && extension != "png") {
+	hash, extension, hasExtension := strings.Cut(parts[1], ".")
+	if !views.NamePattern.MatchString(name) || !views.HashPattern.MatchString(hash) || (hasExtension && extension != "svg" && extension != "png") {
 		http.NotFound(w, r)
 		outcome = "invalid"
 		return
@@ -56,7 +58,7 @@ func (t *Tenant) viewArtifactHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	wantType := map[string]string{"svg": "image/svg+xml", "png": "image/png"}[extension]
-	if record.Type != wantType {
+	if extension != "" && record.Type != wantType {
 		http.NotFound(w, r)
 		outcome = "invalid"
 		return
@@ -91,12 +93,19 @@ func (t *Tenant) viewArtifactHTTP(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Length", strconv.Itoa(len(body)))
 	w.Header().Set("Content-Security-Policy", "sandbox; default-src 'none'; style-src 'unsafe-inline'")
 	w.Header().Set("X-Content-Type-Options", "nosniff")
+	etagBytes := sha256.Sum256(body)
+	etag := `"` + hex.EncodeToString(etagBytes[:]) + `"`
+	w.Header().Set("ETag", etag)
 	if record.Audience == "members" {
-		w.Header().Set("Cache-Control", "private, max-age=31536000, immutable")
+		w.Header().Set("Cache-Control", "private, no-cache")
 	} else {
-		w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+		w.Header().Set("Cache-Control", "public, no-cache")
 	}
 	outcome = "ok"
+	if r.Header.Get("If-None-Match") == etag {
+		w.WriteHeader(http.StatusNotModified)
+		return
+	}
 	if r.Method == http.MethodHead {
 		w.WriteHeader(http.StatusOK)
 		return
