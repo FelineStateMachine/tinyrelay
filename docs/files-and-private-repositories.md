@@ -2,23 +2,25 @@
 
 Use **Files** to search your uploads, import a public HTTPS URL or Blossom URI, inspect a file, and download it. Owners and moderators can browse the tenant's full inventory. Other users see the files they have uploaded or claimed.
 
+## Uploading
+
+The **Upload** panel on the Files page stores files or a folder. Choose the files, check **folder** to select a whole folder, and check **encrypt** to encrypt in the browser before sending. Plain uploads store each file as it is and refresh the listing. **Import from URL** stores a copy of a public HTTPS URL or Blossom URI.
+
 ## Encrypted files
 
-Choose **Encrypt and upload** to encrypt a file in the browser before sending it to the relay. The default uses a fresh AES-256-GCM key and nonce for each upload. The resulting share link keeps the key, nonce, original name and file type in its URL fragment. Keep that link: the relay cannot recover the key. Anyone who has the complete link and permission to download the blob can decrypt it.
-
-The optional **Deduplicated key** mode follows the [BUD-15 proposal](https://github.com/hzrd149/blossom/pull/104). It derives the encryption key from the file's content, allowing identical files to share storage. This also reveals when files are identical and permits guesses about predictable content. Use the default random key for sensitive or predictable files. Both modes verify the ciphertext hash before decrypting; the deduplicated mode also verifies the plaintext hash.
+An encrypted single file gets a fresh AES-256-GCM key and nonce. The resulting share link keeps the key, nonce, original name and file type in its URL fragment. Keep that link: the relay cannot recover the key. Anyone who has the complete link and permission to download the blob can decrypt it.
 
 Encrypted files remain subject to the tenant's download policy. Sending an encrypted link does not grant membership in a private tenant. Removing a file or revoking membership cannot recall copies someone has already downloaded.
 
-Random-key files can be shared through [NIP-17 file messages](https://github.com/nostr-protocol/nips/blob/master/17.md). Connect a signer with NIP-44 support and enter the recipient's public key. Both parties need signed kind 10050 inbox relay lists available to this relay. The browser sends encrypted gift wraps to those inbox relays, including a copy for the sender. It refuses delivery when the required lists are missing.
+Open a stored file to copy its Blossom URI or share link. Random-key files can also be sent through [NIP-17 file messages](https://github.com/nostr-protocol/nips/blob/master/17.md). Connect a signer with NIP-44 support and enter the recipient's public key. Both parties need signed kind 10050 inbox relay lists available to this relay. The browser sends encrypted gift wraps to those inbox relays, including a copy for the sender. It refuses delivery when the required lists are missing.
 
 ## Folders and large files
 
-Under **Files > Folders and large files**, choose a folder or a file to split into chunks. Files, chunks and all parent manifests use deduplicated keys. Names, child keys and file metadata appear only inside encrypted manifests. Keep the complete share link to browse the folder or download individual files.
+An encrypted folder, or an encrypted file larger than 64 MiB, is stored as encrypted manifests. Files, chunks and all parent manifests use deduplicated keys that follow the [BUD-15 proposal](https://github.com/hzrd149/blossom/pull/104): the key derives from the content, so identical files share storage. This also reveals when files are identical and permits guesses about predictable content. Names, child keys and file metadata appear only inside encrypted manifests. Keep the complete share link to browse the folder or download individual files.
 
 Folders use [draft BUD-16](https://github.com/hzrd149/blossom/pull/105). Large files use [draft BUD-17](https://github.com/hzrd149/blossom/pull/106), with 2 MiB plaintext chunks and up to 174 links per manifest. Larger directories use nested manifests that appear as one directory in the browser. Every retrieved object is checked against its hash before decryption, and file downloads verify their declared sizes.
 
-The browser workspace accepts up to 256 MiB per file, 1 GiB per folder, 10,000 files and 32 path levels. Browser folder selection includes files and their paths; empty folders are omitted. These browser limits apply in addition to the tenant's storage allowances.
+The browser accepts up to 256 MiB per file, 1 GiB per folder, 10,000 files and 32 path levels. Browser folder selection includes files and their paths; empty folders are omitted. These browser limits apply in addition to the tenant's storage allowances.
 
 Cancel stops the current upload. Retry reuses the selected files while the page stays open. Completed chunks may remain in the Files inventory after an interrupted folder upload. Removing a root manifest does not remove its child blobs, which may be shared by other folders.
 
@@ -69,7 +71,7 @@ These formats may change before adoption.
 | --- | --- | --- |
 | [BUD-13](https://github.com/hzrd149/blossom/pull/100) | Server | Uploads to `/<sha256>` and imports from remote `url` sources |
 | [BUD-14](https://github.com/hzrd149/blossom/pull/102) | Server and browser | Resumable uploads with multipart `PATCH` |
-| [BUD-15](https://github.com/hzrd149/blossom/pull/104) | Browser | Optional deduplicated encryption |
+| [BUD-15](https://github.com/hzrd149/blossom/pull/104) | Browser | Deduplicated encryption for folders and large files |
 | [BUD-16](https://github.com/hzrd149/blossom/pull/105) | Browser | Encrypted folder manifests and browsing |
 | [BUD-17](https://github.com/hzrd149/blossom/pull/106) | Browser | Chunked files and nested directory manifests |
 | [BUD-18](https://github.com/hzrd149/blossom/pull/107) | Not yet | Addressing files within immutable or named trees |

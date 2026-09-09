@@ -45,7 +45,18 @@
     if (url.pathname.length > 1) url.pathname = url.pathname.replace(/\/+$/, "");
     return url.toString().replace(/\/$/, "");
   };
-  tiny.util = Object.freeze({...tiny.util, bytes, hex, sha256, fromHex, element, relayURL});
+  const b64url = value => {
+    let binary = "";
+    bytes(value).forEach(byte => {
+      binary += String.fromCharCode(byte);
+    });
+    return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+  };
+  const fromB64url = value => {
+    const text = value.replace(/-/g, "+").replace(/_/g, "/") + "===".slice((value.length + 3) % 4);
+    return Uint8Array.from(atob(text), char => char.charCodeAt(0));
+  };
+  tiny.util = Object.freeze({...tiny.util, bytes, hex, sha256, fromHex, element, relayURL, b64url, fromB64url});
   // signer returns the active signer: a resumed remote signer first, then a
   // NIP-07 extension.
   tiny.signer = () => globalThis.tinySigner || globalThis.nostr;

@@ -59,7 +59,7 @@ const load = (workspace = false) => {
   vm.runInThisContext(fs.readFileSync("internal/webui/tiny.js", "utf8"));
   if (workspace) { vm.runInThisContext(fs.readFileSync("internal/webui/blossom-manifests.js", "utf8")); vm.runInThisContext(fs.readFileSync("internal/webui/blossom-encryption.js", "utf8")); vm.runInThisContext(fs.readFileSync("internal/webui/blossom-upload.js", "utf8")); vm.runInThisContext(fs.readFileSync("internal/webui/file-workspace.js", "utf8")); } else { delete globalThis.tiny.blossom.upload; }
   vm.runInThisContext(fs.readFileSync("internal/webui/components.js", "utf8"));
-  return {document, window, FileTools: customElements.registry["file-tools"], FileMirror: customElements.registry["file-mirror"]};
+  return {document, window, FileTools: customElements.registry["file-tools"], FileMirror: customElements.registry["file-mirror"], FileUpload: customElements.registry["file-upload"]};
 };
 
 const workspaceServer = t => {
@@ -104,13 +104,30 @@ const workspaceServer = t => {
     return root;
   };
   const store = async files => {
-    const workspace = new customElements.registry["file-workspace"]();
-    workspace.connectedCallback();
-    const form = workspace.querySelector("[data-folder]");
-    form.elements.namedItem("folder").files = files;
-    return workspace.run(form);
+    const upload = new customElements.registry["file-upload"]();
+    upload.connectedCallback();
+    const form = upload.querySelector("form");
+    form.elements.namedItem("file").files = files;
+    form.elements.namedItem("folder").checked = true;
+    form.elements.namedItem("encrypt").checked = true;
+    return upload.run(form);
   };
   return {...loaded, blobs, requests, store, open, originalFetch};
+};
+// sealedUpload stores one file through the upload control with encrypt checked
+// and the plain signed PUT path, returning the share link and ciphertext.
+const sealedUpload = async (window, FileUpload, file) => {
+  let uploaded;
+  delete window.tiny.blossom.upload;
+  window.tiny.localPath = path => path;
+  window.tiny.sha256hex = async bytes => Buffer.from(await webcrypto.subtle.digest("SHA-256", bytes)).toString("hex");
+  window.tiny.signedFetch = async (_path, _method, body) => { uploaded = new Uint8Array(body); return {json: async () => ({sha256: await window.tiny.sha256hex(body)})}; };
+  const upload = new FileUpload(); window.document.append(upload); upload.connectedCallback();
+  const form = upload.querySelector("form");
+  form.elements.namedItem("file").files = [file];
+  form.elements.namedItem("encrypt").checked = true;
+  const link = await upload.run(form);
+  return {upload, link, uploaded: () => uploaded};
 };
 const folderFile = (contents, path) => {
   const file = new File([contents], path.split("/").at(-1), {type: "text/plain"});
@@ -154,16 +171,28 @@ test("folder upload rejects unexpected server hashes", async t => {
 });
 
 test("encrypted upload keeps ciphertext and link when clipboard fails", async () => {
-  const {document, window, FileTools} = load(); const requests = [];
-  window.tiny.sha256hex = async bytes => Buffer.from(await webcrypto.subtle.digest("SHA-256", bytes)).toString("hex");
-  window.tiny.signedFetch = async (path, method, body) => { const bytes = new Uint8Array(body); requests.push(bytes); return {json: async () => ({sha256: await window.tiny.sha256hex(bytes)})}; };
-  const tools = new FileTools(); document.append(tools); tools.connectedCallback();
-  const form = tools.querySelector("form:not([data-share])");
-  form.querySelector("input[type=file]").files = [new File(["secret plaintext"], "secret.txt", {type: "text/plain"})];
-  await tools.encryptUpload(form);
-  assert.equal(requests.length, 1); assert.notEqual(new TextDecoder().decode(requests[0]), "secret plaintext");
-  assert.match(tools.querySelector("[data-share-url]").value, /#key=.*&iv=/); assert.match(tools.output.textContent, /Copy the share link above/);
-  assert.equal(tools.shareLink(), tools.querySelector("[data-share-url]").value);
+  const {window, FileUpload} = load(true);
+  const {upload, link, uploaded} = await sealedUpload(window, FileUpload, new File(["secret plaintext"], "secret.txt", {type: "text/plain"}));
+  assert.notEqual(new TextDecoder().decode(uploaded()), "secret plaintext");
+  assert.match(link, /\/file\?hash=[0-9a-f]{64}#key=.*&iv=/);
+  assert.equal(upload.querySelector("[data-share-url]").value, link);
+  assert.equal(upload.querySelector("[data-share]").hidden, false);
+  assert.match(upload.out.textContent, /Copy the share link above/);
+});
+
+test("plain uploads store every chosen file and refresh the listing", async () => {
+  const {window, FileUpload} = load(true);
+  const sent = [];
+  let refreshed = 0;
+  window.tiny.signedFetch = async (path, method, body, options) => { sent.push({path, method, size: body.byteLength, type: options.contentType}); return {}; };
+  window.tiny.navigate = async () => { refreshed++; };
+  const upload = new FileUpload(); window.document.append(upload); upload.connectedCallback();
+  const form = upload.querySelector("form");
+  form.elements.namedItem("file").files = [new File(["one"], "a.txt", {type: "text/plain"}), new File(["two"], "b.bin")];
+  assert.equal(await upload.run(form), undefined);
+  assert.deepEqual(sent, [{path: "/upload", method: "PUT", size: 3, type: "text/plain"}, {path: "/upload", method: "PUT", size: 3, type: "application/octet-stream"}]);
+  assert.equal(refreshed, 1);
+  assert.equal(upload.out.textContent, "Stored 2 files.");
 });
 
 test("BUD15 key is rejected before mirror request", async () => {
@@ -175,15 +204,14 @@ test("BUD15 key is rejected before mirror request", async () => {
 });
 
 test("sharing a newly uploaded file uses its current key, hash and ciphertext size", async () => {
-  const {document, window, FileTools} = load();
-  window.tiny.sha256hex = async bytes => Buffer.from(await webcrypto.subtle.digest("SHA-256", bytes)).toString("hex");
-  window.tiny.localPath = path => path;
-  let uploaded;
-  window.tiny.signedFetch = async (_path, _method, body) => { uploaded = new Uint8Array(body); return {json: async () => ({sha256: await window.tiny.sha256hex(body)})}; };
-  const element = new FileTools(); document.append(element); element.connectedCallback();
-  const form = element.querySelector("form:not([data-share])");
-  form.querySelector("input[type=file]").files = [new File(["new secret"], "private.txt", {type: "text/plain"})];
-  await element.encryptUpload(form);
+  const {document, window, FileTools, FileUpload} = load(true);
+  const {link, uploaded} = await sealedUpload(window, FileUpload, new File(["new secret"], "private.txt", {type: "text/plain"}));
+  window.location.hash = new URL(link).hash;
+  const element = new FileTools();
+  element.setAttribute("hash", await window.tiny.sha256hex(uploaded()));
+  element.setAttribute("type", "text/plain");
+  element.setAttribute("size", String(uploaded().length));
+  document.append(element); element.connectedCallback();
   const shareForm = element.querySelector("[data-share]");
   shareForm.querySelector("input").value = "b".repeat(64);
   globalThis.nostr = {signEvent: async value => value};
@@ -191,13 +219,13 @@ test("sharing a newly uploaded file uses its current key, hash and ciphertext si
   globalThis.tiny.files.messages = {share: async (value, options) => { input = value; assert.equal(options.signer, globalThis.nostr); return {}; }};
   await element.share(shareForm);
   assert.ok(input, element.output.textContent);
-  assert.equal(input.ciphertextHash, await window.tiny.sha256hex(uploaded));
-  assert.equal(input.size, uploaded.length);
+  assert.equal(input.ciphertextHash, await window.tiny.sha256hex(uploaded()));
+  assert.equal(input.size, uploaded().length);
   assert.equal(input.plaintextHash, await window.tiny.sha256hex(new TextEncoder().encode("new secret")));
   assert.match(input.key, /^[0-9a-f]{64}$/);
   assert.match(input.nonce, /^[0-9a-f]{24}$/);
   const key = await webcrypto.subtle.importKey("raw", Buffer.from(input.key, "hex"), "AES-GCM", false, ["decrypt"]);
-  const plain = await webcrypto.subtle.decrypt({name: "AES-GCM", iv: Buffer.from(input.nonce, "hex")}, key, uploaded);
+  const plain = await webcrypto.subtle.decrypt({name: "AES-GCM", iv: Buffer.from(input.nonce, "hex")}, key, uploaded());
   assert.equal(new TextDecoder().decode(plain), "new secret");
   assert.equal(new URL(input.fileURL).hash, "");
 });
@@ -213,32 +241,30 @@ test("HTTP mirror input never submits its secret fragment", async () => {
 });
 
 test("local downloads verify integrity, decrypt and release their temporary URL", async () => {
-  const {document, window, FileTools} = load();
-  window.tiny.sha256hex = async bytes => Buffer.from(await webcrypto.subtle.digest("SHA-256", bytes)).toString("hex");
-  window.tiny.localPath = path => path;
-  let uploaded;
-  window.tiny.signedFetch = async (_path, _method, body) => { uploaded = new Uint8Array(body); return {json: async () => ({sha256: await window.tiny.sha256hex(body)})}; };
-  const element = new FileTools(); document.append(element); element.connectedCallback();
-  const form = element.querySelector("form:not([data-share])");
-  form.querySelector("input[type=file]").files = [new File(["round trip"], "round.txt", {type: "text/plain"})];
-  await element.encryptUpload(form);
+  const {document, window, FileTools, FileUpload} = load(true);
+  const {link, uploaded} = await sealedUpload(window, FileUpload, new File(["round trip"], "round.txt", {type: "text/plain"}));
+  window.location.hash = new URL(link).hash;
+  const element = new FileTools();
+  element.setAttribute("hash", await window.tiny.sha256hex(uploaded()));
+  document.append(element);
   const originalFetch = globalThis.fetch;
   try {
-    globalThis.fetch = async () => new Response(uploaded);
+    globalThis.fetch = async () => new Response(uploaded());
+    element.connectedCallback();
     await element.decryptFromFragment();
     assert.equal(element.output.textContent, "Decrypted locally.");
     assert.equal(await (await originalFetch(element.downloadURL)).text(), "round trip");
     const temporaryURL = element.downloadURL;
     element.disconnectedCallback();
     await assert.rejects(originalFetch(temporaryURL));
-    uploaded[0] ^= 1;
+    uploaded()[0] ^= 1;
     await element.decryptFromFragment();
     assert.match(element.output.textContent, /ciphertext hash mismatch/);
   } finally { globalThis.fetch = originalFetch; }
 });
 
 test("retry keeps the original ciphertext and key after interrupted encrypted upload", async () => {
-  const {document, window, FileTools} = load();
+  const {document, window, FileUpload} = load(true);
   window.tiny.localPath = path => path;
   window.tiny.sha256hex = async bytes => Buffer.from(await webcrypto.subtle.digest("SHA-256", bytes)).toString("hex");
   const sent = [];
@@ -248,14 +274,15 @@ test("retry keeps the original ciphertext and key after interrupted encrypted up
     if (sent.length === 1) throw Error("connection interrupted");
     return {descriptor: {sha256: await window.tiny.sha256hex(bytes), size: bytes.length}};
   }};
-  const fileTools = new FileTools(); document.append(fileTools); fileTools.connectedCallback();
-  const form = fileTools.querySelector("form:not([data-share])");
+  const upload = new FileUpload(); document.append(upload); upload.connectedCallback();
+  const form = upload.querySelector("form");
   form.elements.namedItem("file").files = [new File(["keep the same key"], "private.txt")];
-  await fileTools.encryptUpload(form);
-  const originalFragment = fileTools.pendingUpload.fragment;
-  assert.equal(fileTools.querySelector("[data-upload-retry]").disabled, false);
-  await fileTools.retryUpload();
+  form.elements.namedItem("encrypt").checked = true;
+  await assert.rejects(upload.run(form), /connection interrupted/);
+  const originalFragment = upload.pending.fragment;
+  assert.equal(upload.querySelector("[data-retry]").disabled, false);
+  const link = await upload.run();
   assert.deepEqual(sent[1], sent[0]);
-  assert.equal(fileTools.fileFragment, originalFragment);
-  assert.equal(fileTools.pendingUpload, null);
+  assert.equal(new URL(link).hash.slice(1), originalFragment);
+  assert.equal(upload.pending, null);
 });

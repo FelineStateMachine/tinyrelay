@@ -140,22 +140,31 @@
     return url.href;
   };
 
-  class Workspace extends HTMLElement {
+  // FileUpload is the one upload control. Plain uploads store each chosen
+  // file as it is. Encrypt keeps the contents and key in the browser: a single
+  // file gets a fresh random key, a folder or a large file becomes encrypted
+  // manifests, and the share link carries the key only in its fragment.
+  const LARGE_FILE_BYTES = 64 * 1024 * 1024;
+  const {b64url} = globalThis.tiny.util;
+  class FileUpload extends HTMLElement {
     connectedCallback() {
       if (this.bound) return;
       this.bound = true;
       this.innerHTML =
-        '<h3>Folders and large files</h3><p>Encrypt folders and split large files into portable chunks. Deduplicated encryption reveals matching content and permits guesses about predictable files.</p><form data-folder><label>Folder <input type="file" name="folder" webkitdirectory directory multiple required></label><button>Encrypt and store folder</button></form><form data-chunked><label>File to split into chunks <input type="file" name="file" required></label><button>Encrypt and store file</button></form><p><button type="button" data-cancel disabled>Cancel upload</button> <button type="button" data-retry disabled>Retry upload</button></p><label>Share link <input data-tree-share readonly></label><p><a data-open hidden>Browse stored content</a></p><output role="status"></output>';
+        '<form><label>File or folder <input type="file" name="file" multiple required></label><label><input type="checkbox" name="folder"> folder</label><label><input type="checkbox" name="encrypt"> encrypt</label><button>Upload</button></form><p data-controls hidden><button type="button" data-cancel disabled>Cancel</button> <button type="button" data-retry disabled>Retry</button></p><label data-share hidden>Share link <input data-share-url readonly></label><output role="status"></output>';
       this.out = this.querySelector("output");
-      for (const form of this.querySelectorAll("form"))
-        form.addEventListener("submit", event => {
-          event.preventDefault();
-          this.run(form).catch(error => this.say(error.message, true));
-        });
+      const form = this.querySelector("form");
+      const input = form.elements.namedItem("file");
+      form.elements.namedItem("folder").addEventListener("change", event => {
+        if (event.currentTarget.checked) input.setAttribute("webkitdirectory", "");
+        else input.removeAttribute("webkitdirectory");
+      });
+      form.addEventListener("submit", event => {
+        event.preventDefault();
+        this.run(form).catch(() => {});
+      });
       this.querySelector("[data-cancel]").addEventListener("click", () => this.controller?.abort());
-      this.querySelector("[data-retry]").addEventListener("click", () =>
-        this.run().catch(error => this.say(error.message, true))
-      );
+      this.querySelector("[data-retry]").addEventListener("click", () => this.run().catch(() => {}));
     }
     disconnectedCallback() {
       this.controller?.abort();
@@ -165,51 +174,151 @@
       if (error) this.out.dataset.error = "";
       else delete this.out.dataset.error;
     }
+    controls(busy, completed) {
+      const retryable = Boolean(this.selection) && !completed;
+      this.querySelector("[data-controls]").hidden = !busy && !retryable;
+      this.querySelector("[data-cancel]").disabled = !busy;
+      this.querySelector("[data-retry]").disabled = busy || !retryable;
+    }
     async run(form) {
       if (this.busy) return;
       if (form) {
-        const folder = form.elements.namedItem("folder");
-        const input = folder || form.elements.namedItem("file");
-        this.selection = {files: [...input.files], folder: Boolean(folder)};
+        const files = [...form.elements.namedItem("file").files];
+        this.selection = {
+          files,
+          folder: Boolean(form.elements.namedItem("folder").checked),
+          encrypt: Boolean(form.elements.namedItem("encrypt").checked)
+        };
+        this.pending = null;
       }
       if (!this.selection?.files.length) throw Error("Choose a file or folder first.");
       this.busy = true;
       this.controller = new AbortController();
-      this.querySelector("[data-cancel]").disabled = false;
-      this.querySelector("[data-retry]").disabled = true;
+      this.controls(true, false);
       let completed = false;
       try {
-        let reference, name, type;
-        let sent = 0;
-        const progress = size => {
-          sent += size;
-          this.say("Stored " + sent.toLocaleString() + " bytes. Encrypting the remaining content…");
-        };
-        this.say("Encrypting selected content…");
-        if (this.selection.folder) {
-          const selected = selectionTree(this.selection.files);
-          name = selected.name;
-          reference = await storeDirectory(selected.root, this.controller.signal, progress);
-        } else {
-          const file = this.selection.files[0];
-          name = file.name;
-          type = file.type;
-          reference = await storeFile(file, this.controller.signal, progress);
-        }
-        checkAbort(this.controller.signal);
-        const url = shareURL(reference, name, type);
-        this.querySelector("[data-tree-share]").value = url;
-        const open = this.querySelector("[data-open]");
-        open.href = url;
-        open.hidden = false;
-        this.say("Stored. Keep the complete share link to decrypt and browse this content.");
+        const {files, folder, encrypt} = this.selection;
+        let link;
+        if (!encrypt) await this.storePlain(files);
+        else if (folder || files.length > 1) link = await this.storeManifest(files, true);
+        else if (files[0].size > LARGE_FILE_BYTES) link = await this.storeManifest(files, false);
+        else link = await this.storeSealed(files[0]);
         completed = true;
-        return url;
+        if (link) {
+          await this.showLink(link);
+        } else {
+          this.say("Stored " + files.length + (files.length === 1 ? " file." : " files."));
+          await tiny.navigate?.(location.href);
+        }
+        return link;
+      } catch (error) {
+        const canceled = this.controller.signal.aborted;
+        this.say(
+          (canceled ? "Upload canceled." : "Upload stopped: " + error.message) + " Retry while this page stays open.",
+          true
+        );
+        throw error;
       } finally {
         this.busy = false;
-        this.querySelector("[data-cancel]").disabled = true;
-        this.querySelector("[data-retry]").disabled = completed;
+        this.controls(false, completed);
         if (completed) this.selection = null;
+      }
+    }
+    async storePlain(files) {
+      for (const [index, file] of files.entries()) {
+        checkAbort(this.controller.signal);
+        this.say("Uploading " + file.name + " (" + (index + 1) + " of " + files.length + ")…");
+        await tiny.signedFetch("/upload", "PUT", await file.arrayBuffer(), {
+          contentType: file.type || "application/octet-stream",
+          signal: this.controller.signal
+        });
+      }
+    }
+    // storeSealed encrypts one file with a fresh AES-GCM key. The ciphertext
+    // and key stay in memory so a retry resumes without re-encrypting.
+    async storeSealed(file) {
+      if (!this.pending) {
+        if (file.size > MAX_FILE_BYTES) throw Error("Encrypted browser uploads are limited to 256 MiB.");
+        this.say("Encrypting…");
+        const plaintext = new Uint8Array(await file.arrayBuffer());
+        const key = await crypto.subtle.generateKey({name: "AES-GCM", length: 256}, true, ["encrypt", "decrypt"]);
+        const iv = crypto.getRandomValues(new Uint8Array(12));
+        const ciphertext = new Uint8Array(await crypto.subtle.encrypt({name: "AES-GCM", iv}, key, plaintext));
+        const rawKey = new Uint8Array(await crypto.subtle.exportKey("raw", key));
+        const fragment =
+          "key=" +
+          b64url(rawKey) +
+          "&iv=" +
+          b64url(iv) +
+          "&name=" +
+          encodeURIComponent(file.name) +
+          "&type=" +
+          encodeURIComponent(file.type || "application/octet-stream") +
+          "&ox=" +
+          (await tiny.sha256hex(plaintext));
+        this.pending = {ciphertext, fragment, state: new Map()};
+      }
+      checkAbort(this.controller.signal);
+      const {ciphertext, fragment, state} = this.pending;
+      const hash = await tiny.sha256hex(ciphertext);
+      let descriptor;
+      if (upload()?.upload) {
+        const task = upload().upload(ciphertext, {
+          url: new URL(tiny.localPath("/"), location.href).href,
+          hash,
+          type: "application/octet-stream",
+          state,
+          signal: this.controller.signal,
+          authorize: (target, method, body) => tiny.authorization(target, method, body),
+          onProgress: progress => this.say("Uploading " + Math.round(progress.fraction * 100) + "%…")
+        });
+        descriptor = (await task).descriptor;
+      } else {
+        const response = await tiny.signedFetch("/upload", "PUT", ciphertext, {
+          contentType: "application/octet-stream",
+          signal: this.controller.signal
+        });
+        descriptor = await response.json();
+      }
+      if (descriptor.sha256 !== hash) throw Error("Relay returned an unexpected hash.");
+      this.pending = null;
+      const link = new URL(tiny.localPath("/file"), location.href);
+      link.search = "?hash=" + hash;
+      link.hash = fragment;
+      return link.href;
+    }
+    async storeManifest(files, folder) {
+      let sent = 0;
+      const progress = size => {
+        sent += size;
+        this.say("Stored " + sent.toLocaleString() + " bytes. Encrypting the remaining content…");
+      };
+      this.say("Encrypting selected content…");
+      let reference, name, type;
+      if (folder) {
+        const selected = selectionTree(files);
+        name = selected.name || "files";
+        reference = await storeDirectory(selected.root, this.controller.signal, progress);
+      } else {
+        const file = files[0];
+        name = file.name;
+        type = file.type;
+        reference = await storeFile(file, this.controller.signal, progress);
+      }
+      checkAbort(this.controller.signal);
+      return shareURL(reference, name, type);
+    }
+    async showLink(link) {
+      const share = this.querySelector("[data-share-url]");
+      share.value = link;
+      this.querySelector("[data-share]").hidden = false;
+      try {
+        if (!navigator.clipboard?.writeText) throw Error("Clipboard unavailable");
+        await navigator.clipboard.writeText(link);
+        this.say("Stored. Share link copied; the key is only in its fragment.");
+      } catch {
+        share.select?.();
+        this.say("Stored. Copy the share link above; the key is only in its fragment.");
       }
     }
   }
@@ -379,6 +488,6 @@
       link.click();
     }
   }
-  customElements.define("file-workspace", Workspace);
+  customElements.define("file-upload", FileUpload);
   customElements.define("file-workspace-root", Root);
 })();

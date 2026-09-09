@@ -20,13 +20,13 @@
 //     Shortened key with the full hex as title; click copies it.
 //   <file-mirror action="/mirror">
 //     Signed BUD-04 mirror of a URL or Blossom URI into this relay.
-//   <file-tools [hash="…"] [type="…"]>
-//     Copies Blossom links, encrypts and uploads a file, decrypts a share
-//     link fragment and sends a random-key file as a NIP-17 message.
+//   <file-tools hash="…" type="…" size="…">
+//     Shares one stored file: copies its Blossom URI or share link, decrypts
+//     a share link fragment and sends a random-key file as a NIP-17 message.
 //   <nostr-compose kind="…" coordinate="30617:…" [root="…" root-pubkey="…" root-kind="…"] [parent="…" …]>
 //     Signs a NIP-34 issue, pull request, NIP-22 reply or status event and
 //     posts it to the relay.
-//   <file-workspace> and <file-workspace-root> live in file-workspace.js;
+//   <file-upload> and <file-workspace-root> live in file-workspace.js;
 //   <private-services> lives in private-services.js.
 (() => {
   "use strict";
@@ -202,54 +202,45 @@
     }
   }
 
-  const b64url = bytes => {
-    let binary = "";
-    bytes.forEach(byte => { binary += String.fromCharCode(byte); });
-    return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
-  };
-  const fromB64url = value => {
-    const text = value.replace(/-/g, "+").replace(/_/g, "/") + "===".slice((value.length + 3) % 4);
-    return Uint8Array.from(atob(text), char => char.charCodeAt(0));
-  };
+  const {fromB64url} = tiny.util;
 
+  // FileTools shares one stored file: copy its Blossom URI or share link,
+  // send a random-key encrypted file as a NIP-17 message and decrypt a share
+  // link whose key travels in the URL fragment.
   class FileTools extends HTMLElement {
     disconnectedCallback() {
       if (this.downloadURL) URL.revokeObjectURL(this.downloadURL);
-      this.uploadTask?.cancel?.();
-      this.uploadController?.abort();
-      this.uploadCanceled = true;
     }
 
     connectedCallback() {
       if (this.bound) return;
       this.bound = true;
-      this.innerHTML = '<h3>File tools</h3><p><button type="button" data-copy>Copy Blossom URI</button> <button type="button" data-link>Copy share link</button></p><form><label>Encrypt a file <input type="file" name="file"></label><label>Encryption <select name="scheme"><option value="random">Random key</option><option value="chk">Deduplicated key</option></select></label><button>Encrypt and upload</button></form><p><button type="button" data-upload-cancel disabled>Cancel upload</button> <button type="button" data-upload-retry disabled>Retry upload</button></p><p><small>Random keys keep identical files distinct. Deduplication reveals matching files and allows guesses about predictable content.</small></p><form data-share><label>Send to <input name="recipient" inputmode="text" placeholder="npub or hex pubkey"></label><button>Send privately</button></form><label>Share link <input data-share-url readonly></label><output role="status"></output>';
+      this.innerHTML = '<h3>Share</h3><p><button type="button" data-copy>Copy Blossom URI</button> <button type="button" data-link>Copy share link</button></p><form data-share><label>Send to <input name="recipient" inputmode="text" placeholder="npub or hex pubkey"></label><button>Send privately</button></form><output role="status"></output>';
       this.output = this.querySelector("output");
       this.querySelector("[data-copy]").addEventListener("click", () => this.copy(this.blossomURI()));
       this.querySelector("[data-link]").addEventListener("click", () => this.copy(this.shareLink()));
-      this.querySelector("form:not([data-share])").addEventListener("submit", event => { event.preventDefault(); this.encryptUpload(event.currentTarget); });
-      this.querySelector("[data-upload-cancel]").addEventListener("click", () => { this.uploadCanceled = true; this.uploadTask?.cancel?.(); this.uploadController?.abort(); });
-      this.querySelector("[data-upload-retry]").addEventListener("click", () => this.retryUpload());
       this.querySelector("[data-share]").addEventListener("submit", event => { event.preventDefault(); this.share(event.currentTarget); });
+      // Private delivery needs the random key from the share link fragment.
+      const params = new URLSearchParams(location.hash.slice(1));
+      this.querySelector("[data-share]").hidden = !(params.get("key") && params.get("iv"));
       this.updateFileControls();
       this.decryptFromFragment();
     }
 
-    hash() { return this.fileHash || this.getAttribute("hash") || ""; }
+    hash() { return this.getAttribute("hash") || ""; }
     type() { return this.getAttribute("type") || "application/octet-stream"; }
     updateFileControls() {
       const available = Boolean(this.hash());
       this.querySelectorAll("[data-copy], [data-link], [data-share] button").forEach(button => { button.disabled = !available; });
     }
     blossomURI() {
-      const params = new URLSearchParams(this.fileFragment || location.hash.slice(1));
+      const params = new URLSearchParams(location.hash.slice(1));
       const extension = params.has("manifest") ? (["2", "3"].includes(params.get("node") || "2") ? "bdir" : params.get("node") === "1" ? "bfile" : "bin") : "bin";
       const uri = (params.get("enc") === "chk-v1" || params.has("manifest")) && params.get("key") ? tiny.blossom.encryption.createURI(this.hash(), extension, params.get("key")) : "blossom:" + this.hash();
       return tiny.root ? uri : uri + (uri.includes("?") ? "&" : "?") + "xs=" + encodeURIComponent(new URL(location.href).host);
     }
     shareLink() {
-      if (this.fileShareLink) return this.fileShareLink;
-      const fragment = this.fileFragment || location.hash.slice(1);
+      const fragment = location.hash.slice(1);
       const params = new URLSearchParams(fragment);
       if ((params.get("key") && params.get("iv")) || ((params.get("enc") === "chk-v1" || params.has("manifest")) && params.get("key"))) return location.href.split("#", 1)[0] + "#" + fragment;
       return location.href.split("#", 1)[0] + "#blossom=" + encodeURIComponent(this.hash());
@@ -260,100 +251,8 @@
     }
     say(value, error) { this.output.textContent = value; if (error) this.output.dataset.error = ""; else delete this.output.dataset.error; }
 
-    uploadBusy(value) {
-      this.busy = value;
-      this.querySelector("[data-upload-cancel]").disabled = !value;
-      this.querySelector("[data-upload-retry]").disabled = value || !this.pendingUpload;
-    }
-
-    async encryptUpload(form) {
-      if (this.busy) return;
-      const file = form.elements.namedItem("file").files[0];
-      if (!file) { this.say("Choose a file first.", true); return; }
-      this.uploadBusy(true);
-      this.uploadCanceled = false;
-      try {
-        if (file.size > 256 * 1024 * 1024) throw Error("Encrypted browser uploads are limited to 256 MiB.");
-        this.say("Encrypting and signing…");
-        const scheme = form.elements.namedItem("scheme").value;
-        const plaintext = new Uint8Array(await file.arrayBuffer());
-        const plaintextHash = await tiny.sha256hex(plaintext);
-        let ciphertext, fragment;
-        if (scheme === "chk") {
-          if (!tiny.blossom.encryption) throw Error("CHK encryption is unavailable. Reload this page.");
-          const encrypted = await tiny.blossom.encryption.encryptCHK(plaintext);
-          ciphertext = encrypted.ciphertext;
-          fragment = "enc=chk-v1&key=" + encrypted.key;
-        } else {
-          const key = await crypto.subtle.generateKey({name: "AES-GCM", length: 256}, true, ["encrypt", "decrypt"]);
-          const iv = crypto.getRandomValues(new Uint8Array(12));
-          ciphertext = new Uint8Array(await crypto.subtle.encrypt({name: "AES-GCM", iv}, key, plaintext));
-          const rawKey = new Uint8Array(await crypto.subtle.exportKey("raw", key));
-          fragment = "key=" + b64url(rawKey) + "&iv=" + b64url(iv);
-        }
-        fragment += "&name=" + encodeURIComponent(file.name) + "&type=" + encodeURIComponent(file.type || "application/octet-stream") + "&ox=" + plaintextHash;
-        this.pendingUpload = {ciphertext, fragment, file, state: new Map()};
-        if (this.uploadCanceled) throw Error("Upload canceled.");
-        await this.storePreparedUpload();
-      } catch (error) { this.say("Upload stopped: " + error.message + (this.pendingUpload ? " Retry while this page stays open." : ""), true); }
-      finally { this.uploadBusy(false); }
-    }
-
-    async retryUpload() {
-      if (this.busy || !this.pendingUpload) return;
-      this.uploadBusy(true);
-      this.uploadCanceled = false;
-      try { await this.storePreparedUpload(); }
-      catch (error) { this.say("Upload stopped: " + error.message + " Retry while this page stays open.", true); }
-      finally { this.uploadBusy(false); }
-    }
-
-    async storePreparedUpload() {
-      const {ciphertext, fragment, file, state} = this.pendingUpload;
-      const actualHash = await tiny.sha256hex(ciphertext);
-      this.uploadController = new AbortController();
-      let descriptor;
-      if (tiny.blossom.upload?.upload) {
-        const task = tiny.blossom.upload.upload(ciphertext, {
-          url: new URL(tiny.localPath("/"), location.href).href, hash: actualHash,
-          type: "application/octet-stream", state, signal: this.uploadController.signal,
-          authorize: (url, verb, body) => tiny.authorization(url, verb, body),
-          onProgress: progress => this.say("Uploading " + Math.round(progress.fraction * 100) + "%…")
-        });
-        this.uploadTask = task;
-        descriptor = (await task).descriptor;
-      } else {
-        const response = await tiny.signedFetch("/upload", "PUT", ciphertext, {contentType: "application/octet-stream", signal: this.uploadController.signal});
-        descriptor = await response.json();
-      }
-      if (descriptor.sha256 !== actualHash) throw Error("relay returned an unexpected hash");
-      this.fileHash = actualHash;
-      this.fileFragment = fragment;
-      this.setAttribute("hash", actualHash);
-      this.setAttribute("type", file.type || "application/octet-stream");
-      this.setAttribute("size", String(ciphertext.length));
-      this.updateFileControls();
-      const link = new URL(location.href);
-      link.pathname = location.pathname.replace(/\/files?$/, "/file");
-      link.search = "?hash=" + actualHash;
-      link.hash = fragment;
-      this.fileShareLink = link.href;
-      const share = this.querySelector("[data-share-url]");
-      if (share) share.value = link.href;
-      this.pendingUpload = null;
-      this.uploadTask = null;
-      try {
-        if (!navigator.clipboard?.writeText) throw Error("Clipboard unavailable");
-        await navigator.clipboard.writeText(link.href);
-        this.say("Encrypted file stored. Share link copied; the key is only in its fragment.");
-      } catch {
-        if (share) share.select?.();
-        this.say("Encrypted file stored. Copy the share link above; the key is only in its fragment.");
-      }
-    }
-
     async decryptFromFragment() {
-      const params = new URLSearchParams(this.fileFragment || location.hash.slice(1));
+      const params = new URLSearchParams(location.hash.slice(1));
       if ((!params.get("key") || !params.get("iv")) && !(params.get("enc") === "chk-v1" && params.get("key"))) return;
       try {
         this.say("Decrypting…");
@@ -377,7 +276,7 @@
       if (this.sharing) return;
       const recipient = form.elements.namedItem("recipient").value.trim();
       if (!recipient) { this.say("Enter a public key or npub.", true); return; }
-      const params = new URLSearchParams(this.fileFragment || location.hash.slice(1));
+      const params = new URLSearchParams(location.hash.slice(1));
       const signer = tiny.signer();
       if (!tiny.files.messages || !signer) { this.say("Connect a NIP-44 signer first. Use the encrypted link, which keeps its key in the URL fragment.", true); return; }
       if (!params.get("key") || !params.get("iv")) { this.say("NIP-17 sharing currently requires a random AES-GCM encrypted file.", true); return; }

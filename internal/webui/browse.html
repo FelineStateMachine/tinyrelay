@@ -15,7 +15,6 @@
 {{define "files"}}<section>
 <h1>Files</h1>
 <form method="get" action="/files" id="file-search"><label>Search <input name="q" value="{{.Query.Get "q"}}" placeholder="hash, type or uploader" autocomplete="off"></label> <button>Search</button>{{if .Query.Get "q"}} <a href="/files">clear</a>{{end}}</form>
-{{if .Actor}}<div id="file-actions"><h2>Store a file</h2><signed-form action="/upload" method="PUT"><label>File <input type="file" name="file" required></label><button>Upload</button></signed-form><file-mirror action="/mirror"></file-mirror><file-tools></file-tools><file-workspace></file-workspace><p><small>Encrypted uploads keep the file contents and key in your browser. The relay stores only encrypted bytes. Keep the complete share link to decrypt the file later.</small></p><noscript><p>Connect a signer and enable JavaScript to authorize uploads. Folder manifests require JavaScript.</p></noscript></div>{{end}}
 {{if .Error}}{{template "alert" .Error}}
 {{else if .Feed}}<table id="rows">
 <thead><tr><th>hash</th><th>type</th><th>uploaded</th></tr></thead>

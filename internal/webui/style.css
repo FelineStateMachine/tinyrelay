@@ -20,7 +20,7 @@ pre{white-space:pre-wrap;overflow-wrap:anywhere}
 img{max-width:100%}
 
 /* Selection: chrome is not selectable, content and values are. */
-#rail,#footer,#topbar,#panel h4,#panel label,#panel th,#rows th,#grid,#gridhead,#tree header small,#tree li>span,#preview header,button,summary,rpc-form label,signed-form label,publish-list label,nostr-compose label,file-tools label,file-workspace label,nostr-event>header,diff-view caption small{user-select:none;-webkit-user-select:none}
+#rail,#footer,#topbar,#panel h4,#panel label,#panel th,#rows th,#grid,#gridhead,#tree header small,#tree li>span,#preview header,button,summary,rpc-form label,signed-form label,publish-list label,nostr-compose label,file-tools label,file-upload label,nostr-event>header,diff-view caption small{user-select:none;-webkit-user-select:none}
 
 /* Shell: a table with three columns; each column scrolls on its own. */
 #topbar{display:none}
@@ -107,15 +107,18 @@ dl{margin:.5rem 0}dt{font-weight:600}dd{margin:0 0 .35rem 1rem}
 #readme code{font-size:12.5px}#readme ul,#readme ol{padding-left:20px}
 
 /* rpc-form, signed-form, publish-list: one signed call each. */
-rpc-form,signed-form,publish-list,nostr-compose,file-tools,file-workspace,file-workspace-root:not([hidden]){display:block;border-bottom:1px solid var(--line);padding:10px 0}
-nostr-compose,file-tools,file-workspace,file-workspace-root{max-width:720px}
-file-tools h3,file-workspace h3{margin:0 0 4px}file-tools p,file-workspace p{margin:6px 0}
-rpc-form label,signed-form label,publish-list label,nostr-compose label,file-tools label,file-workspace label,#collaboration-filter label,#file-search label{display:inline-block;margin:0 10px 6px 0;vertical-align:top;font:13px var(--sans);color:var(--muted)}
-rpc-form label input,rpc-form label select,signed-form label input,nostr-compose label input,nostr-compose label select,file-tools label input,file-tools label select,file-workspace label input,#collaboration-filter label input,#collaboration-filter label select,#file-search label input{display:block;margin-top:2px;font:13px var(--mono);min-width:200px}
-file-tools label:has([data-share-url]),file-workspace label:has([data-tree-share]){display:block}file-tools input[data-share-url],file-workspace input[data-tree-share]{width:100%}
+rpc-form,signed-form,publish-list,nostr-compose,file-tools,file-upload,file-workspace-root:not([hidden]){display:block;border-bottom:1px solid var(--line);padding:10px 0}
+nostr-compose,file-tools,file-upload,file-workspace-root{max-width:720px}
+file-tools h3,file-upload h3{margin:0 0 4px}file-tools p,file-upload p{margin:6px 0}
+rpc-form label,signed-form label,publish-list label,nostr-compose label,file-tools label,file-upload label,#collaboration-filter label,#file-search label{display:inline-block;margin:0 10px 6px 0;vertical-align:top;font:13px var(--sans);color:var(--muted)}
+rpc-form label input,rpc-form label select,signed-form label input,nostr-compose label input,nostr-compose label select,file-tools label input,file-tools label select,file-upload label input,#collaboration-filter label input,#collaboration-filter label select,#file-search label input{display:block;margin-top:2px;font:13px var(--mono);min-width:200px}
+file-upload label[data-share]{display:block}file-upload input[data-share-url]{width:100%}
+file-upload label:has([type=checkbox]),#panel file-upload label:has([type=checkbox]){display:inline-block;margin:8px 14px 8px 0}file-upload label:has([type=checkbox]) input,#panel file-upload label:has([type=checkbox]) input{display:inline-block;width:auto;min-width:0;margin:0 4px 0 0;vertical-align:middle}
+#panel file-upload [hidden],file-upload [hidden],file-tools [hidden]{display:none}
+#panel file-upload,#panel file-mirror{border:0;padding:0;max-width:none}#panel details{margin-top:8px}#panel details>summary{cursor:pointer;color:var(--muted);font-size:12px}
 rpc-form label:has(textarea),publish-list label:has(textarea),nostr-compose label:has(textarea){display:block}
-rpc-form output,signed-form output,publish-list output,nostr-compose output,file-tools output,file-workspace output,file-workspace-root output,private-services output{display:block;font:12px var(--mono);color:var(--muted);margin-top:4px;overflow-wrap:anywhere}
-rpc-form output[data-error],file-tools output[data-error],file-workspace output[data-error]{color:var(--alert)}
+rpc-form output,signed-form output,publish-list output,nostr-compose output,file-tools output,file-upload output,file-workspace-root output,private-services output{display:block;font:12px var(--mono);color:var(--muted);margin-top:4px;overflow-wrap:anywhere}
+rpc-form output[data-error],file-tools output[data-error],file-upload output[data-error]{color:var(--alert)}
 file-workspace-root ul{list-style:none;margin:8px 0 0;padding:0 0 0 16px;border-left:1px solid var(--line)}file-workspace-root li{padding:3px 0}
 file-workspace-root button{background:transparent;border:0;padding:0;color:var(--accent);font:inherit;text-align:left}
 #content>section>h3{border-bottom:0;margin-top:22px;font-size:15px}
