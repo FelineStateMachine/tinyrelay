@@ -141,6 +141,8 @@
     object(), reads, (input, signal) => manage("listagents", [], signal));
   register("tiny.read_agent", "Read one agent's grant and its ten newest events. Requires a signed-in owner or moderator session.",
     object({agent: pubkey}, ["agent"]), reads, (input, signal) => query("browseagent", input, signal));
+  register("tiny.list_callbacks", "List event callbacks: id, owner, host, filter, paused state, failures and last delivery. Members and agents see their own; the owner and moderators see every callback. Uses your connected signer.",
+    object(), reads, (input, signal) => manage("listcallbacks", [], signal));
 
   function open(path) {
     const url = new URL(local(path), location.href);
@@ -228,6 +230,12 @@
     object({agent: pubkey}, ["agent"]), "resumeagent", input => [input.agent]);
   control("tiny.revoke_agent", "Revoke an agent's grant. The agent loses its role at once; only a new grant restores it.",
     object({agent: pubkey}, ["agent"]), "revokeagent", input => [input.agent]);
+  control("tiny.pause_callback", "Pause an event callback by id. Deliveries stop until it is resumed. The callback's owner, the relay owner and moderators may do this.",
+    object({id}, ["id"]), "pausecallback", input => [input.id]);
+  control("tiny.resume_callback", "Resume a paused event callback by id and clear its failure count.",
+    object({id}, ["id"]), "resumecallback", input => [input.id]);
+  control("tiny.remove_callback", "Delete an event callback by id.",
+    object({id}, ["id"]), "removecallback", input => [input.id]);
   control("tiny.backup_now", "Queue a backup of relay data. Inspect jobs and backups to check completion.", object(), "backupnow", () => []);
   control("tiny.dump_now", "Queue an event export. Inspect jobs and dumps to check completion.", object(), "dumpnow", () => []);
   control("tiny.set_connections", "Replace the relay's connection list. Read the current list before editing it.",

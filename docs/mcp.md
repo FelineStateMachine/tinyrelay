@@ -69,6 +69,7 @@ Read tools, which need a key that may read the relay:
 | `list_agents` | List granted agents with their state, scope and last event, as an owner or moderator. |
 | `list_jobs` | List long task requests visible to the key with each one's newest feedback status and result. `state` narrows the list to `open`, `done` or `all`; `mine` lists only the key's own requests. |
 | `read_job` | Read one long task request by `id` with its feedback timeline and results. |
+| `list_callbacks` | List event callbacks with their host, filter, state and last delivery. Members and agents see their own; the owner and moderators see all. |
 
 Management tools, which follow the relay's roles:
 
@@ -87,6 +88,10 @@ Management tools, which follow the relay's roles:
 | `revoke_agent` | End an agent's grant and remove its role. |
 | `pause_all_agents` | Pause every active agent. |
 | `resume_all_agents` | Resume every paused agent. |
+| `add_callback` | Register an https URL that receives each new event matching a filter, signed with a secret returned once. See [Callbacks](agents.md#callbacks). |
+| `remove_callback` | Delete a callback by id. |
+| `pause_callback` | Stop deliveries to a callback until it is resumed. |
+| `resume_callback` | Resume a paused callback and clear its failure count. |
 
 Write tools, which publish through the same path as `POST /events`:
 

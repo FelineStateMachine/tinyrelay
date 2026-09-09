@@ -207,6 +207,92 @@ Over MCP, `request_job` builds a request, `job_feedback` and `job_result` build 
 
 A result, or feedback that reports `error` or `payment-required`, wakes the requester's devices in the mentions category with the body `job <kind> <status>`, where the kind is the request's.
 
+## Callbacks
+
+An agent that cannot keep a relay connection open, such as a serverless worker, a scheduled job or an assistant that wakes on demand, can register a callback: an https URL and a filter. The relay POSTs each new event that matches the filter, and that the agent's key may read, to the URL as it arrives. Members may register callbacks for their own key the same way.
+
+### Register a callback
+
+Call the `addcallback` management method, or the `add_callback` MCP tool, with the URL and the filter:
+
+```json
+{"method": "addcallback", "params": [{"url": "https://worker.example/tiny", "filter": {"kinds": [1621, 1111], "#a": ["30617:<owner pubkey>:tinyrelay"]}}]}
+```
+
+The answer carries the callback's `id` and its `secret`. The secret is shown once; keep it to verify deliveries. Pass your own `secret` of 16 to 128 printable ASCII characters to use it instead of a generated one.
+
+The URL must use https and name a public host. Private, loopback and link-local addresses are refused, and the relay does not follow redirects.
+
+### The filter
+
+The filter is a NIP-01 filter limited to these keys:
+
+| Key | Value |
+| --- | --- |
+| `kinds` | Required. Up to 32 event kinds. |
+| `authors` | Up to 8 public keys. |
+| `#a` | Up to 8 addresses, such as a repository's `30617:<owner>:<identifier>`. |
+| `#e` | Up to 8 event ids. |
+| `#p` | Up to 8 public keys, for events that mention or address them. |
+| `#h` | Up to 8 room ids. |
+
+An event matches when its kind is listed and every named tag carries one of the listed values. `since` is accepted and ignored, since a callback only sees events that arrive after it is registered. Other keys are refused.
+
+An agent's filter must stay inside its grant: a room in `#h` must be one the grant names, and a repository in `#a` must be one the grant covers. Kinds are not restricted, so an agent can wait for reactions it may not publish itself.
+
+Filters for the common cases:
+
+| Wake on | Filter |
+| --- | --- |
+| New issues, pull requests and comments in one repository | `{"kinds": [1621, 1618, 1111], "#a": ["30617:<owner>:tinyrelay"]}` |
+| Pushes to the owner's repositories | `{"kinds": [30618], "authors": ["<owner pubkey>"]}` |
+| Messages in a room that mention the agent | `{"kinds": [9, 11, 12], "#h": ["build"], "#p": ["<agent pubkey>"]}` |
+| Requests for a decision and answers addressed to the agent | `{"kinds": [7, 9, 1111], "#p": ["<agent pubkey>"]}` |
+
+### Delivery
+
+Each matching event is one POST with the event's JSON as the body. Nothing is batched. The request carries these headers:
+
+| Header | Value |
+| --- | --- |
+| `Content-Type` | `application/json` |
+| `X-Tiny-Callback` | The callback id. |
+| `X-Tiny-Signature` | `sha256=` followed by the hex HMAC-SHA256 of the request body with the secret. |
+| `X-Tiny-Relay` | The relay's public URL. |
+
+To verify a delivery, compute HMAC-SHA256 over the raw request body with the secret, encode it as lowercase hex and compare it with the value after `sha256=` using a constant-time comparison. Reject the request when they differ. Answer with any 2xx status within 10 seconds; the relay ignores the response body.
+
+```js
+import {createHmac, timingSafeEqual} from "node:crypto";
+
+export function verify(body, header, secret) {
+  const expected = "sha256=" + createHmac("sha256", secret).update(body).digest("hex");
+  return header.length === expected.length && timingSafeEqual(Buffer.from(header), Buffer.from(expected));
+}
+```
+
+Right before each POST the relay checks that the callback still exists and is not paused and that the key may still read the event, so hiding an event or revoking an agent stops deliveries at once. Events go to a callback one at a time, in the order they arrived as far as possible. A repository state is delivered once its objects have arrived, so a push wakes the agent when the objects can be fetched.
+
+### Retries and pauses
+
+A response outside 2xx, a timeout or a connection failure counts as a failure. The relay tries the event again after one minute and once more after five, three attempts in all, then drops it. After 20 failures in a row the callback is paused and its status records the reason. A callback is also paused when its key is no longer a member. A successful delivery resets the failure count. Resume a paused callback with `resumecallback`.
+
+### Manage callbacks
+
+| Method | Effect |
+| --- | --- |
+| `listcallbacks` | Lists callbacks with their id, owner, host, filter, state, failure count, last status and last delivery. |
+| `addcallback {url, filter, secret}` | Registers a callback for the calling key and returns its id and secret once. |
+| `removecallback <id>` | Deletes the callback. |
+| `pausecallback <id>` | Stops deliveries until the callback is resumed. |
+| `resumecallback <id>` | Resumes deliveries and clears the failure count. |
+
+Members and agents see and control their own callbacks. The owner and moderators see every callback, with the host but not the path of other keys' URLs, and may pause, resume or remove any of them. Every change is recorded in the audit log.
+
+Each key may hold 4 callbacks. The `callbacks` policy field changes the allowance; 0 closes registration for everyone but the owner, who has no limit.
+
+The **Manage > Agents** page lists each agent's callbacks on its card with the host, kinds, state and last delivery, and buttons to pause, resume or remove each one. The side panel counts active and paused callbacks. The same controls are available to browser agents and over MCP; see [Browser tools](webmcp.md) and [MCP](mcp.md).
+
 ## Discovery
 
 While at least one agent is active, the relay's information document includes an `agents` capability entry, so clients and other agents can tell that this relay accepts granted agents. The entry carries no agent details.

@@ -238,6 +238,28 @@ test("agent tools list through the signer, read through the session and control 
   }
 });
 
+test("callback tools list through the signer and control by id", async () => {
+  const calls = [];
+  const {tools} = await browser({path: "/r/work/manage/agents", signedFetch: async (url, method, body) => {
+    calls.push({url, method, body: JSON.parse(body)});
+    return new Response(JSON.stringify({result: [{id: "cb-1", host: "hooks.example", paused: false}]}));
+  }});
+  const list = tools.get("tiny.list_callbacks");
+  assert.equal(list.annotations.readOnlyHint, true);
+  const listed = await list.execute({});
+  assert.equal(listed.structuredContent.result[0].host, "hooks.example");
+  assert.equal(calls[0].url, "/r/work/manage/rpc");
+  assert.deepEqual(calls[0].body, {method: "listcallbacks", params: []});
+  assert.equal(tools.get("tiny.add_callback"), undefined);
+  for (const [name, method] of [["tiny.pause_callback", "pausecallback"], ["tiny.resume_callback", "resumecallback"], ["tiny.remove_callback", "removecallback"]]) {
+    const tool = tools.get(name);
+    assert.equal(tool.annotations.consequentialHint, true);
+    assert.deepEqual([...tool.inputSchema.required], ["id"]);
+    await tool.execute({id: "cb-1"});
+    assert.deepEqual(calls.at(-1).body, {method, params: ["cb-1"]});
+  }
+});
+
 test("wiki tools read pages and merge requests and open pages in the tenant", async () => {
   const requests = [];
   const {tools, sandbox} = await browser({path: "/r/work/wiki", fetch: async url => {

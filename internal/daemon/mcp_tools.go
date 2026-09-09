@@ -128,6 +128,9 @@ func (t *Tenant) mcpTools() (*mcp.Registry, error) {
 	})
 	add("list_jobs", "List long task requests (NIP-90 job requests) visible to your key, each with its newest feedback status and its result when one exists. state narrows the list to open, done or all; mine lists only your own requests.", mcp.Object(map[string]any{"cursor": mcpText, "limit": mcpLimit, "state": map[string]any{"type": "string", "enum": jobStates}, "mine": map[string]any{"type": "boolean"}}), mcpReads, t.mcpBrowse("browsejobs"))
 	add("read_job", "Read one long task request by event id with its feedback timeline and results.", mcp.Object(map[string]any{"id": mcpHash}, "id"), mcpReads, t.mcpBrowse("browsejob"))
+	add("list_callbacks", "List event callbacks: id, owner, host, filter, paused state, failures and last delivery. Members and agents see their own; the owner and moderators see every callback. The secret is never listed.", mcp.Object(nil), mcpReads, func(ctx context.Context, call mcp.Call) (mcp.Result, error) {
+		return t.mcpManage(ctx, call, "listcallbacks")
+	})
 
 	add("run_job", "Queue an existing job to run now. Read jobs through read_management to check its completion.", mcp.Object(map[string]any{"id": mcpID}, "id"), mcpChanges, func(ctx context.Context, call mcp.Call) (mcp.Result, error) {
 		return t.mcpManage(ctx, call, "runjob", call.String("id"))
@@ -152,6 +155,18 @@ func (t *Tenant) mcpTools() (*mcp.Registry, error) {
 	})
 	add("send_test_notification", "Send the relay's test notice to the owner's inbox and enabled devices. Owner only.", mcp.Object(nil), mcpChanges, func(ctx context.Context, call mcp.Call) (mcp.Result, error) {
 		return t.mcpManage(ctx, call, "notifytest")
+	})
+	add("add_callback", "Register an https URL that receives a POST with each new event matching filter that your key may see. The filter takes kinds (required), authors, #a, #e, #p and #h with at most 8 values each. The answer carries the callback id and, once, the secret used for the X-Tiny-Signature header; keep it. Members and agents may hold up to the relay's callback allowance, 4 by default.", mcp.Object(map[string]any{"url": map[string]any{"type": "string", "description": "An https URL on a public host."}, "filter": map[string]any{"type": "object", "description": "NIP-01 filter subset: kinds, authors, #a, #e, #p, #h.", "minProperties": 1}, "secret": map[string]any{"type": "string", "minLength": callbackSecretMin, "maxLength": callbackSecretMax, "description": "Optional shared secret, 16 to 128 printable ASCII characters. Generated when omitted."}}, "url", "filter"), mcpChanges, func(ctx context.Context, call mcp.Call) (mcp.Result, error) {
+		return t.mcpManage(ctx, call, "addcallback", call.Arguments)
+	})
+	add("remove_callback", "Delete a callback by id. The callback's owner, the relay owner and moderators may do this.", mcp.Object(map[string]any{"id": mcpID}, "id"), mcpSettings, func(ctx context.Context, call mcp.Call) (mcp.Result, error) {
+		return t.mcpManage(ctx, call, "removecallback", call.String("id"))
+	})
+	add("pause_callback", "Stop deliveries to a callback until it is resumed. The callback's owner, the relay owner and moderators may do this.", mcp.Object(map[string]any{"id": mcpID}, "id"), mcpControls, func(ctx context.Context, call mcp.Call) (mcp.Result, error) {
+		return t.mcpManage(ctx, call, "pausecallback", call.String("id"))
+	})
+	add("resume_callback", "Resume a paused callback and clear its failure count.", mcp.Object(map[string]any{"id": mcpID}, "id"), mcpControls, func(ctx context.Context, call mcp.Call) (mcp.Result, error) {
+		return t.mcpManage(ctx, call, "resumecallback", call.String("id"))
 	})
 	add("pause_agent", "Stop an agent from publishing until it is resumed. The grant stays in place. Requires an owner or moderator key.", mcp.Object(map[string]any{"agent": mcpPubKey}, "agent"), mcpControls, func(ctx context.Context, call mcp.Call) (mcp.Result, error) {
 		return t.mcpManage(ctx, call, "pauseagent", call.String("agent"))
