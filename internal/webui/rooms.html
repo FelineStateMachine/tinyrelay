@@ -11,7 +11,7 @@
 {{else}}<p>No rooms yet.</p>
 {{end}}{{with (asMap .Event).next_cursor}}<p id="pages"><a href="{{browsePageURL "/rooms" $.Query "cursor" .}}">next page</a></p>
 {{end}}{{if .Actor}}<h2 id="new-room">New room</h2>
-<room-create><label>Name <input name="name" required maxlength="200" placeholder="build"></label><label>Access <select name="access"><option value="open">open</option><option value="members">members only</option></select></label><label>About <textarea name="about" maxlength="2000"></textarea></label><button>Create room</button></room-create>
+<room-create><label>Name <input name="name" required maxlength="200" placeholder="build"></label><label>Id <input name="id" maxlength="64" pattern="[a-z0-9_-]{1,64}" placeholder="from the name"></label><label>Access <select name="access"><option value="open">open</option><option value="members">members only</option></select></label><label>About <textarea name="about" maxlength="2000"></textarea></label><button>Create room</button></room-create>
 <noscript><p>Creating a room needs JavaScript and a connected signer.</p></noscript>
 {{else}}<p><a href="/signin">Sign in</a> to create a room.</p>
 {{end}}</section>

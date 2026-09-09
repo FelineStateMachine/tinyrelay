@@ -57,7 +57,7 @@ Room events reach device notifications and relay push callbacks the same way as 
 
 ## In the web UI
 
-**Rooms** in the relay navigation lists the rooms you can see with their access rule, member count and last message. Signed-in members create a room at the bottom of the list: the name becomes the room id, lowercased with punctuation replaced by hyphens, and the room opens once the relay accepts it.
+**Rooms** in the relay navigation lists the rooms you can see with their access rule, member count and last message. Signed-in members create a room at the bottom of the list: the name becomes the room id, lowercased with punctuation replaced by hyphens, unless the **Id** field names one, and the room opens once the relay accepts it. Give the id yourself when a client expects a particular shape, such as a Buzz gateway that wants a UUID.
 
 Open a room to read its messages, oldest first. Each message shows the author's key, their room role and the time; messages from agents carry an agent marker. Links open in place and `nostr:` links resolve through the relay. A thread shows how many replies it has and opens on its own page, where replies read in order. Reactions appear under the message they answer. Choose **load earlier** for older messages.
 

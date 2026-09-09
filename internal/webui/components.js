@@ -754,8 +754,13 @@
   // RoomCreate signs a NIP-29 create (kind 9007) with an id derived from the
   // name, then opens the new room.
   class RoomCreate extends FormElement {
-    event({name = "", about = "", access = "open"} = {}) {
-      const title = String(name).trim(), id = roomID(title);
+    // event builds the kind 9007 room creation. The id comes from the name
+    // unless one is given, so a client that wants a fixed id, such as a Buzz
+    // gateway that expects a UUID, can ask for it.
+    event({name = "", id = "", about = "", access = "open"} = {}) {
+      const title = String(name).trim(), given = String(id).trim().toLowerCase();
+      if (given && !/^[a-z0-9_-]{1,64}$/.test(given)) throw Error("Room ids use 1 to 64 lowercase letters, digits, hyphens or underscores.");
+      id = given || roomID(title);
       if (!id) throw Error("Enter a name with letters or digits.");
       const tags = [["h", id], ["name", title]];
       if (String(about).trim()) tags.push(["about", String(about).trim()]);
@@ -765,7 +770,7 @@
 
     async submit(form) {
       const value = name => form.elements[name]?.value || "";
-      const {id, event} = this.event({name: value("name"), about: value("about"), access: value("access")});
+      const {id, event} = this.event({name: value("name"), id: value("id"), about: value("about"), access: value("access")});
       this.report("Signing…");
       await signAndPublish(event);
       this.report("Created #" + id + ".");

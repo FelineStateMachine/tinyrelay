@@ -142,6 +142,10 @@ test("room-create derives the id from the name and signs 9007 before opening the
   same(event.tags, [["h", "build-release"], ["name", "Build & Release"], ["about", "nightly"], ["visibility", "members"]]);
   same(create.event({name: "general"}).event.tags, [["h", "general"], ["name", "general"], ["visibility", "open"]]);
   assert.throws(() => create.event({name: "!!!"}), /letters or digits/);
+  const fixed = create.event({name: "Hermes", id: " 9782AFBD-88c9-43b1-8b3a-5a68e99d3c52 "});
+  assert.equal(fixed.id, "9782afbd-88c9-43b1-8b3a-5a68e99d3c52");
+  same(fixed.event.tags, [["h", "9782afbd-88c9-43b1-8b3a-5a68e99d3c52"], ["name", "Hermes"], ["visibility", "open"]]);
+  assert.throws(() => create.event({name: "Hermes", id: "not valid!"}), /lowercase letters/);
   await create.submit(s.form({name: "Build", about: "", access: "open"}));
   assert.equal(s.sent[0].event.kind, 9007);
   assert.equal(verifyEvent(s.sent[0].event), true);
