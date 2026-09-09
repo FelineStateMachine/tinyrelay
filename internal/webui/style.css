@@ -288,7 +288,7 @@ html,body{overflow:auto}
 #layout,#layout>tbody,#layout>tbody>tr,#layout>tbody>tr>td{display:block;width:auto;height:auto}
 #layout{padding:40px 0 28px}
 #railbox,#content,#panel{position:static;overflow:visible}
-#layout>tbody>tr>td#rail{position:fixed;top:40px;bottom:28px;left:0;width:240px;height:auto;box-sizing:border-box;border-right:1px solid var(--line);transform:translateX(-102%);visibility:hidden;transition:transform .15s;z-index:2;overflow:hidden auto}
+#layout>tbody>tr>td#rail{position:fixed;top:40px;bottom:28px;left:0;width:240px;height:auto;box-sizing:border-box;border-right:1px solid var(--line);transform:translateX(-102%);visibility:hidden;transition:transform .15s;z-index:3;overflow:hidden auto}
 #railbox{position:relative;min-height:100%}
 #topbar:has(#nav-menu[open]) + #layout>tbody>tr>td#rail{transform:none;visibility:visible;box-shadow:8px 0 24px rgba(0,0,0,.15)}
 #layout>tbody>tr>td#aside{width:auto;border-left:0;border-top:1px solid var(--line)}
@@ -302,6 +302,6 @@ html,body{overflow:auto}
 #rows{table-layout:fixed}#rows td{white-space:normal;overflow-wrap:anywhere;height:auto;padding:8px 6px;line-height:1.35}#rows td:first-child{width:90px}#rows td:last-child{width:80px}#rows:has(td[data-state]) td:nth-child(3),#rows:has(td[data-state]) th:nth-child(3){display:none}#rows:has(td[data-state]) td:last-child{width:80px}connect-list #rows td:nth-child(2),connect-list #rows th:nth-child(2){display:none}connect-list #rows td:nth-child(3),connect-list #rows td:last-child{width:auto}connect-list #rows td:last-child{white-space:normal}connect-list #rows td:last-child button{margin:2px 0}
 #grid,#gridhead,h2:has(+#gridhead){display:none}
 #wiki-list #rows th{white-space:normal}#wiki-list #rows td:nth-child(3),#wiki-list #rows th:nth-child(3){display:none}#wiki-list #rows td:nth-child(4){width:70px}
-room-compose{bottom:calc(28px + env(safe-area-inset-bottom,0px));margin:8px -2.5ch 0;padding:10px 2.5ch 8px;z-index:2}
+room-compose{bottom:calc(28px + env(safe-area-inset-bottom,0px));margin:8px -2.5ch 0;padding:10px 2.5ch 8px;z-index:1}
 body:has(#room) #layout>tbody>tr>td#aside,body:has(#thread) #layout>tbody>tr>td#aside{display:none}
 }
