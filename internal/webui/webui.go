@@ -85,6 +85,8 @@ type PageData struct {
 	Path     string
 	Readme   template.HTML
 	Tree     []any
+	// Merge is the browsewikimerge detail shown by a wiki page compare view.
+	Merge any
 	// Connections lists the ways to open this relay in client apps that the
 	// viewer may see, with link placeholders already resolved.
 	Connections []any
@@ -158,7 +160,7 @@ func (a *App) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
 		http.Redirect(writer, request, requestPrefix(request)+"/manage/health", http.StatusMovedPermanently)
 		return
 	}
-	if request.Method == http.MethodGet && (request.URL.Path == "/repos" || request.URL.Path == "/repo" || request.URL.Path == "/files" || request.URL.Path == "/file" || request.URL.Path == "/approvals" || request.URL.Path == "/manage/health") {
+	if request.Method == http.MethodGet && (request.URL.Path == "/repos" || request.URL.Path == "/repo" || request.URL.Path == "/files" || request.URL.Path == "/file" || request.URL.Path == "/approvals" || request.URL.Path == "/wiki" || strings.HasPrefix(request.URL.Path, "/wiki/") || request.URL.Path == "/manage/health") {
 		a.browse(writer, request)
 		return
 	}
@@ -524,10 +526,16 @@ func (a *App) browse(writer http.ResponseWriter, request *http.Request) {
 		method = "browsefile"
 	case "/approvals":
 		method = "browseapprovals"
+	case "/wiki":
+		method = "browsewiki"
 	case "/manage/health":
 		method = "browsestatus"
 	}
+	if strings.HasPrefix(path, "/wiki/") {
+		method = "browsewikipage"
+	}
 	params := []json.RawMessage{}
+	pageQuery := request.URL.Query()
 	query := map[string]any{"cursor": request.URL.Query().Get("cursor"), "limit": 50, "q": request.URL.Query().Get("q")}
 	if value := request.URL.Query().Get("limit"); value != "" {
 		if parsed, parseErr := strconv.Atoi(value); parseErr == nil && parsed > 0 {
@@ -577,6 +585,13 @@ func (a *App) browse(writer http.ResponseWriter, request *http.Request) {
 			state = "all"
 		}
 		query = map[string]any{"cursor": query["cursor"], "limit": query["limit"], "state": state}
+	case "browsewiki":
+		query["author"] = request.URL.Query().Get("author")
+	case "browsewikipage":
+		// The name travels in the query as well so the page template can
+		// offer to create a page that does not exist yet.
+		pageQuery.Set("d", wikiPageName(path))
+		query = map[string]any{"d": pageQuery.Get("d"), "author": request.URL.Query().Get("author"), "version": request.URL.Query().Get("version")}
 	case "browsestatus":
 		query = map[string]any{}
 	}
@@ -588,10 +603,9 @@ func (a *App) browse(writer http.ResponseWriter, request *http.Request) {
 	}
 	result, err := a.backend.Query(request.Context(), method, params, actor)
 	if err != nil {
-		a.render(writer, request, PageData{Tab: browseTab(path), Error: err.Error(), Query: request.URL.Query()})
+		a.render(writer, request, PageData{Tab: browseTab(path), Error: err.Error(), Query: pageQuery})
 		return
 	}
-	pageQuery := request.URL.Query()
 	if method == "browserepo" && pageQuery.Get("view") == "" {
 		pageQuery.Set("view", "tree")
 	}
@@ -602,6 +616,14 @@ func (a *App) browse(writer http.ResponseWriter, request *http.Request) {
 	}
 	data := PageData{Tab: browseTab(path), Feed: browseRows(result), Event: result, Query: pageQuery}
 	data.Title = browseTitle(path, pageQuery, result, a.backend.Slug())
+	if id := pageQuery.Get("merge"); method == "browsewikipage" && len(id) == 64 {
+		raw, _ := json.Marshal(map[string]any{"id": id})
+		if merge, mergeErr := a.backend.Query(request.Context(), "browsewikimerge", []json.RawMessage{raw}, actor); mergeErr == nil {
+			data.Merge = merge
+		} else {
+			data.Notice = mergeErr.Error()
+		}
+	}
 	if method == "browserepo" && pageQuery.Get("view") == "home" {
 		data.Readme = a.readme(request.Context(), actor, pageQuery)
 	}
@@ -610,7 +632,14 @@ func (a *App) browse(writer http.ResponseWriter, request *http.Request) {
 }
 
 func browseTitle(path string, query url.Values, result any, slug string) string {
-	label := map[string]string{"/repos": "Repositories", "/files": "Files", "/file": "File", "/approvals": "Approvals"}[path]
+	label := map[string]string{"/repos": "Repositories", "/files": "Files", "/file": "File", "/approvals": "Approvals", "/wiki": "Wiki"}[path]
+	if strings.HasPrefix(path, "/wiki/") {
+		label = plainString(valueMap(result)["title"])
+		if label == "" {
+			label = query.Get("d")
+		}
+		label += " | wiki"
+	}
 	if path == "/repo" {
 		label = query.Get("repo")
 		if label == "" {
@@ -663,7 +692,12 @@ func (a *App) siblings(ctx context.Context, actor string, query url.Values) []an
 }
 
 func browseTab(path string) string {
+	if strings.HasPrefix(path, "/wiki/") {
+		return "wikipage"
+	}
 	switch path {
+	case "/wiki":
+		return "wiki"
 	case "/repos":
 		return "repos"
 	case "/repo":
@@ -1068,9 +1102,14 @@ func tabForPath(path string) string {
 	if strings.HasPrefix(path, "manage/") {
 		path = strings.TrimPrefix(path, "manage/")
 	}
+	if strings.HasPrefix(path, "wiki/") {
+		return "wikipage"
+	}
 	switch path {
 	case "manage":
 		return "owner"
+	case "wiki":
+		return "wiki"
 	case "repos":
 		return "repos"
 	case "repo":

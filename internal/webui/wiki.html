@@ -1,0 +1,78 @@
+{{define "wiki"}}<section id="wiki-list">
+<h1>Wiki</h1>
+<form method="get" action="/wiki" id="wiki-search"><label>Search <input name="q" value="{{.Query.Get "q"}}" placeholder="title or summary" autocomplete="off"></label> <button>Search</button>{{if .Query.Get "q"}} <a href="/wiki">clear</a>{{end}}</form>
+{{if and .Actor (.Query.Get "new")}}<h2>New page</h2>{{template "wikiEditor" .}}
+{{end}}{{if .Error}}{{template "alert" .Error}}
+{{else if .Feed}}<table id="rows">
+<thead><tr><th>page</th><th>author</th><th>versions</th><th>merge requests</th><th>updated</th></tr></thead>
+<tbody>
+{{range .Feed}}{{$p := asMap .}}{{$v := asMap (index $p "version")}}<tr><td><a href="{{wikiURL (str (index $p "d"))}}">{{str (index $p "title")}}</a></td><td>{{template "nostrKey" (str (index $v "author"))}}</td><td>{{str (index $p "versions")}}</td><td>{{str (index $p "open_merges")}} open</td><td>{{when (index $v "created_at")}}</td></tr>
+{{end}}</tbody>
+</table>
+{{else}}<p>No pages yet.</p>
+{{end}}{{with (asMap .Event).next_cursor}}<p id="pages"><a href="{{browsePageURL "/wiki" $.Query "cursor" .}}">next page</a></p>
+{{end}}</section>
+{{end}}
+
+{{define "wikipage"}}{{$d := .Query.Get "d"}}{{if .Error}}<section id="wiki-page">
+<h1>{{$d}}</h1>
+{{if hasPrefix .Error "not found:"}}<p>There is no page named <code>{{$d}}</code> yet.</p>
+{{if .Actor}}{{template "wikiEditor" .}}{{else}}<p><a href="/signin">Sign in</a> to write it.</p>{{end}}
+{{else}}{{template "alert" .Error}}{{end}}</section>
+{{else}}{{$w := wikiView .Event}}<section id="wiki-page">
+<h1>{{$w.Title}}</h1>
+{{template "alert" .Notice}}{{if not $w.Version}}<p>This name has no article of its own.</p>
+{{template "wikiRedirects" $w}}{{if .Actor}}{{template "wikiEditor" .}}{{end}}
+{{else}}{{range $m := $w.OpenMerges}}<merge-request>{{template "nostrKey" (str (index $m "author"))}} proposes a new version of this page | <a href="{{wikiURL $w.D "merge" (str (index $m "id"))}}">compare</a>{{if eq $.Actor (str (index $m "destination"))}}<nostr-react event="{{str (index $m "id")}}" pubkey="{{str (index $m "author")}}" kind="818"><button name="reaction" value="+">Accept</button><button name="reaction" value="-">Reject</button></nostr-react>{{end}}<a href="/e/{{str (index $m "id")}}">Reply</a></merge-request>
+{{end}}{{if .Query.Get "merge"}}{{template "wikiCompare" .}}
+{{else if .Query.Get "edit"}}{{template "wikiEditor" .}}
+{{else if .Query.Get "history"}}{{template "wikiHistory" $w}}
+{{else}}<wiki-article><header>wiki | {{$w.D}} | by {{template "nostrKey" $w.Author}} | version {{$w.Number}} of {{$w.Count}} | {{$w.Forks}} fork{{if ne $w.Forks 1}}s{{end}}</header>
+{{with asMap (index $w.Version "fork")}}<p><small>forked from <a href="{{wikiURL $w.D "version" (str (index . "e"))}}">{{shortID (index . "e")}}</a></small></p>
+{{end}}{{with asMap (index $w.Version "defer")}}<p><small>the author defers to <a href="{{wikiURL $w.D "version" (str (index . "e"))}}">{{shortID (index . "e")}}</a></small></p>
+{{end}}{{wikiHTML (index $w.Version "content")}}</wiki-article>
+{{template "wikiRedirects" $w}}{{end}}{{end}}</section>
+{{end}}{{end}}
+
+{{/* wikiRedirects lists the articles a name leads to. */}}
+{{define "wikiRedirects"}}{{if .RedirectsFrom}}<p id="wiki-redirects">This name leads to {{range $i, $r := .RedirectsFrom}}{{if $i}}, {{end}}<a href="{{wikiURL (str (index $r "target_d"))}}">{{str (index $r "target_d")}}</a>{{end}}.</p>
+{{end}}{{end}}
+
+{{/* wikiEditor publishes a version of the page in view, or a new page. */}}
+{{define "wikiEditor"}}{{$w := wikiView .Event}}{{$d := or $w.D (.Query.Get "d")}}<wiki-compose name="{{$d}}" author="{{$w.Author}}" coordinate="{{str (index $w.Version "coordinate")}}" event="{{str (index $w.Version "id")}}">
+<label>Title <input name="title" value="{{$w.Title}}" required autocomplete="off"></label>
+<label>Name <input name="name" value="{{$d}}" required autocomplete="off" spellcheck="false"></label>
+<label>Summary <input name="summary" value="{{str (index $w.Version "summary")}}" autocomplete="off"></label>
+<label>Content <textarea name="content" rows="16" placeholder="Djot markup: # heading, *emphasis*, [[Page Name]]">{{str (index $w.Version "content")}}</textarea></label>
+<button name="action" value="publish">Publish</button>{{if and $w.Author (ne $w.Author .Actor)}} <button name="action" value="propose">Propose to {{shortID $w.Author}}</button>{{end}}
+</wiki-compose><noscript><p>JavaScript and a connected signer are required to publish.</p></noscript>{{end}}
+
+{{/* wikiCompare shows the proposed version of a merge request above the current one. */}}
+{{define "wikiCompare"}}{{$w := wikiView .Event}}{{$m := asMap .Merge}}{{if not $m}}<p>The merge request could not be loaded.</p>
+{{else}}{{$r := asMap (index $m "merge")}}<div id="wiki-compare">
+<p id="merge-status">merge request <a href="/e/{{str (index $r "id")}}">{{shortID (index $r "id")}}</a> | from {{template "nostrKey" (str (index $r "author"))}} to {{template "nostrKey" (str (index $r "destination"))}} | {{str (index $r "status")}}{{with index $r "content"}} | {{.}}{{end}}</p>
+{{with asMap (index $m "proposed")}}<h2>Proposed version</h2>
+<wiki-article><header>wiki | {{str (index . "d")}} | by {{template "nostrKey" (str (index . "author"))}} | {{when (index . "created_at")}}</header>
+{{wikiHTML (index . "content")}}</wiki-article>
+{{else}}<p>The proposed version is not available.</p>
+{{end}}{{with asMap (index $m "target")}}<h2>Current version</h2>
+<wiki-article><header>wiki | {{str (index . "d")}} | by {{template "nostrKey" (str (index . "author"))}} | {{when (index . "created_at")}}</header>
+{{wikiHTML (index . "content")}}</wiki-article>
+{{else}}<p>The destination author has no version of this page.</p>
+{{end}}<p><a href="{{wikiURL $w.D}}">back to the page</a></p></div>{{end}}{{end}}
+
+{{/* wikiHistory lists every version of a page, newest first. */}}
+{{define "wikiHistory"}}<table id="rows">
+<thead><tr><th>author</th><th>version</th><th>notes</th><th>published</th></tr></thead>
+<tbody>
+{{range .Versions}}<tr><td>{{template "nostrKey" (str (index . "author"))}}</td><td><a href="{{wikiURL $.D "version" (str (index . "id"))}}">{{shortID (index . "id")}}</a></td><td>{{with asMap (index . "fork")}}fork of {{shortID (index . "e")}}{{end}}{{with asMap (index . "defer")}} defers to {{shortID (index . "e")}}{{end}}{{with index . "likes"}} | {{str .}} likes{{end}}</td><td>{{when (index . "created_at")}}</td></tr>
+{{end}}</tbody>
+</table>
+<p><a href="{{wikiURL .D}}">back to the page</a></p>{{end}}
+
+{{define "panel-wiki"}}{{if eq .Tab "wiki"}}<section><h4>Wiki</h4><table><tr><th>protocol</th><td>NIP-54</td></tr><tr><th>markup</th><td>Djot</td></tr><tr><th>reads</th><td>{{.Policy.Reads}}</td></tr></table></section>
+<section><h4>Actions</h4><ul>{{if .Actor}}<li><a href="/wiki?new=1">new page</a></li>{{else}}<li><a href="/signin">sign in to write</a></li>{{end}}</ul></section>
+{{else}}{{$w := wikiView .Event}}<section><h4>Page</h4><table><tr><th>name</th><td><code>{{or $w.D (.Query.Get "d")}}</code></td></tr><tr><th>versions</th><td>{{$w.Count}}</td></tr><tr><th>merge requests</th><td>{{$w.OpenCount}} open</td></tr><tr><th>links</th><td>{{$w.Links}}</td></tr></table></section>
+{{if $w.Others}}<section><h4>Other versions</h4><ul>{{range $w.Others}}<li><a href="{{wikiURL $w.D "version" (str (index . "id"))}}">{{shortID (index . "author")}}</a>{{with asMap (index . "fork")}} | fork{{end}} <small>{{short (index . "created_at")}}</small></li>{{end}}</ul></section>
+{{end}}{{if $w.RedirectsTo}}<section><h4>Also known as</h4><ul>{{range $w.RedirectsTo}}<li><code>{{str (index . "d")}}</code></li>{{end}}</ul></section>
+{{end}}<section><h4>Actions</h4><ul>{{if $w.Version}}{{if eq .Actor $w.Author}}<li><a href="{{wikiURL $w.D "edit" "1"}}">edit</a></li>{{else if .Actor}}<li><a href="{{wikiURL $w.D "edit" "1"}}">fork</a></li>{{end}}<li><a href="{{wikiURL $w.D "history" "1"}}">history</a></li>{{end}}{{if .Actor}}<li><a href="/wiki?new=1">new page</a></li>{{else}}<li><a href="/signin">sign in to write</a></li>{{end}}</ul></section>{{end}}{{end}}

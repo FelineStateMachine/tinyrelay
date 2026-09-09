@@ -16,7 +16,7 @@ import (
 // templateFS holds every page template. page.html owns the shell and the
 // shared partials; the other files each define one group of tabs.
 //
-//go:embed page.html public.html manage.html browse.html repo.html collaboration.html
+//go:embed page.html public.html manage.html browse.html repo.html collaboration.html wiki.html
 var templateFS embed.FS
 
 // styleCSS is inlined into every page so the UI needs no extra request and
@@ -102,7 +102,7 @@ type navItem struct {
 
 // relayNav: entry points, then conversation, then collaborative artifacts,
 // then what the relay publishes and stores, then what is yours.
-var relayNav = []navItem{{"/home", "/", "home", 0}, {"/search", "/search", "search", 0}, {"/inbox", "/inbox", "inbox", 1}, {"/approvals", "/approvals", "approvals", 1}, {"/repos", "/repos", "repos", 2}, {"/files", "/files", "files", 3}, {"/articles", "/articles", "articles", 3}, {"/sites", "/sites", "sites", 3}, {"/outbox", "/outbox", "outbox", 4}, {"/manage", "/manage/people", "manage", 4}}
+var relayNav = []navItem{{"/home", "/", "home", 0}, {"/search", "/search", "search", 0}, {"/inbox", "/inbox", "inbox", 1}, {"/approvals", "/approvals", "approvals", 1}, {"/repos", "/repos", "repos", 2}, {"/wiki", "/wiki", "wiki", 2}, {"/files", "/files", "files", 3}, {"/articles", "/articles", "articles", 3}, {"/sites", "/sites", "sites", 3}, {"/outbox", "/outbox", "outbox", 4}, {"/manage", "/manage/people", "manage", 4}}
 
 // manageNav: who is here, what they may do, what the relay is, what it does
 // over time, and how it is doing.
@@ -253,6 +253,9 @@ func parseTemplates() (*template.Template, error) {
 		"approvalViews":   approvalViews,
 		"approvalCounts":  approvalCounts,
 		"approvalDevices": approvalDevices,
+		"wikiHTML":        wikiHTML,
+		"wikiView":        wikiPageView,
+		"wikiURL":         wikiURL,
 	}
 	tmpl, err := template.New("webui").Funcs(funcs).ParseFS(templateFS, "*.html")
 	if err != nil {

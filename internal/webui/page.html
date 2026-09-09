@@ -52,6 +52,8 @@
 {{else if eq .Tab "repos"}}{{template "repos" .}}
 {{else if eq .Tab "repo"}}{{template "repo" .}}
 {{else if eq .Tab "files"}}{{template "files" .}}
+{{else if eq .Tab "wiki"}}{{template "wiki" .}}
+{{else if eq .Tab "wikipage"}}{{template "wikipage" .}}
 {{else if eq .Tab "file"}}{{template "file" .}}
 {{else if eq .Tab "approvals"}}{{template "approvals" .}}
 {{else if eq .Tab "event"}}{{template "event" .}}
@@ -96,6 +98,7 @@
 {{else if eq .Tab "repos"}}{{template "panel-repos" .}}
 {{else if or (eq .Tab "files") (eq .Tab "file")}}{{template "panel-files" .}}
 {{else if eq .Tab "approvals"}}{{template "panel-approvals" .}}
+{{else if or (eq .Tab "wiki") (eq .Tab "wikipage")}}{{template "panel-wiki" .}}
 {{else if eq .Tab "signin"}}{{template "panel-signin" .}}
 {{else}}{{template "panel-relay" .}}
 {{end}}{{end}}
