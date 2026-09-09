@@ -246,3 +246,47 @@ test("wiki tools read pages and merge requests and open pages in the tenant", as
   assert.equal(opened.searchParams.get("edit"), "1");
   assert.equal(opened.searchParams.get("version"), "b".repeat(64));
 });
+
+test("room tools read rooms and threads, open rooms and post signed messages", async () => {
+  const {finalizeEvent, generateSecretKey, verifyEvent} = await import("nostr-tools/pure");
+  const requests = [], calls = [];
+  const {tools, sandbox} = await browser({path: "/r/work/tools", fetch: async url => {
+    requests.push(new URL(url, "https://tiny.example"));
+    return new Response(JSON.stringify({items: [{id: "build"}]}));
+  }, signedFetch: async (url, method, body, options) => {
+    calls.push({url, method, body: JSON.parse(body), options});
+    return new Response(JSON.stringify(calls.length > 1 ? {accepted: false, message: "restricted: members only"} : {accepted: true}));
+  }});
+  const secret = generateSecretKey();
+  sandbox.nostr = {signEvent: async event => finalizeEvent(JSON.parse(JSON.stringify(event)), secret)};
+  sandbox.NostrSigner = {verifyEvent};
+  for (const [name, method, input] of [
+    ["tiny.list_rooms", "browserooms", {limit: 5}],
+    ["tiny.read_room", "browseroom", {id: "build", cursor: "c1"}],
+    ["tiny.read_thread", "browsethread", {id: "build", event: "a".repeat(64)}]
+  ]) {
+    const tool = tools.get(name);
+    assert.equal(tool.annotations.readOnlyHint, true);
+    await tool.execute(input);
+    const url = requests.at(-1);
+    assert.equal(url.pathname, "/r/work/webmcp/query");
+    assert.equal(url.searchParams.get("method"), method);
+    assert.deepEqual(JSON.parse(url.searchParams.get("params")), [input]);
+  }
+  await tools.get("tiny.open_room").execute({id: "build"});
+  assert.equal(new URL(sandbox.opened).pathname, "/r/work/rooms/build");
+  await tools.get("tiny.open_room").execute({});
+  assert.equal(new URL(sandbox.opened).pathname, "/r/work/rooms");
+  const post = tools.get("tiny.post_message");
+  assert.equal(post.annotations.consequentialHint, true);
+  const result = await post.execute({room: "build", text: "hello", mentions: ["b".repeat(64), "b".repeat(64)]});
+  assert.equal(calls[0].url, "/r/work/events");
+  assert.equal(calls[0].method, "POST");
+  assert.equal(calls[0].options.contentType, "application/json");
+  assert.equal(calls[0].body.kind, 9);
+  assert.deepEqual(calls[0].body.tags, [["h", "build"], ["p", "b".repeat(64)]]);
+  assert.equal(verifyEvent(calls[0].body), true);
+  assert.equal(result.structuredContent.result.id, calls[0].body.id);
+  await assert.rejects(post.execute({room: "build", text: "again"}), /members only/);
+  await assert.rejects(post.execute({room: "build", text: "  "}), /Enter a message/);
+});

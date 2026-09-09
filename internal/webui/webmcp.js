@@ -112,6 +112,14 @@
   register("tiny.read_merge_request", "Read a wiki merge request by event id with its answer, the proposed version and the destination author's current version.",
     object({id: hash}, ["id"]), reads, (input, signal) => query("browsewikimerge", input, signal));
 
+  const room = {type: "string", pattern: "^[a-z0-9_-]{1,64}$"};
+  register("tiny.list_rooms", "List the chat rooms you can see with their access rule, member count and last message time.",
+    object({cursor: text, limit}), reads, (input, signal) => query("browserooms", input, signal));
+  register("tiny.read_room", "Read a room: its members with roles and its newest messages, threads, replies and reactions, newest first. Use cursor for older messages.",
+    object({id: room, cursor: text, limit}, ["id"]), reads, (input, signal) => query("browseroom", input, signal));
+  register("tiny.read_thread", "Read a thread in a room: the root message and its replies, newest first.",
+    object({id: room, event: hash, cursor: text, limit}, ["id", "event"]), reads, (input, signal) => query("browsethread", input, signal));
+
   const readMethods = ["stats", "getpolicy", "listaudit", "listjobs", "listbackups", "listdumps", "deliverystatus", "storagestats", "gitstorage", "listconnections", "listmembers"];
   register("tiny.read_management", "Read relay configuration, jobs, backups, delivery status or members using your connected signer. gitstorage requires owner and repo.",
     object({method: {type: "string", enum: readMethods}, owner: pubkey, repo: id}, ["method"]), reads,
@@ -159,6 +167,30 @@
       const search = params.toString();
       return open("/wiki/" + encodeURIComponent(input.d) + (search ? "?" + search : ""));
     });
+  register("tiny.open_room", "Open a chat room in this tab, or the rooms list when no id is given.",
+    object({id: room}), {}, input => open(input.id ? "/rooms/" + encodeURIComponent(input.id) : "/rooms"));
+
+  // post_message signs a chat message with the connected signer and
+  // publishes it once. Keys named in mentions become p tags.
+  async function postMessage(input, signal) {
+    const content = String(input.text || "").trim();
+    if (!content) throw new Error("Enter a message.");
+    if (!window.nostr?.signEvent) throw new Error("Connect a Nostr signer first.");
+    if (!window.tinySignedFetch) throw new Error("The signer is still loading. Try again.");
+    const tags = [["h", input.room]];
+    for (const key of input.mentions || []) if (!tags.some(tag => tag[0] === "p" && tag[1] === key)) tags.push(["p", key]);
+    const unsigned = {kind: 9, created_at: Math.floor(Date.now() / 1000), tags, content};
+    const expected = JSON.stringify(unsigned);
+    const event = await window.nostr.signEvent(JSON.parse(expected));
+    const actual = event && JSON.stringify({kind: event.kind, created_at: event.created_at, tags: event.tags, content: event.content});
+    if (actual !== expected || (window.NostrSigner?.verifyEvent && !window.NostrSigner.verifyEvent(event))) throw new Error("The signer returned an invalid or changed event.");
+    const response = await window.tinySignedFetch(local("/events"), "POST", JSON.stringify(event), {contentType: "application/json", signal});
+    const value = await responseJSON(response);
+    if (value.accepted !== true) throw new Error(value.message || "The relay rejected the message.");
+    return {id: event.id, room: input.room, created_at: event.created_at};
+  }
+  register("tiny.post_message", "Post a chat message to a room as the connected signer. mentions lists 64-character hex keys to notify.",
+    object({room, text: {type: "string", minLength: 1, maxLength: 4000}, mentions: {type: "array", items: pubkey}}, ["room", "text"]), changes, postMessage);
   register("tiny.open_link", "Open a nostr link in this tab: an npub, nprofile, note, nevent, naddr or 64-character event id, with or without a nostr: or web+nostr: prefix.",
     object({target: {type: "string", minLength: 1, maxLength: 512}}, ["target"]), {}, input => open("/open?target=" + encodeURIComponent(input.target)));
   register("tiny.read_notifications", "Read whether this device receives relay notifications, which categories it chose and the browser permission state.",
