@@ -169,6 +169,38 @@ func TestMCPJobToolsBuildValidateAndPublish(t *testing.T) {
 	}
 }
 
+func TestJobAnswersWakeTheRequesterAsMentions(t *testing.T) {
+	_, tenant, member, agent := jobTenant(t)
+	ctx := context.Background()
+	now := time.Now().Unix()
+	request := wikiPublish(t, tenant, testMemberSecret, 5001, now-100, "", []string{"i", "hello", "text"})
+	result := event.Event{Kind: 6001, PubKey: agent, CreatedAt: now, Tags: [][]string{{"e", request.ID}, {"p", member}}, Content: "hola"}
+	notices := tenant.pushNotices(ctx, result)
+	if len(notices) != 1 || notices[0].category != pushMentions || notices[0].recipient != member || notices[0].body != "job 5001 result" || !strings.HasSuffix(notices[0].url, "/e/"+result.ID) || len(notices[0].actions) != 0 {
+		t.Fatalf("result notices %+v", notices)
+	}
+	for status, want := range map[string]int{"error": 1, "payment-required": 1, "processing": 0, "success": 0, "partial": 0} {
+		feedback := event.Event{Kind: 7000, PubKey: agent, CreatedAt: now, Tags: [][]string{{"status", status}, {"e", request.ID}, {"p", member}}}
+		notices := tenant.pushNotices(ctx, feedback)
+		if len(notices) != want {
+			t.Fatalf("%s feedback notices %+v", status, notices)
+		}
+		if want == 1 && (notices[0].category != pushMentions || notices[0].body != "job 5001 "+status) {
+			t.Fatalf("%s feedback notice %+v", status, notices[0])
+		}
+	}
+	// Feedback for a request the relay does not hold names its own kind.
+	elsewhere := event.Event{Kind: 7000, PubKey: agent, CreatedAt: now, Tags: [][]string{{"status", "error"}, {"e", strings.Repeat("e", 64)}, {"p", member}}}
+	if notices := tenant.pushNotices(ctx, elsewhere); len(notices) != 1 || notices[0].body != "job 7000 error" {
+		t.Fatalf("elsewhere notices %+v", notices)
+	}
+	// The requester's own feedback wakes nobody.
+	own := event.Event{Kind: 7000, PubKey: member, CreatedAt: now, Tags: [][]string{{"status", "error"}, {"e", request.ID}, {"p", member}}}
+	if notices := tenant.pushNotices(ctx, own); len(notices) != 0 {
+		t.Fatalf("own notices %+v", notices)
+	}
+}
+
 func TestBrowseJobsListsRequestsWithStatusAndResults(t *testing.T) {
 	_, tenant, member, agent := jobTenant(t)
 	ctx := context.Background()

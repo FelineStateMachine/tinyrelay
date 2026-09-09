@@ -91,6 +91,15 @@ func (t *Tenant) pushNotices(ctx context.Context, e event.Event) []pushNotice {
 	if kind, ok := approvalRequest(e); ok {
 		return t.approvalNotices(e, kind)
 	}
+	// A job result, or feedback that needs the requester's attention,
+	// reaches the requester as a mention.
+	if status, ok := jobNotice(e); ok {
+		body := "job " + t.jobRequestKind(ctx, e) + " " + status
+		for _, recipient := range pushRecipients(e) {
+			notices = append(notices, pushNotice{recipient: recipient, category: pushMentions, body: body, url: base + "/e/" + e.ID})
+		}
+		return notices
+	}
 	switch e.Kind {
 	case event.KIND_WRAP, 4:
 		for _, recipient := range pushRecipients(e) {
@@ -144,6 +153,38 @@ func (t *Tenant) pushNotices(ctx context.Context, e event.Event) []pushNotice {
 		}
 	}
 	return notices
+}
+
+// jobNotice reports whether a long task event wakes its requester and with
+// which status: every result does, and feedback does when it asks for
+// payment or reports an error. Progress and success feedback stay quiet,
+// since the result follows.
+func jobNotice(e event.Event) (string, bool) {
+	if event.IsJobResult(e.Kind) {
+		return "result", true
+	}
+	if e.Kind != event.KIND_JOB_FEEDBACK {
+		return "", false
+	}
+	status := event.Tag(e, "status")
+	return status, status == "error" || status == "payment-required"
+}
+
+// jobRequestKind names the request kind an answer belongs to: a result
+// says it by its own kind, and feedback by the request the relay holds.
+func (t *Tenant) jobRequestKind(ctx context.Context, e event.Event) string {
+	if event.IsJobResult(e.Kind) {
+		return strconv.Itoa(e.Kind - 1000)
+	}
+	id := event.Tag(e, "e")
+	if len(id) != 64 {
+		return strconv.Itoa(e.Kind)
+	}
+	rows, err := t.store.Query(ctx, event.Filter{IDs: []string{id}, Tags: map[string][]string{}}, storage.QueryOptions{Now: time.Now().Unix(), Access: storage.Access{All: true}, Limit: 1})
+	if err != nil || len(rows.Events) == 0 || !event.IsJobRequest(rows.Events[0].Kind) {
+		return strconv.Itoa(e.Kind)
+	}
+	return strconv.Itoa(rows.Events[0].Kind)
 }
 
 // pushRecipients lists the addressed keys other than the author, bounded so
