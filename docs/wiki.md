@@ -28,6 +28,14 @@ Accepting a request does not change the article by itself. The destination autho
 
 A redirect is a kind 30819 event whose `d` tag is the alternative name and whose `a` tag points to the article it stands for, so `btc` can lead to `bitcoin` without copying the content. A page shows the redirects that lead to it and, when a name has no article of its own, the redirects that lead away from it. Several redirects for one name can serve as a disambiguation list.
 
+## In the web UI
+
+The Wiki tab lists pages with the version shown by default, the number of versions, the open merge requests and the latest change. The search box matches titles and summaries. A page shows its article under a line with the name, the author, the version count and the number of forks. The panel lists the other versions, the names that lead to the page, and links to edit or fork the page and to view its history. A name that has no page yet offers the editor to signed-in members.
+
+An open merge request aimed at the shown version appears above the article. Compare shows the proposed version above the current one. The destination author accepts or rejects the request with one press, which signs a reaction; anyone can reply on the request's event page.
+
+The editor takes a title, a name, a summary and Djot content, and publishes with the connected signer. The name follows the title until it is edited and is normalized the way the relay normalizes it. Someone other than the page's author publishes a fork of the version in view and can propose it to that author, which also publishes a merge request. Publishing needs JavaScript and a signer; reading does not.
+
 ## Browser tools
 
 Browser agents read the same information through three queries: `browsewiki` lists pages with optional `q`, `author`, `limit` and `cursor` parameters; `browsewikipage` returns one page by `d` with optional `author` and `version`; and `browsewikimerge` returns one merge request by `id` with its proposed and target versions. See [Browser tools](webmcp.md).

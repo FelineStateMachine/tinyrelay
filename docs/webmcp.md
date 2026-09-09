@@ -1,6 +1,10 @@
 # Browser tools
 
-Every page registers tools for your browser agent; **Manage > Health** reports whether they are ready, and Chrome's Application panel lists them with their calls. The agent can browse repositories, files, issues and pull requests, list the requests that wait for your decision, inspect service status, manage background jobs, create backups, update relay settings, open Nostr links, the Files page and the Approvals page, read this device's notification state and, as the owner, send a test notification. Turning notifications on stays a manual step, since the browser asks the person for permission.
+Every page registers tools for your browser agent; **Manage > Health** reports whether they are ready, and Chrome's Application panel lists them with their calls. The agent can browse repositories, files, issues and pull requests, list and read wiki pages and merge requests, list the requests that wait for your decision, inspect service status, manage background jobs, create backups, update relay settings, open Nostr links, the Files page, wiki pages and the Approvals page, read this device's notification state and, as the owner, send a test notification. Turning notifications on stays a manual step, since the browser asks the person for permission.
+
+## Wiki
+
+Four tools cover the wiki. `tiny.list_wiki` lists pages with their shown version, version count and open merge requests; `q` searches titles and summaries and `author` prefers that key's versions. `tiny.read_wiki_page` returns one page with its content, links, every version, merge requests and redirects; `author` or `version` picks the version shown. `tiny.read_merge_request` returns one merge request with its answer, the proposed version and the destination author's current version. `tiny.open_wiki_page` opens the page list, one page, one version, the editor or the compare view for a merge request. The tools take a page name or title and normalize it the way the relay does. Publishing a version and answering a merge request stay signed actions on the page.
 
 ## Approvals
 

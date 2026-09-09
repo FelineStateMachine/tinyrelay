@@ -104,6 +104,13 @@
     (input, signal) => query("browseapprovals", input, signal));
   register("tiny.read_approval", "Read one request for a decision by event id with every reaction and reply from the people asked.",
     object({id: hash}, ["id"]), reads, (input, signal) => query("browseapproval", input, signal));
+  const pageName = {type: "string", minLength: 1, maxLength: 512, description: "Page name or title; the relay normalizes it to the NIP-54 d tag."};
+  register("tiny.list_wiki", "List wiki pages with their shown version, version count and open merge requests. Supports search by title or summary, an author filter and pagination.",
+    object({q: text, author: pubkey, cursor: text, limit}), reads, (input, signal) => query("browsewiki", input, signal));
+  register("tiny.read_wiki_page", "Read one wiki page: the shown version with its Djot content and links, every version, merge requests and redirects. Use author or version to pick a version.",
+    object({d: pageName, author: pubkey, version: hash}, ["d"]), reads, (input, signal) => query("browsewikipage", input, signal));
+  register("tiny.read_merge_request", "Read a wiki merge request by event id with its answer, the proposed version and the destination author's current version.",
+    object({id: hash}, ["id"]), reads, (input, signal) => query("browsewikimerge", input, signal));
 
   const readMethods = ["stats", "getpolicy", "listaudit", "listjobs", "listbackups", "listdumps", "deliverystatus", "storagestats", "gitstorage", "listconnections", "listmembers"];
   register("tiny.read_management", "Read relay configuration, jobs, backups, delivery status or members using your connected signer. gitstorage requires owner and repo.",
@@ -142,6 +149,16 @@
   register("tiny.open_files", "Open the Files page in this tab, where files and folders upload and shared items wait.", object(), {}, () => open("/files"));
   register("tiny.open_approvals", "Open the Approvals page in this tab, where requests for a decision wait. Pass id to focus one request; the person answers with a signed tap.",
     object({id: hash}), {}, input => open("/approvals" + (input.id ? "?id=" + encodeURIComponent(input.id) : "")));
+  register("tiny.open_wiki_page", "Open a wiki page in this tab. Omit d for the page list. version opens one version by event id; merge opens the compare view for a merge request; edit opens the editor.",
+    object({d: pageName, version: hash, merge: hash, edit: {type: "boolean"}}), {}, input => {
+      if (!input.d) return open("/wiki");
+      const params = new URLSearchParams();
+      if (input.version) params.set("version", input.version);
+      if (input.merge) params.set("merge", input.merge);
+      if (input.edit) params.set("edit", "1");
+      const search = params.toString();
+      return open("/wiki/" + encodeURIComponent(input.d) + (search ? "?" + search : ""));
+    });
   register("tiny.open_link", "Open a nostr link in this tab: an npub, nprofile, note, nevent, naddr or 64-character event id, with or without a nostr: or web+nostr: prefix.",
     object({target: {type: "string", minLength: 1, maxLength: 512}}, ["target"]), {}, input => open("/open?target=" + encodeURIComponent(input.target)));
   register("tiny.read_notifications", "Read whether this device receives relay notifications, which categories it chose and the browser permission state.",

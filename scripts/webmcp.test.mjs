@@ -211,3 +211,38 @@ test("agent tools list through the signer, read through the session and control 
     assert.deepEqual(calls.at(-1).body, {method, params: [agent]});
   }
 });
+
+test("wiki tools read pages and merge requests and open pages in the tenant", async () => {
+  const requests = [];
+  const {tools, sandbox} = await browser({path: "/r/work/wiki", fetch: async url => {
+    requests.push(new URL(url, "https://tiny.example"));
+    return new Response(JSON.stringify({items: [{d: "release-notes-1-4"}], d: "release-notes-1-4", merge: {status: "open"}}));
+  }});
+  for (const [name, method, input] of [
+    ["tiny.list_wiki", "browsewiki", {q: "release", limit: 10}],
+    ["tiny.read_wiki_page", "browsewikipage", {d: "Release Notes 1.4", version: "b".repeat(64)}],
+    ["tiny.read_merge_request", "browsewikimerge", {id: "c".repeat(64)}]
+  ]) {
+    const tool = tools.get(name);
+    assert.equal(tool.annotations.readOnlyHint, true);
+    const result = await tool.execute(input);
+    const url = requests.at(-1);
+    assert.equal(url.pathname, "/r/work/webmcp/query");
+    assert.equal(url.searchParams.get("method"), method);
+    assert.deepEqual(JSON.parse(url.searchParams.get("params")), [input]);
+    assert.equal(result.structuredContent.result.d, "release-notes-1-4");
+  }
+  const open = tools.get("tiny.open_wiki_page");
+  assert.equal(open.annotations.readOnlyHint, undefined);
+  await open.execute({});
+  assert.equal(new URL(sandbox.opened).pathname, "/r/work/wiki");
+  await open.execute({d: "日本語 Article", merge: "c".repeat(64)});
+  let opened = new URL(sandbox.opened);
+  assert.equal(opened.pathname, "/r/work/wiki/" + encodeURIComponent("日本語 Article"));
+  assert.equal(opened.searchParams.get("merge"), "c".repeat(64));
+  await open.execute({d: "release-notes-1-4", edit: true, version: "b".repeat(64)});
+  opened = new URL(sandbox.opened);
+  assert.equal(opened.pathname, "/r/work/wiki/release-notes-1-4");
+  assert.equal(opened.searchParams.get("edit"), "1");
+  assert.equal(opened.searchParams.get("version"), "b".repeat(64));
+});
