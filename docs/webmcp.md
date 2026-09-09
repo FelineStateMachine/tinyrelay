@@ -8,4 +8,18 @@ In Chrome, enable **WebMCP for testing** at `chrome://flags/#enable-webmcp-testi
 
 Read the current policy or connection list before changing settings. Job intervals are measured in hours; zero runs once.
 
+## Agents
+
+The owner and moderators can also manage [agent grants](agents.md) through the browser agent:
+
+| Tool | What it does |
+| --- | --- |
+| `tiny.list_agents` | Lists every agent with its name, public key, owner, scope, state, expiry and last event. Read-only; uses the connected signer. |
+| `tiny.read_agent` | Reads one agent's grant and its 10 newest events. Read-only; uses the browser session. |
+| `tiny.pause_agent` | Pauses an agent. The grant stays and its writes are rejected until it is resumed. |
+| `tiny.resume_agent` | Resumes a paused agent. |
+| `tiny.revoke_agent` | Revokes an agent's grant. Only a new grant restores its access. |
+
+Each control takes the agent's public key and requests a signature. Signing a new grant stays on the **Manage > Agents** page, since the secret key of a generated agent is shown to the person once.
+
 Agents that run outside the browser use the same tools over the relay's MCP endpoint. See [MCP](mcp.md).

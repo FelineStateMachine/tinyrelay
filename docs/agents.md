@@ -81,6 +81,23 @@ You can also revoke a grant with your signer:
 
 Either way the agent loses its role at once. A fresh grant restores access.
 
+## Manage > Agents
+
+The **Manage > Agents** page is where the owner and moderators see and control agents. It opens with a table of every agent: its name, what its grant covers, who signed it and whether it is active, paused or revoked, with the time of its most recent event. Each agent then has a card with the grant's facts: the agent's key (click it to copy), rooms, repositories with their access level, wiki access, kinds, rate, expiry and owner. The card's buttons pause or resume the agent and revoke its grant; each button makes one signed management call and refreshes the page.
+
+Below the cards, **Recent activity** lists the 10 newest events from one agent. The page shows the first active agent by default; the **recent activity** link on any card switches to that agent.
+
+The side panel counts active, paused and revoked agents, lists the machine access points, and holds the kill switch: **Pause all agents** and **Resume all agents**. Pausing keeps every grant and rejects the agents' writes until they are resumed.
+
+### Add an agent
+
+The **New agent** form signs a grant with your connected signer. Give the agent a name and choose its key:
+
+- **Generate here, show once** makes a new key in your browser. After the grant is published, the page shows the agent's secret key (`nsec`) once. Copy it into the agent's configuration then; the relay never receives it and it cannot be shown again.
+- **Paste a public key** grants an agent that already has a key.
+
+Add the rooms and kinds the agent may post in, one repository per line as `<owner pubkey>:<identifier>:read` or `:maintain`, wiki access, a rate and an expiry date. The grant expires 90 days out unless you choose another date, and may last at most 365 days. Fields the relay would refuse are reported before anything is signed. Publishing a grant for an agent that already has one replaces it.
+
 ## Discovery
 
 While at least one agent is active, the relay's information document includes an `agents` capability entry, so clients and other agents can tell that this relay accepts granted agents. The entry carries no agent details.
