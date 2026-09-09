@@ -80,7 +80,7 @@ func wikiGet(t *testing.T, app *App, path string) string {
 	if strings.Contains(body, "class=") {
 		t.Fatalf("%s carries a class attribute", path)
 	}
-	if strings.Contains(body, "·") {
+	if strings.Contains(body, "\u00b7") {
 		t.Fatalf("%s carries a middle dot", path)
 	}
 	return body
