@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/FelineStateMachine/tinyrelay/internal/catalog"
+	"github.com/FelineStateMachine/tinyrelay/internal/community"
 	"github.com/FelineStateMachine/tinyrelay/internal/domains"
 	"github.com/FelineStateMachine/tinyrelay/internal/event"
 	"github.com/FelineStateMachine/tinyrelay/internal/policy"
@@ -88,6 +89,8 @@ func (t *Tenant) executeManagement(ctx context.Context, actor, method string, pa
 		return t.identity(), true, nil
 	case "transferowner":
 		return t.transferOwner(ctx, actor, params)
+	case "listagents", "pauseagent", "resumeagent", "revokeagent", "pauseallagents", "resumeallagents":
+		return t.agentExecute(ctx, actor, method, params)
 	case "forkrelay":
 		return t.forkRelay(ctx, actor, params)
 	case "deleterelay":
@@ -98,7 +101,7 @@ func (t *Tenant) executeManagement(ctx context.Context, actor, method string, pa
 }
 
 func managementAdapterMethod(method string) bool {
-	for _, name := range []string{"listconnectiontemplates", "listconnections", "setconnections", "changerelayname", "changerelaydescription", "changerelayicon", "adddomain", "setdomainsite", "checkdomain", "removedomain", "listdomains", "listblobs", "deleteblob", "listsites", "deleteevent", "listrecentevents", "searchevents", "storagestats", "publishview", "gitstorage", "resetrules", "getidentity", "transferowner", "forkrelay", "deleterelay"} {
+	for _, name := range []string{"listconnectiontemplates", "listconnections", "setconnections", "changerelayname", "changerelaydescription", "changerelayicon", "adddomain", "setdomainsite", "checkdomain", "removedomain", "listdomains", "listblobs", "deleteblob", "listsites", "deleteevent", "listrecentevents", "searchevents", "storagestats", "publishview", "gitstorage", "resetrules", "getidentity", "transferowner", "forkrelay", "deleterelay", "listagents", "pauseagent", "resumeagent", "revokeagent", "pauseallagents", "resumeallagents"} {
 		if method == name {
 			return true
 		}
@@ -125,7 +128,7 @@ func publicManagementMethod(method string) bool {
 // ManagementMethods is the source-compatible NIP-86 registry. The hosted
 // lease, trial, fuel, and entitlement controls are intentionally absent.
 func ManagementMethods() []string {
-	return []string{"supportedmethods", "listaudit", "stats", "getpolicy", "setpolicy", "listviews", "banpubkey", "setblockedwords", "allowpubkey", "setmember", "unrulepubkey", "removemember", "listbannedpubkeys", "listallowedpubkeys", "listmembers", "listpeople", "createinvite", "listinvites", "revokeinvite", "listclaims", "listlisthistory", "restorelist", "createclaim", "deleteclaim", "removesubtree", "banevent", "allowevent", "listeventsneedingmoderation", "blockip", "unblockip", "listblockedips", "listreports", "resolvereport", "exportconfig", "importconfig", "deleterelay", "listblobs", "listsites", "deleteblob", "deleteevent", "listrecentevents", "searchevents", "pinevent", "unpinevent", "listpins", "allowkind", "disallowkind", "unrulekind", "storagestats", "gitstorage", "setretention", "listretention", "purgekind", "listallowedkinds", "listblockedkinds", "notifytest", "resetrules", "listpresets", "listconnectiontemplates", "listconnections", "setconnections", "applypreset", "forkrelay", "pullfrom", "pullstatus", "listjobs", "deliverystatus", "addjob", "removejob", "runjob", "backfill", "transferowner", "listdumps", "deletedump", "dumpnow", "backupnow", "listbackups", "deletebackup", "setsuccession", "clearsuccession", "successionstatus", "changerelayname", "changerelaydescription", "changerelayicon", "adddomain", "setdomainsite", "checkdomain", "removedomain", "listdomains"}
+	return []string{"supportedmethods", "listaudit", "stats", "getpolicy", "setpolicy", "listviews", "banpubkey", "setblockedwords", "allowpubkey", "setmember", "unrulepubkey", "removemember", "listbannedpubkeys", "listallowedpubkeys", "listmembers", "listpeople", "createinvite", "listinvites", "revokeinvite", "listclaims", "listlisthistory", "restorelist", "createclaim", "deleteclaim", "removesubtree", "banevent", "allowevent", "listeventsneedingmoderation", "blockip", "unblockip", "listblockedips", "listreports", "resolvereport", "exportconfig", "importconfig", "deleterelay", "listblobs", "listsites", "deleteblob", "deleteevent", "listrecentevents", "searchevents", "pinevent", "unpinevent", "listpins", "allowkind", "disallowkind", "unrulekind", "storagestats", "gitstorage", "setretention", "listretention", "purgekind", "listallowedkinds", "listblockedkinds", "notifytest", "resetrules", "listpresets", "listconnectiontemplates", "listconnections", "setconnections", "applypreset", "forkrelay", "pullfrom", "pullstatus", "listjobs", "deliverystatus", "addjob", "removejob", "runjob", "backfill", "transferowner", "listdumps", "deletedump", "dumpnow", "backupnow", "listbackups", "deletebackup", "setsuccession", "clearsuccession", "successionstatus", "changerelayname", "changerelaydescription", "changerelayicon", "adddomain", "setdomainsite", "checkdomain", "removedomain", "listdomains", "listagents", "pauseagent", "resumeagent", "revokeagent", "pauseallagents", "resumeallagents"}
 }
 
 func managementRoleAllows(method, role string) bool {
@@ -135,7 +138,7 @@ func managementRoleAllows(method, role string) bool {
 	if role != "moderator" {
 		return false
 	}
-	for _, name := range []string{"listconnectiontemplates", "listconnections", "listblobs", "listsites", "listrecentevents", "searchevents", "storagestats", "deleteevent"} {
+	for _, name := range []string{"listconnectiontemplates", "listconnections", "listblobs", "listsites", "listrecentevents", "searchevents", "storagestats", "deleteevent", "listagents", "pauseagent", "resumeagent", "revokeagent", "pauseallagents", "resumeallagents"} {
 		if method == name {
 			return true
 		}
@@ -276,6 +279,44 @@ func (t *Tenant) transferOwner(ctx context.Context, actor string, params []json.
 	return map[string]any{"owner": next, "previousOwner": current}, true, nil
 }
 
+// agentExecute serves the agent kill switch and inventory. The community
+// service records each change in the audit log; this adapter only shapes
+// parameters and logs counts.
+func (t *Tenant) agentExecute(ctx context.Context, actor, method string, params []json.RawMessage) (any, bool, error) {
+	now := time.Now().Unix()
+	switch method {
+	case "listagents":
+		agents, err := t.community.Agents(ctx)
+		return agents, true, err
+	case "pauseallagents", "resumeallagents":
+		changed, err := t.community.SetAllAgentsPaused(ctx, actor, method == "pauseallagents")
+		if err != nil {
+			return nil, true, err
+		}
+		t.app.telemetry.Logger().Info("agent grants changed", "tenant", t.meta.Name, "action", method, "changed", changed)
+		return map[string]any{"changed": changed, "paused": method == "pauseallagents"}, true, nil
+	}
+	agent := stringParam(params, 0)
+	if len(agent) != 64 {
+		return nil, true, errors.New("invalid: agent public key required")
+	}
+	if _, err := hex.DecodeString(agent); err != nil {
+		return nil, true, errors.New("invalid: agent public key required")
+	}
+	var grant community.AgentGrant
+	var err error
+	switch method {
+	case "pauseagent", "resumeagent":
+		grant, err = t.community.SetAgentPaused(ctx, actor, agent, method == "pauseagent")
+	case "revokeagent":
+		grant, err = t.community.RevokeAgent(ctx, actor, agent, now)
+	}
+	if err != nil {
+		return nil, true, err
+	}
+	return grant, true, nil
+}
+
 func (t *Tenant) deleteRelay(ctx context.Context, params []json.RawMessage) (any, bool, error) {
 	name := stringParam(params, 0)
 	if name == "" || !strings.EqualFold(name, t.meta.Name) {
@@ -403,7 +444,7 @@ func copyForkConfig(ctx context.Context, source, target *storage.Store) error {
 }
 
 func copyForkPeople(ctx context.Context, source, target *storage.Store, owner string) error {
-	rows, err := source.DB().QueryContext(ctx, `SELECT pubkey,name,note,role,invited_by,via,created_at,keep_days FROM community_members WHERE role<>'owner'`)
+	rows, err := source.DB().QueryContext(ctx, `SELECT pubkey,name,note,role,invited_by,via,created_at,keep_days FROM community_members WHERE role<>'owner' AND role<>'agent'`)
 	if err != nil {
 		return fmt.Errorf("fork members: %w", err)
 	}

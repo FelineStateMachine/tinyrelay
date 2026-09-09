@@ -275,6 +275,7 @@ func (t *Tenant) Publish(ctx context.Context, e event.Event, s relay.Session) (s
 			})
 		}
 	}
+	opts.BeforeCommit = t.agentBeforeCommit(e, now, opts.BeforeCommit)
 	opts.Intents = append(opts.Intents, t.replication.Prepare(e, replication.OriginClient)...)
 	if callbackIntents, callbackErr := t.PrepareReplicationCallbacks(ctx, e); callbackErr != nil {
 		return "", callbackErr
@@ -390,6 +391,22 @@ func (t *Tenant) Publish(ctx context.Context, e event.Event, s relay.Session) (s
 	}
 	outcome = "ok"
 	return "", nil
+}
+
+// agentBeforeCommit mirrors agent grants and grant deletions into the agent
+// table and roster in the same transaction that stores the event.
+func (t *Tenant) agentBeforeCommit(e event.Event, now int64, before func(context.Context, *sql.Tx) error) func(context.Context, *sql.Tx) error {
+	if e.Kind != event.KIND_AGENT_GRANT && e.Kind != event.KIND_DELETION {
+		return before
+	}
+	return func(txCtx context.Context, tx *sql.Tx) error {
+		if before != nil {
+			if err := before(txCtx, tx); err != nil {
+				return err
+			}
+		}
+		return t.community.ApplyAgentEventTx(txCtx, tx, e, now)
+	}
 }
 
 func (t *Tenant) vanish(ctx context.Context, e event.Event) error {

@@ -44,6 +44,9 @@ func (t *Tenant) Capabilities(peers *PeerMonitor) []Capability {
 	if t.community != nil {
 		setCapability(capabilities, "NIP-43", Capability{ID: "NIP-43", Status: "enabled", Reason: "membership protocol"})
 		setCapability(capabilities, "NIP-56", Capability{ID: "NIP-56", Status: "enabled", Reason: "moderation reports"})
+		if active, err := t.community.ActiveAgentCount(context.Background(), time.Now().Unix()); err == nil && active > 0 {
+			capabilities = append(capabilities, Capability{ID: "agents", Status: "enabled", Reason: "agent identities under owner-signed grants"})
+		}
 	}
 	if t.blobs != nil && p.Features.Files {
 		setCapability(capabilities, "NIP-94", Capability{ID: "NIP-94", Status: "enabled", Reason: "file metadata descriptors"})

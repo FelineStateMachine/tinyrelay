@@ -652,6 +652,7 @@ func (t *Tenant) commitImported(ctx context.Context, e event.Event, origin repli
 	if e.Kind == 30023 {
 		opts.Intents = append(opts.Intents, storage.Intent{Kind: "view-publish", EventID: e.ID, Target: "articles", Payload: "{}"})
 	}
+	opts.BeforeCommit = t.agentBeforeCommit(e, opts.Now, opts.BeforeCommit)
 	_, err := t.store.Save(ctx, e, opts)
 	if err == nil {
 		t.notifyDevices(ctx, e)

@@ -322,9 +322,14 @@ func statusFor(err error) int {
 func (t *Tenant) information(w http.ResponseWriter, r *http.Request) {
 	p := t.Policy()
 	nips := []int{}
+	var agents *Capability
 	for _, capability := range t.Capabilities(nil) {
 		if capability.Status != "enabled" {
 			continue
+		}
+		if capability.ID == "agents" {
+			entry := capability
+			agents = &entry
 		}
 		if number, ok := capabilityNIPNumber(capability.ID); ok {
 			nips = append(nips, number)
@@ -361,6 +366,9 @@ func (t *Tenant) information(w http.ResponseWriter, r *http.Request) {
 	}
 	if p.Features.Grasp && t.git != nil {
 		info["supported_grasps"] = t.git.SupportedGRASPs()
+	}
+	if agents != nil {
+		info["agents"] = *agents
 	}
 	if p.Features.Sites.Enabled && !privatePolicy(p) {
 		base, _ := url.Parse(t.publicURL)
