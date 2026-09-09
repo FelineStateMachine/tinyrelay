@@ -32,6 +32,13 @@ type roomSummary struct {
 	Role          string `json:"role"`
 }
 
+// roomMemberView is a room member with the relay-level marker a page needs:
+// whether the member is an agent identity.
+type roomMemberView struct {
+	community.RoomMember
+	Agent bool `json:"agent,omitempty"`
+}
+
 func roomBrowseMethod(method string) bool {
 	return method == "browserooms" || method == "browseroom" || method == "browsethread"
 }
@@ -127,11 +134,18 @@ func (t *Tenant) browseRoom(ctx context.Context, actor string, q roomBrowseReque
 	if err != nil {
 		return nil, err
 	}
-	members := []community.RoomMember{}
+	members := []roomMemberView{}
 	if role != "" || t.Policy().DirectoryPublic {
-		members, err = t.community.RoomMembers(ctx, room.ID)
+		rows, err := t.community.RoomMembers(ctx, room.ID)
 		if err != nil {
 			return nil, err
+		}
+		for _, row := range rows {
+			tenantRole, err := t.community.Role(ctx, row.PubKey)
+			if err != nil {
+				return nil, err
+			}
+			members = append(members, roomMemberView{RoomMember: row, Agent: tenantRole == "agent"})
 		}
 	}
 	messages, next, err := t.roomMessages(ctx, actor, event.Filter{Kinds: roomMessageKinds, Tags: map[string][]string{"h": {room.ID}}}, cursor, q.Limit)
