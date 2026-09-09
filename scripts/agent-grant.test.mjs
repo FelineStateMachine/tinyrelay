@@ -151,3 +151,12 @@ test("tags dedupe rooms, repositories and kinds", () => {
   const tags = Constructor.tags({name: " bot ", expires: dateAfter(10), rooms: "a a, b", repos: `${repoOwner}:r:read\n${repoOwner}:r:maintain`, kinds: "1 1 2", wiki: "", rate: ""}, agent);
   assert.deepEqual(JSON.parse(JSON.stringify(tags)).filter(tag => tag[0] !== "expiration"), [["d", agent], ["p", agent], ["name", "bot"], ["room", "a"], ["room", "b"], ["repo", `${repoOwner}:r:read`], ["k", "1"], ["k", "2"]]);
 });
+
+test("a repository line accepts the propose level", async () => {
+  const s = setup({repos: `${repoOwner}:tinyrelay:propose\n${repoOwner}:docs:read`, kinds: "1621, 1111"});
+  await s.component.submit(s.form);
+  const {event} = s.sent[0];
+  assert.deepEqual(event.tags.filter(tag => tag[0] === "repo"), [["repo", `${repoOwner}:tinyrelay:propose`], ["repo", `${repoOwner}:docs:read`]]);
+  const {Constructor} = setup();
+  assert.throws(() => Constructor.tags({name: "bot", expires: dateAfter(10), rooms: "", repos: `${repoOwner}:tinyrelay:proposer`, kinds: "", wiki: "", rate: ""}, "d".repeat(64)), /propose, read or maintain/);
+});

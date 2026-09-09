@@ -34,7 +34,7 @@ func (b *agentsBackend) Query(_ context.Context, method string, params []json.Ra
 	scope := func(rooms []string, repos []map[string]any, wiki string, kinds []int) map[string]any {
 		return map[string]any{"rooms": rooms, "repos": repos, "wiki": wiki, "kinds": kinds, "rate": 60}
 	}
-	hermes := scope([]string{"build", "agents"}, []map[string]any{{"owner": owner, "identifier": "tinyrelay", "level": "maintain"}}, "propose", []int{9, 1111, 1621})
+	hermes := scope([]string{"build", "agents"}, []map[string]any{{"owner": owner, "identifier": "tinyrelay", "level": "maintain"}, {"owner": owner, "identifier": "docs", "level": "propose"}}, "propose", []int{9, 1111, 1621})
 	hermes["sites"] = []map[string]any{{"label": agentSite, "ttl": 30, "encrypted": true}, {"label": "*"}}
 	agents := []any{
 		map[string]any{"pubkey": agentActive, "owner": owner, "name": "hermes", "expires": now + 86400*30, "paused": false, "revoked": 0, "lastEvent": now - 120, "scope": hermes},
@@ -92,7 +92,7 @@ func TestAgentsPageRendersTableCardsActivityAndGrantForm(t *testing.T) {
 		`<a href="/manage/agents" aria-current="page">/agents</a>`,
 		`<table id="rows">`,
 		`<a href="#agent-` + agentActive + `">hermes</a>`,
-		`rooms: build, agents | repos: tinyrelay (maintain) | wiki: propose | kinds: 9, 1111, 1621 | sites: ` + agentSite + `, *`,
+		`rooms: build, agents | repos: tinyrelay (maintain), docs (propose) | wiki: propose | kinds: 9, 1111, 1621 | sites: ` + agentSite + `, *`,
 		`<tr><th>sites</th><td><code>` + agentSite + `</code> 30 days encrypted<br><code>*</code></td></tr>`,
 		`<tr><th>sites</th><td>none</td></tr>`,
 		`<textarea name="sites" placeholder="npub1... ttl=30 encrypted&#10;* ttl=7"></textarea>`,
@@ -103,6 +103,8 @@ func TestAgentsPageRendersTableCardsActivityAndGrantForm(t *testing.T) {
 		`<agent-card id="agent-` + agentActive + `">`,
 		`<h3>hermes <small><span data-state="active">active</span> | signed by you | expires `,
 		`<code>tinyrelay</code> maintain, owner <nostr-name pubkey="` + backend.policy.Owner + `"`,
+		`<br><code>docs</code> propose, owner <nostr-name pubkey="` + backend.policy.Owner + `"`,
+		`<textarea name="repos" placeholder="owner pubkey:identifier:propose&#10;owner pubkey:identifier:read&#10;owner pubkey:identifier:maintain">`,
 		`<th>rate</th><td>60 events per minute</td>`,
 		`<rpc-form method="pauseagent" refresh><input type="hidden" name="param" value="&quot;` + agentActive + `&quot;"><button>Pause</button></rpc-form>`,
 		`<rpc-form method="revokeagent" refresh><input type="hidden" name="param" value="&quot;` + agentActive + `&quot;"><button>Revoke</button></rpc-form>`,
@@ -239,7 +241,8 @@ func TestAgentsPageEditPrefillsTheGrantForm(t *testing.T) {
 		`<option value="paste" selected>paste a public key</option>`,
 		`<input name="pubkey" pattern="[0-9a-f]{64}" placeholder="64 hex characters" value="` + agentActive + `">`,
 		`placeholder="build, agents" value="build, agents">`,
-		`>` + strings.Repeat("a", 64) + `:tinyrelay:maintain</textarea>`,
+		`>` + strings.Repeat("a", 64) + `:tinyrelay:maintain
+` + strings.Repeat("a", 64) + `:docs:propose</textarea>`,
 		`<option value="propose" selected>propose</option>`,
 		`<textarea name="sites" placeholder="npub1... ttl=30 encrypted&#10;* ttl=7">` + agentSite + ` ttl=30 encrypted
 *</textarea>`,

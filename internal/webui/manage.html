@@ -69,7 +69,7 @@
 <label>Key <select name="key"><option value="generate">generate here, show once</option><option value="paste"{{if $edit}} selected{{end}}>paste a public key</option></select></label>
 <label>Public key <input name="pubkey" pattern="[0-9a-f]{64}" placeholder="64 hex characters"{{with $edit}} value="{{str (index (asMap .) "pubkey")}}"{{end}}></label>
 <label>Rooms <input name="rooms" placeholder="build, agents"{{with $edit}} value="{{scopeList . "rooms"}}"{{end}}></label>
-<label>Repositories <textarea name="repos" placeholder="owner pubkey:identifier:read&#10;owner pubkey:identifier:maintain">{{with $edit}}{{repoLines .}}{{end}}</textarea></label>
+<label>Repositories <textarea name="repos" placeholder="owner pubkey:identifier:propose&#10;owner pubkey:identifier:read&#10;owner pubkey:identifier:maintain">{{with $edit}}{{repoLines .}}{{end}}</textarea></label>
 <label>Wiki <select name="wiki"><option value="">none</option><option value="propose"{{if eq (str (index $es "wiki")) "propose"}} selected{{end}}>propose</option><option value="edit"{{if eq (str (index $es "wiki")) "edit"}} selected{{end}}>edit</option></select></label>
 <label>Sites <textarea name="sites" placeholder="npub1... ttl=30 encrypted&#10;* ttl=7">{{with $edit}}{{siteLines .}}{{end}}</textarea></label>
 <label>Kinds <input name="kinds" placeholder="1, 1111, 1621"{{with $edit}} value="{{scopeList . "kinds"}}"{{end}}></label>

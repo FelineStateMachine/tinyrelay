@@ -32,13 +32,22 @@ const (
 
 const agentSchema = `CREATE TABLE IF NOT EXISTS agent_grants(agent TEXT PRIMARY KEY,owner TEXT NOT NULL,event_id TEXT NOT NULL,name TEXT NOT NULL DEFAULT '',expires_at INTEGER NOT NULL,paused INTEGER NOT NULL DEFAULT 0,revoked_at INTEGER NOT NULL DEFAULT 0,scope TEXT NOT NULL DEFAULT '{}');`
 
-// AgentRepo is one repository an agent may work in. Level is "read" or
-// "maintain"; maintain includes read.
+// AgentRepo is one repository an agent may work in. Level is "propose",
+// "read" or "maintain". Propose and read publish the same kinds, but each
+// event from a propose grant is a proposal that waits for a maintainer's
+// decision; maintain adds status changes and pushes.
 type AgentRepo struct {
 	Owner      string `json:"owner"`
 	Identifier string `json:"identifier"`
 	Level      string `json:"level"`
 }
+
+// Repository grant levels.
+const (
+	AgentRepoPropose  = "propose"
+	AgentRepoRead     = "read"
+	AgentRepoMaintain = "maintain"
+)
 
 // Long task grants. AgentJobsRequest lets the agent publish job requests,
 // AgentJobsServe lets it answer requests the relay holds with results and
@@ -96,7 +105,15 @@ func (g AgentGrant) Active(now int64) bool {
 // Maintains reports whether the grant currently makes the agent a maintainer
 // of one repository: it is active and holds maintain on that exact repository.
 func (g AgentGrant) Maintains(owner, identifier string, now int64) bool {
-	return g.Active(now) && g.RepoLevel(owner, identifier) == "maintain"
+	return g.Active(now) && g.RepoLevel(owner, identifier) == AgentRepoMaintain
+}
+
+// Proposes reports whether the grant holds propose on one repository, so
+// the agent's issues, pull requests, patches and comments there are
+// proposals. A paused, revoked or expired grant keeps counting, so an
+// agent's pending events do not surface when its grant ends.
+func (g AgentGrant) Proposes(owner, identifier string) bool {
+	return g.RepoLevel(owner, identifier) == AgentRepoPropose
 }
 
 // AllowsKind reports whether the agent may publish this kind. Profiles, relay
@@ -245,7 +262,7 @@ func (g AgentGrant) Check(e event.Event, now int64) error {
 		if level == "" {
 			return fmt.Errorf("restricted: agent grant does not allow repository %s:%s", coordinate[0], coordinate[1])
 		}
-		if gitStatusKind(e.Kind) && level != "maintain" {
+		if gitStatusKind(e.Kind) && level != AgentRepoMaintain {
 			return fmt.Errorf("restricted: agent grant does not allow status changes in repository %s:%s", coordinate[0], coordinate[1])
 		}
 	}
@@ -344,7 +361,7 @@ func ParseAgentGrant(e event.Event, now int64) (AgentGrant, error) {
 	for _, value := range event.TagValues(e, "repo") {
 		repo, ok := parseAgentRepo(value)
 		if !ok {
-			return AgentGrant{}, errors.New("invalid: agent grant repo tag must be owner:identifier:read or owner:identifier:maintain")
+			return AgentGrant{}, errors.New("invalid: agent grant repo tag must be owner:identifier followed by :propose, :read or :maintain")
 		}
 		if grant.RepoLevel(repo.Owner, repo.Identifier) == "" {
 			grant.Scope.Repos = append(grant.Scope.Repos, repo)
@@ -408,7 +425,7 @@ func parseAgentRepo(value string) (AgentRepo, bool) {
 		return AgentRepo{}, false
 	}
 	level := value[last+1:]
-	if level != "read" && level != "maintain" {
+	if level != AgentRepoPropose && level != AgentRepoRead && level != AgentRepoMaintain {
 		return AgentRepo{}, false
 	}
 	parts := strings.SplitN(value[:last], ":", 2)

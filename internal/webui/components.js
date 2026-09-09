@@ -532,8 +532,8 @@
       }
       const seenRepos = new Set();
       for (const line of text("repos").split(/\r?\n/).map(line => line.trim()).filter(Boolean)) {
-        const match = /^([0-9a-f]{64}):(.+):(read|maintain)$/.exec(line);
-        if (!match || match[2].length > 256) throw Error("Repositories are owner pubkey:identifier:read or maintain, one per line.");
+        const match = /^([0-9a-f]{64}):(.+):(propose|read|maintain)$/.exec(line);
+        if (!match || match[2].length > 256) throw Error("Repositories are owner pubkey:identifier:propose, read or maintain, one per line.");
         if (seenRepos.has(match[1] + ":" + match[2])) continue;
         seenRepos.add(match[1] + ":" + match[2]);
         tags.push(["repo", line]);
