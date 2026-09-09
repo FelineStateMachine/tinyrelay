@@ -131,6 +131,35 @@ test("collaboration tools preserve repository, event and filter scope", async ()
   }
 });
 
+test("approval tools list, read and open requests for a decision", async () => {
+  const requests = [];
+  const {tools, sandbox} = await browser({path: "/r/work/approvals", fetch: async url => {
+    requests.push(new URL(url, "https://tiny.example"));
+    return new Response(JSON.stringify({items: [{id: "a".repeat(64), state: "open"}], counts: {open: 1}}));
+  }});
+  const list = tools.get("tiny.list_approvals");
+  assert.equal(list.annotations.readOnlyHint, true);
+  const listed = await list.execute({state: "open", limit: 5});
+  assert.equal(requests.at(-1).pathname, "/r/work/webmcp/query");
+  assert.equal(requests.at(-1).searchParams.get("method"), "browseapprovals");
+  assert.deepEqual(JSON.parse(requests.at(-1).searchParams.get("params")), [{state: "open", limit: 5}]);
+  assert.equal(listed.structuredContent.result.counts.open, 1);
+  assert.equal(list.inputSchema.properties.state.enum.join(","), "open,answered,expired,all");
+  const read = tools.get("tiny.read_approval");
+  assert.equal(read.annotations.readOnlyHint, true);
+  assert.equal(read.inputSchema.required.join(","), "id");
+  await read.execute({id: "b".repeat(64)});
+  assert.equal(requests.at(-1).searchParams.get("method"), "browseapproval");
+  assert.deepEqual(JSON.parse(requests.at(-1).searchParams.get("params")), [{id: "b".repeat(64)}]);
+  await tools.get("tiny.open_approvals").execute({});
+  assert.equal(new URL(sandbox.opened).pathname, "/r/work/approvals");
+  await tools.get("tiny.open_approvals").execute({id: "c".repeat(64)});
+  const opened = new URL(sandbox.opened);
+  assert.equal(opened.pathname, "/r/work/approvals");
+  assert.equal(opened.searchParams.get("id"), "c".repeat(64));
+  assert.equal(opened.searchParams.get("answer"), null);
+});
+
 test("link, files and notification tools reach the new surfaces", async () => {
   const calls = [];
   const {tools, sandbox} = await browser({path: "/r/work/tools", signedFetch: async (url, method, body) => {

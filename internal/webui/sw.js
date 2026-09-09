@@ -67,19 +67,24 @@ self.addEventListener("backgroundfetchclick", event => {
 });
 
 // Notifications are opt-in per device; a push only arrives after the person
-// enabled them on this browser. The payload is the relay's short summary.
+// enabled them on this browser. The payload is the relay's short summary,
+// with the answers a request for a decision offers as notification actions.
+const notificationActions = list => Array.isArray(list) ? list.filter(item => item && /^[a-z]+$/.test(item.action || "")).map(item => ({action: item.action, title: String(item.title || item.action)})) : [];
 self.addEventListener("push", event => {
   let data = {};
   try { data = event.data?.json() || {}; } catch { data = {body: event.data?.text() || ""}; }
   const base = new URL(self.registration.scope);
   const badge = Number.isInteger(data.badge) && data.badge > 0 ? navigator.setAppBadge?.(data.badge) : navigator.clearAppBadge?.();
   event.waitUntil(Promise.all([Promise.resolve(badge).catch(() => {}), self.registration.showNotification(data.title || "tiny", {
-    body: data.body || "", tag: data.tag || "tiny", icon: new URL("icon-192.png", base).href, badge: new URL("badge-96.png", base).href, data: {url: data.url || base.href}
+    body: data.body || "", tag: data.tag || "tiny", icon: new URL("icon-192.png", base).href, badge: new URL("badge-96.png", base).href, data: {url: data.url || base.href}, actions: notificationActions(data.actions)
   })]));
 });
+// An action opens the notification's page with answer=<action>, where the
+// page asks for confirmation before anything is signed.
+const answerURL = (url, action) => /^[a-z]+$/.test(action || "") ? url + (url.includes("?") ? "&" : "?") + "answer=" + action : url;
 self.addEventListener("notificationclick", event => {
   event.notification.close();
-  const target = event.notification.data?.url || self.registration.scope;
+  const target = answerURL(event.notification.data?.url || self.registration.scope, event.action);
   event.waitUntil(self.clients.matchAll({type: "window", includeUncontrolled: true}).then(async list => {
     const open = list.find(client => client.url.startsWith(self.registration.scope));
     if (open) { const focused = await open.navigate(target); return focused?.focus(); }

@@ -99,6 +99,11 @@
     object({hash}, ["hash"]), reads, (input, signal) => query("browsefile", input, signal));
   register("tiny.read_status", "Read service health, storage and job status. Requires a signed-in owner or moderator session.",
     object(), reads, (input, signal) => query("browsestatus", input, signal));
+  register("tiny.list_approvals", "List requests for a decision addressed to the signed-in person, with each request's asker, subject, expiry, state and answer, plus counts of open, answered and expired requests. Answering is the person's own signed action.",
+    object({cursor: text, limit, state: {type: "string", enum: ["open", "answered", "expired", "all"]}}), reads,
+    (input, signal) => query("browseapprovals", input, signal));
+  register("tiny.read_approval", "Read one request for a decision by event id with every reaction and reply from the people asked.",
+    object({id: hash}, ["id"]), reads, (input, signal) => query("browseapproval", input, signal));
 
   const readMethods = ["stats", "getpolicy", "listaudit", "listjobs", "listbackups", "listdumps", "deliverystatus", "storagestats", "gitstorage", "listconnections", "listmembers"];
   register("tiny.read_management", "Read relay configuration, jobs, backups, delivery status or members using your connected signer. gitstorage requires owner and repo.",
@@ -135,6 +140,8 @@
     object({hash}, ["hash"]), {}, input => open("/file?hash=" + encodeURIComponent(input.hash)));
   register("tiny.open_status", "Open the relay health page in this tab: build versions, service status and browser tool readiness.", object(), {}, () => open("/manage/health"));
   register("tiny.open_files", "Open the Files page in this tab, where files and folders upload and shared items wait.", object(), {}, () => open("/files"));
+  register("tiny.open_approvals", "Open the Approvals page in this tab, where requests for a decision wait. Pass id to focus one request; the person answers with a signed tap.",
+    object({id: hash}), {}, input => open("/approvals" + (input.id ? "?id=" + encodeURIComponent(input.id) : "")));
   register("tiny.open_link", "Open a nostr link in this tab: an npub, nprofile, note, nevent, naddr or 64-character event id, with or without a nostr: or web+nostr: prefix.",
     object({target: {type: "string", minLength: 1, maxLength: 512}}, ["target"]), {}, input => open("/open?target=" + encodeURIComponent(input.target)));
   register("tiny.read_notifications", "Read whether this device receives relay notifications, which categories it chose and the browser permission state.",
@@ -144,7 +151,7 @@
         supported: "PushManager" in window && "Notification" in window,
         permission: typeof Notification === "function" ? Notification.permission : "unsupported",
         enabled: Boolean(localStorage.getItem("tiny.push")),
-        categories: categories.length ? categories : ["messages", "replies", "mentions", "relay"],
+        categories: categories.length ? categories : ["messages", "replies", "mentions", "approvals", "relay"],
         note: "Enabling notifications needs a person to press Enable on this device under Inbox."
       };
     });
