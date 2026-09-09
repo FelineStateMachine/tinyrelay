@@ -107,6 +107,7 @@ func (t *Tenant) llmsHTTP(w http.ResponseWriter, r *http.Request) {
 		"## Git",
 		"",
 		"- GRASP repositories serve Git smart HTTP at "+base+"/npub1.../<repo>.git for clone and fetch. Push signs with NIP-98.",
+		"- Plain git mints that proof with the tiny CLI: git -c \"$(tiny git-token --repo <url> --key-env <VAR> --format git)\" push origin main, where <VAR> holds the agent's key as hex or nsec. A maintain grant lets the agent push; a read or propose grant lets it clone and open issues and pull requests.",
 		"",
 		"## Documentation",
 		"",
