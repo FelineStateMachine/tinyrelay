@@ -121,13 +121,31 @@ type Policy struct {
 	Inbox              Inbox             `json:"inbox"`
 	Dumps              string            `json:"dumps"`
 	DumpsKeep          int               `json:"dumpsKeep"`
-	BlockedKinds       []int             `json:"-"`
-	AllowedKinds       []int             `json:"-"`
-	Retention          []RetentionRule   `json:"-"`
+	// Rooms caps the chat rooms a tenant may create beside its main group.
+	// Zero switches room creation off.
+	Rooms        int             `json:"rooms"`
+	BlockedKinds []int           `json:"-"`
+	AllowedKinds []int           `json:"-"`
+	Retention    []RetentionRule `json:"-"`
+}
+
+// DefaultRooms is the room allowance applied when a policy does not name one.
+const DefaultRooms = 64
+
+// UnmarshalJSON keeps the room allowance at its default when a stored policy
+// predates the field, so existing tenants do not lose room creation.
+func (p *Policy) UnmarshalJSON(data []byte) error {
+	type plain Policy
+	decoded := plain{Rooms: DefaultRooms}
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	*p = Policy(decoded)
+	return nil
 }
 
 func Defaults(owner string) Policy {
-	return Policy{Owner: owner, CustomHosts: []CustomHost{}, Writes: "open", Reads: "open", DirectoryPublic: true, MaxFuture: 900, Dumps: "off", DumpsKeep: 7,
+	return Policy{Owner: owner, CustomHosts: []CustomHost{}, Writes: "open", Reads: "open", DirectoryPublic: true, MaxFuture: 900, Dumps: "off", DumpsKeep: 7, Rooms: DefaultRooms,
 		Features: Features{Search: "prose", Sync: true, Count: true, Discovery: true, Names: true, Files: true, Pages: true, Signer: true, Sites: Sites{Enabled: true, Mirror: true}},
 		Notify:   Notify{}, Views: map[string]string{}, Tags: []string{}, LanguageTags: []string{}, RelayCountries: []string{}, OpenKinds: []int{}, BlockedWords: []string{}, PushCallbacks: []string{}, Delivery: Delivery{}}
 }
@@ -189,7 +207,7 @@ func Validate(p Policy) error {
 			}
 		}
 	}
-	if p.ReportThreshold < 0 || p.MinPow < 0 || p.MaxFuture < 0 || p.MemberInvites.Depth < 0 || p.MemberInvites.Quota < 0 {
+	if p.ReportThreshold < 0 || p.MinPow < 0 || p.MaxFuture < 0 || p.MemberInvites.Depth < 0 || p.MemberInvites.Quota < 0 || p.Rooms < 0 {
 		return errors.New("policy: numeric values cannot be negative")
 	}
 	if p.Succession != nil && (p.Succession.Heir == "" || p.Succession.AfterDays <= 0) {

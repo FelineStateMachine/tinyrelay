@@ -192,8 +192,8 @@ func (g *Gate) Write(ctx context.Context, e event.Event, s relay.Session, now in
 		}
 		return nil
 	}
-	if tag := event.Tag(e, "h"); tag != "" && tag != g.cfg.Slug && e.Kind != event.KIND_MARMOT_GROUP {
-		return fmt.Errorf("blocked: this relay hosts one group: %s", g.cfg.Slug)
+	if err := g.roomWrite(ctx, e); err != nil {
+		return err
 	}
 	if p.Inbox.Targeted && !inboxAdmission(p, e) {
 		return errors.New("blocked: inbox event must target the relay owner")
@@ -327,10 +327,98 @@ func (g *Gate) Import(ctx context.Context, e event.Event, now int64) error {
 			return err
 		}
 	}
-	if tag := event.Tag(e, "h"); tag != "" && tag != g.cfg.Slug && e.Kind != event.KIND_MARMOT_GROUP {
-		return fmt.Errorf("blocked: this relay hosts one group: %s", g.cfg.Slug)
+	if err := g.roomExists(ctx, e); err != nil {
+		return err
 	}
 	return nil
+}
+
+// roomID names the room an event belongs to, or nothing for events outside
+// the room dialect. Marmot group messages reuse the h tag for other ends.
+func (g *Gate) roomID(e event.Event) string {
+	if e.Kind == event.KIND_MARMOT_GROUP {
+		return ""
+	}
+	return event.Tag(e, "h")
+}
+
+// roomExists is the common room check: an h tag must name the slug room or
+// a live room. Room creation is the one event allowed to name a new room.
+func (g *Gate) roomExists(ctx context.Context, e event.Event) error {
+	id := g.roomID(e)
+	if id == "" || id == g.cfg.Slug || e.Kind == event.KIND_CREATE_GROUP {
+		return nil
+	}
+	if g.cfg.Community == nil {
+		return fmt.Errorf("blocked: this relay hosts one group: %s", g.cfg.Slug)
+	}
+	room, err := g.cfg.Community.Room(ctx, id)
+	if err != nil {
+		return fmt.Errorf("check room: %w", err)
+	}
+	if !room.Live() {
+		return fmt.Errorf("invalid: unknown room %s", id)
+	}
+	return nil
+}
+
+// roomWrite applies room membership to client writes. The slug room keeps
+// the tenant's own rules. In other rooms, management events are checked by
+// the room handler; every other event needs room membership, which an open
+// room grants to any tenant member.
+func (g *Gate) roomWrite(ctx context.Context, e event.Event) error {
+	if err := g.roomExists(ctx, e); err != nil {
+		return err
+	}
+	id := g.roomID(e)
+	if id != "" && community.RoomNoticeKind(e.Kind) {
+		return errors.New("blocked: member notices are signed by the relay")
+	}
+	if id == "" || id == g.cfg.Slug || e.Kind == event.KIND_CREATE_GROUP || community.RoomAdminKind(e.Kind) {
+		return nil
+	}
+	allowed, _, err := g.cfg.Community.RoomWriteAllowed(ctx, id, e.PubKey)
+	if err != nil {
+		return fmt.Errorf("check room membership: %w", err)
+	}
+	if !allowed {
+		return fmt.Errorf("restricted: not a member of room %s", id)
+	}
+	return nil
+}
+
+// roomVisible applies room access to reads. Members-only rooms, including
+// the relay's own 39000 to 39002 records for them, are served only to room
+// members, the tenant owner and moderators.
+func (g *Gate) roomVisible(ctx context.Context, e event.Event, s relay.Session) bool {
+	id := g.roomID(e)
+	if id == "" && (e.Kind == event.KIND_GROUP_METADATA || e.Kind == event.KIND_GROUP_ADMINS || e.Kind == event.KIND_GROUP_MEMBERS) {
+		id = event.Tag(e, "d")
+	}
+	if id == "" || id == g.cfg.Slug || g.cfg.Community == nil {
+		return true
+	}
+	visible, err := g.cfg.Community.RoomVisible(ctx, id, s.PubKeys)
+	return err == nil && visible
+}
+
+// membersOnlyRoomFilter reports whether a filter asks for a members-only
+// room, so an unauthenticated subscriber is told to AUTH instead of waiting
+// on an empty stream.
+func (g *Gate) membersOnlyRoomFilter(ctx context.Context, f event.Filter) bool {
+	if g.cfg.Community == nil {
+		return false
+	}
+	for _, id := range f.Tags["h"] {
+		if id == g.cfg.Slug {
+			continue
+		}
+		room, err := g.cfg.Community.Room(ctx, id)
+		if err == nil && room.Live() && room.Access == community.RoomMembers {
+			return true
+		}
+	}
+	return false
 }
 
 func (g *Gate) kindRules(ctx context.Context, p policy.Policy, kind int) (bool, bool, error) {
@@ -528,6 +616,9 @@ func (g *Gate) Read(ctx context.Context, filters []event.Filter, s relay.Session
 	privateOnly := true
 	authHint := false
 	for _, f := range filters {
+		if len(a.PubKeys) == 0 && g.membersOnlyRoomFilter(ctx, f) {
+			authHint = true
+		}
 		if len(f.Kinds) == 0 {
 			privateOnly = false
 			authHint = true
@@ -587,6 +678,9 @@ func (g *Gate) CanSee(ctx context.Context, e event.Event, s relay.Session, f *ev
 	}
 	a := accessFor(ctx, g.cfg.Community, p, s)
 	if !policy.CanRead(p, e, a) {
+		return false
+	}
+	if !g.roomVisible(ctx, e, s) {
 		return false
 	}
 	if event.IsPrivate(e.Kind) {

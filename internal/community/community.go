@@ -90,6 +90,7 @@ type Service struct {
 	store  *storage.Store
 	mu     sync.RWMutex
 	owner  string
+	slug   string
 	policy func() policy.Policy
 }
 
@@ -103,6 +104,9 @@ func New(ctx context.Context, store *storage.Store, owner string) (*Service, err
 	s := &Service{store: store, owner: owner}
 	if _, err := store.DB().ExecContext(ctx, schema+agentSchema); err != nil {
 		return nil, fmt.Errorf("community schema: %w", err)
+	}
+	if _, err := store.DB().ExecContext(ctx, roomSchema); err != nil {
+		return nil, fmt.Errorf("room schema: %w", err)
 	}
 	if err := store.WithTx(ctx, func(tx *sql.Tx) error {
 		_, err := tx.ExecContext(ctx, `INSERT OR IGNORE INTO community_members(pubkey,role,created_at) VALUES(?,?,?)`, owner, "owner", time.Now().Unix())

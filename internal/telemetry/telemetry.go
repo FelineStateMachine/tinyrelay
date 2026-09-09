@@ -236,7 +236,7 @@ func latencyBuckets() []float64 {
 	return []float64{.0005, .001, .005, .01, .025, .05, .1, .25, .5, 1, 2.5, 5, 10}
 }
 
-var operationNames = map[string]struct{}{"http": {}, "websocket": {}, "publish": {}, "subscribe": {}, "query": {}, "count": {}, "fanout": {}, "delivery": {}, "commit": {}, "save": {}, "parse": {}, "authorize": {}, "upgrade": {}, "callback": {}, "delivery-discovery": {}, "notification-broadcast": {}, "browserepos": {}, "browserepo": {}, "browsefiles": {}, "browsefile": {}, "browsestatus": {}, "browseissues": {}, "browsepulls": {}, "browseissue": {}, "browsepull": {}, "browse-download": {}, "push": {}, "mcp": {}}
+var operationNames = map[string]struct{}{"http": {}, "websocket": {}, "publish": {}, "subscribe": {}, "query": {}, "count": {}, "fanout": {}, "delivery": {}, "commit": {}, "save": {}, "parse": {}, "authorize": {}, "upgrade": {}, "callback": {}, "delivery-discovery": {}, "notification-broadcast": {}, "browserepos": {}, "browserepo": {}, "browsefiles": {}, "browsefile": {}, "browsestatus": {}, "browseissues": {}, "browsepulls": {}, "browseissue": {}, "browsepull": {}, "browse-download": {}, "push": {}, "mcp": {}, "rooms": {}}
 var outcomeNames = map[string]struct{}{"success": {}, "ok": {}, "invalid": {}, "unauthorized": {}, "timeout": {}, "busy": {}, "closed": {}, "error": {}}
 var queueNames = map[string]struct{}{"inbox": {}, "outbox": {}, "write": {}, "delivery": {}}
 var workNames = map[string]struct{}{"delivery": {}, "push": {}, "replication": {}, "webhook": {}, "job": {}, "records-projection": {}, "site-mirror": {}, "git-metadata": {}, "catalog-owner": {}, "callback": {}, "delivery-discovery": {}, "notification-delivery": {}, "notification-broadcast": {}, "notification-push": {}, "notification": {}}
