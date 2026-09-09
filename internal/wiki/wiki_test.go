@@ -141,3 +141,24 @@ func TestRenderHTMLHandlesEdgeCases(t *testing.T) {
 		}
 	}
 }
+
+func TestRenderHTMLPipeTables(t *testing.T) {
+	got := string(RenderHTML("Before.\n| Proven | Activity | Evidence |\n| --- | :---: | ---: |\n| yes | Discovery, *auth* | NIP-98 succeeded. |\n| no | Wiki fork \\| merge | remains |\nAfter."))
+	for _, want := range []string{
+		"<p>Before.</p>\n<table>\n<thead>\n<tr><th>Proven</th><th>Activity</th><th>Evidence</th></tr>\n</thead>\n<tbody>\n",
+		"<tr><td>yes</td><td>Discovery, <strong>auth</strong></td><td>NIP-98 succeeded.</td></tr>\n",
+		"<tr><td>no</td><td>Wiki fork | merge</td><td>remains</td></tr>\n</tbody>\n</table>\n<p>After.</p>\n",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("missing %q in %s", want, got)
+		}
+	}
+	// A table without a separator is all body rows; a pipe inside a paragraph is text.
+	got = string(RenderHTML("| a | b |\n| c | d |\n\ntext | with a pipe"))
+	if !strings.Contains(got, "<table>\n<tbody>\n<tr><td>a</td><td>b</td></tr>\n<tr><td>c</td><td>d</td></tr>\n</tbody>\n</table>") || !strings.Contains(got, "<p>text | with a pipe</p>") {
+		t.Fatalf("headerless table: %s", got)
+	}
+	if strings.Contains(string(RenderHTML("| <script>x</script> |\n| --- |")), "<script>") {
+		t.Fatal("table cells were not escaped")
+	}
+}

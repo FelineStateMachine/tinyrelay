@@ -8,7 +8,7 @@ A page is identified by its name, the `d` tag of a kind 30818 article. Names are
 
 An article carries a `title` for display, an optional `summary` for lists and its content in [Djot](https://djot.net/) markup. Two link forms are specific to the wiki: `[[Page Name]]` or `[[Page Name|shown text]]` links to another page, and a reference-style link with no definition, such as `[proof of work][]`, does the same. Links to profiles and events use `nostr:` addresses, such as `[Bob](nostr:npub1...)`. The page list searches titles and summaries.
 
-The relay renders headings, paragraphs, emphasis, strong text, code spans and blocks, bullet and numbered lists, links, wikilinks and `nostr:` links. Other markup and any HTML in an article is shown as plain text. Links are limited to `http`, `https`, `mailto`, `nostr` and relay paths.
+The relay renders headings, paragraphs, emphasis, strong text, code spans and blocks, bullet and numbered lists, pipe tables, links, wikilinks and `nostr:` links. Other markup and any HTML in an article is shown as plain text. Links are limited to `http`, `https`, `mailto`, `nostr` and relay paths.
 
 ## Versions and forks
 

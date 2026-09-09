@@ -84,8 +84,8 @@ func Links(content string) []string {
 }
 
 // RenderHTML renders a subset of Djot: ATX headings, paragraphs, fenced
-// code, bullet and numbered lists, emphasis, strong, code spans, links,
-// [[wikilinks]] and reference-style links. Everything else is shown as
+// code, bullet and numbered lists, pipe tables, emphasis, strong, code spans,
+// links, [[wikilinks]] and reference-style links. Everything else is shown as
 // escaped text. Link targets are limited to http, https, mailto, nostr and
 // site-relative paths.
 func RenderHTML(content string) template.HTML {
@@ -110,6 +110,34 @@ func RenderHTML(content string) template.HTML {
 				b.WriteString("<li>" + renderInline(item, refs) + "</li>\n")
 			}
 			b.WriteString("</" + block.kind + ">\n")
+		case "table":
+			b.WriteString("<table>\n")
+			for i, row := range block.rows {
+				cell := "td"
+				if i < block.level {
+					cell = "th"
+				}
+				if i == 0 && block.level > 0 {
+					b.WriteString("<thead>\n")
+				}
+				if i == block.level {
+					if block.level > 0 {
+						b.WriteString("</thead>\n")
+					}
+					b.WriteString("<tbody>\n")
+				}
+				b.WriteString("<tr>")
+				for _, text := range row {
+					b.WriteString("<" + cell + ">" + renderInline(text, refs) + "</" + cell + ">")
+				}
+				b.WriteString("</tr>\n")
+			}
+			if block.level >= len(block.rows) {
+				b.WriteString("</thead>\n")
+			} else {
+				b.WriteString("</tbody>\n")
+			}
+			b.WriteString("</table>\n")
 		default:
 			b.WriteString("<p>" + renderInline(block.text, refs) + "</p>\n")
 		}
@@ -123,6 +151,7 @@ type block struct {
 	lang  string
 	text  string
 	items []string
+	rows  [][]string // table rows; level counts the header rows
 }
 
 // definitions collects reference link definitions, "[label]: target", keyed
@@ -175,6 +204,31 @@ func blocks(content string) []block {
 			out = append(out, block{kind: "def", lang: label, text: target})
 			continue
 		}
+		if tableRow(trimmed) {
+			// A table interrupts a paragraph, the way Djot block starts do.
+			flush()
+			var rows [][]string
+			header := 0
+			for ; i < len(lines); i++ {
+				current := strings.TrimSpace(lines[i])
+				if !tableRow(current) {
+					break
+				}
+				if separatorRow(current) {
+					// A separator marks every row above it as a header.
+					if header == 0 {
+						header = len(rows)
+					}
+					continue
+				}
+				rows = append(rows, tableCells(current))
+			}
+			i--
+			if len(rows) > 0 {
+				out = append(out, block{kind: "table", level: header, rows: rows})
+			}
+			continue
+		}
 		if kind, _ := listMarker(trimmed); kind != "" && len(para) == 0 {
 			var items []string
 			for ; i < len(lines); i++ {
@@ -193,6 +247,53 @@ func blocks(content string) []block {
 	}
 	flush()
 	return out
+}
+
+// tableRow reports a Djot pipe table row: a line that starts and ends with
+// a pipe.
+func tableRow(line string) bool {
+	return len(line) >= 2 && strings.HasPrefix(line, "|") && strings.HasSuffix(line, "|")
+}
+
+// separatorRow reports the header separator, cells of dashes with optional
+// alignment colons, such as |---|:--:|.
+func separatorRow(line string) bool {
+	cells := tableCells(line)
+	if len(cells) == 0 {
+		return false
+	}
+	for _, cell := range cells {
+		if strings.Trim(cell, "-") == "" && strings.Contains(cell, "-") {
+			continue
+		}
+		if strings.Trim(strings.TrimSuffix(strings.TrimPrefix(cell, ":"), ":"), "-") == "" && strings.Contains(cell, "-") {
+			continue
+		}
+		return false
+	}
+	return true
+}
+
+// tableCells splits a row into trimmed cells; a backslash escapes a pipe
+// inside a cell.
+func tableCells(line string) []string {
+	inner := strings.TrimSuffix(strings.TrimPrefix(line, "|"), "|")
+	var cells []string
+	var current strings.Builder
+	for i := 0; i < len(inner); i++ {
+		switch {
+		case inner[i] == '\\' && i+1 < len(inner) && inner[i+1] == '|':
+			current.WriteByte('|')
+			i++
+		case inner[i] == '|':
+			cells = append(cells, strings.TrimSpace(current.String()))
+			current.Reset()
+		default:
+			current.WriteByte(inner[i])
+		}
+	}
+	cells = append(cells, strings.TrimSpace(current.String()))
+	return cells
 }
 
 func headingLevel(line string) int {
