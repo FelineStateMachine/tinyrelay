@@ -659,6 +659,7 @@ func (t *Tenant) commitImported(ctx context.Context, e event.Event, origin repli
 	_, err := t.store.Save(ctx, e, opts)
 	if err == nil {
 		t.notifyDevices(ctx, e)
+		t.notifyWikiMerge(ctx, e)
 	}
 	return err
 }

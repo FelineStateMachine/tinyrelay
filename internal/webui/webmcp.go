@@ -26,7 +26,7 @@ func (a *App) webMCPQuery(writer http.ResponseWriter, request *http.Request) {
 			return
 		}
 	}
-	allowed := map[string]bool{"browserepos": true, "browserepo": true, "browsefiles": true, "browsefile": true, "browsestatus": true, "browseissues": true, "browsepulls": true, "browseissue": true, "browsepull": true}
+	allowed := map[string]bool{"browserepos": true, "browserepo": true, "browsefiles": true, "browsefile": true, "browsestatus": true, "browseissues": true, "browsepulls": true, "browseissue": true, "browsepull": true, "browsewiki": true, "browsewikipage": true, "browsewikimerge": true}
 	if !allowed[method] {
 		writeJSON(writer, http.StatusBadRequest, map[string]string{"error": "unsupported WebMCP query"})
 		return
