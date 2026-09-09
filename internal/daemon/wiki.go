@@ -51,6 +51,13 @@ type wikiVersion struct {
 	Defer      *wikiRef `json:"defer,omitempty"`
 	Content    string   `json:"content,omitempty"`
 	Links      []string `json:"links,omitempty"`
+	// Revision numbers this event among the author's revisions of the
+	// page, counted from 1 at the oldest kept revision; Revisions is how
+	// many the author has. SupersededBy names the event that replaced an
+	// archived revision and is empty for the author's current version.
+	Revision     int    `json:"revision,omitempty"`
+	Revisions    int    `json:"revisions,omitempty"`
+	SupersededBy string `json:"superseded_by,omitempty"`
 	// Proposal marks a version from an agent whose grant says wiki:
 	// propose. Approval is pending, approved or rejected; the other fields
 	// name the deciding reaction, its time and its author once one exists.
@@ -318,6 +325,41 @@ func sortWikiVersions(versions []wikiVersion) {
 		}
 		return versions[i].CreatedAt > versions[j].CreatedAt
 	})
+}
+
+// wikiNumberRevisions numbers every version in the groups among the
+// revisions of the same author and page, oldest first from 1, and sets
+// the count on each. The groups together must hold every kept revision
+// so the numbers are the same for every viewer.
+func wikiNumberRevisions(groups ...[]wikiVersion) {
+	pages := map[string][]*wikiVersion{}
+	for _, group := range groups {
+		for i := range group {
+			key := group[i].Author + "\x00" + group[i].D
+			pages[key] = append(pages[key], &group[i])
+		}
+	}
+	for _, revisions := range pages {
+		sort.SliceStable(revisions, func(i, j int) bool {
+			if revisions[i].CreatedAt == revisions[j].CreatedAt {
+				return revisions[i].ID < revisions[j].ID
+			}
+			return revisions[i].CreatedAt < revisions[j].CreatedAt
+		})
+		for i, v := range revisions {
+			v.Revision, v.Revisions = i+1, len(revisions)
+		}
+	}
+}
+
+// wikiFull reads the content of an event into a version while keeping the
+// derived fields of the listed version: likes, revision numbers and the
+// proposal state.
+func wikiFull(e event.Event, v wikiVersion) wikiVersion {
+	full := wikiVersionFrom(e, true)
+	full.Likes, full.Revision, full.Revisions, full.SupersededBy = v.Likes, v.Revision, v.Revisions, v.SupersededBy
+	full.Proposal, full.Approval, full.ApprovalEvent, full.ApprovalAt, full.ApprovalBy = v.Proposal, v.Approval, v.ApprovalEvent, v.ApprovalAt, v.ApprovalBy
+	return full
 }
 
 // notifyWikiMerge wakes the destination author's devices when a merge

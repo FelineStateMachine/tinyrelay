@@ -6,9 +6,10 @@ package daemon
 // approves it, or "-", which rejects it. A newer version from the agent is
 // a new event id and starts pending again, so every edit is decided on its
 // own. A pending or rejected proposal is visible only to the owner,
-// moderators and its author; for everyone else it does not exist. The
+// moderators and its author; everyone else sees the agent's newest
+// approved revision in its place, or nothing when none is approved. The
 // state is computed here and carried on every browse result that lists
-// versions.
+// versions, including the archived revisions in a page's history.
 
 import (
 	"context"
@@ -150,21 +151,23 @@ func wikiProposalState(content string) string {
 	return ""
 }
 
-// wikiVisible keeps the versions the actor may see: every version that is
-// not a proposal or is approved, plus pending and rejected proposals for
-// the owner, moderators and the proposal's author.
-func (t *Tenant) wikiVisible(ctx context.Context, roles *wikiRoles, actor string, versions []wikiVersion) ([]wikiVersion, error) {
-	decides, err := roles.decides(ctx, actor)
-	if err != nil {
-		return nil, err
-	}
-	visible := make([]wikiVersion, 0, len(versions))
-	for _, v := range versions {
-		if !v.Proposal || v.Approval == wikiProposalApproved || decides || (actor != "" && v.Author == actor) {
-			visible = append(visible, v)
+// wikiSees reports whether an actor may see a version: every version that
+// is not a proposal or is approved, plus pending and rejected proposals
+// for the owner, moderators (decides) and the proposal's author.
+func wikiSees(decides bool, actor string, v wikiVersion) bool {
+	return !v.Proposal || v.Approval == wikiProposalApproved || decides || (actor != "" && v.Author == actor)
+}
+
+// wikiFallback picks the revision a reader sees in place of a hidden
+// version: the same author's newest approved revision of the page among
+// the archived revisions, which are sorted newest first.
+func wikiFallback(hidden wikiVersion, archived []wikiVersion) (wikiVersion, bool) {
+	for _, a := range archived {
+		if a.Author == hidden.Author && a.D == hidden.D && a.Proposal && a.Approval == wikiProposalApproved {
+			return a, true
 		}
 	}
-	return visible, nil
+	return wikiVersion{}, false
 }
 
 // notifyWikiProposal wakes the owner's and moderators' devices in the
