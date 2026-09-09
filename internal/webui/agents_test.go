@@ -177,7 +177,7 @@ func TestAgentStateHelpers(t *testing.T) {
 		{map[string]any{"expires": float64(now + 3600), "lastEvent": float64(now - 60)}, "active", short(now - 60)},
 		{map[string]any{"expires": float64(now + 3600), "paused": true}, "paused", ""},
 		{map[string]any{"expires": float64(now + 3600), "revoked": float64(now - 10)}, "revoked", short(now - 10)},
-		{map[string]any{"expires": float64(now - 10), "paused": true}, "revoked", "expired " + short(now - 10)},
+		{map[string]any{"expires": float64(now - 10), "paused": true}, "revoked", "expired " + short(now-10)},
 	} {
 		if got := agentState(tc.agent); got != tc.state {
 			t.Errorf("agentState(%v) = %q, want %q", tc.agent, got, tc.state)
