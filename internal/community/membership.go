@@ -63,6 +63,12 @@ type MembershipResult struct {
 	OK      bool
 	Message string
 	Stored  bool
+	// AccessRequest marks a join held for review; Message is its OK reason.
+	AccessRequest bool
+	// NewRequest reports that the request was not pending before, so the
+	// reviewers should be woken. A refresh of a pending request leaves it
+	// false.
+	NewRequest bool
 }
 
 // HandleMembershipEventTx applies join/leave admission and invokes persist in
@@ -101,6 +107,14 @@ func (s *Service) HandleMembershipEventTx(ctx context.Context, ev event.Event, p
 		} else {
 			if exists {
 				out = MembershipResult{OK: true, Message: "duplicate: already a member", Stored: false}
+				return nil
+			}
+			if IsAccessRequest(ev) {
+				created, err := s.recordJoinRequestTx(ctx, tx, ev.PubKey, JoinReason(ev.Content))
+				if err != nil {
+					return err
+				}
+				out = MembershipResult{OK: true, Message: JoinRequestReceived, AccessRequest: true, NewRequest: created}
 				return nil
 			}
 			claim := tagValue(ev, "code")
@@ -284,6 +298,18 @@ func (s *Service) HandleMembershipEvent(ctx context.Context, ev event.Event) (Me
 	var result MembershipResult
 	switch ev.Kind {
 	case event.KIND_JOIN, event.KIND_NIP43_JOIN:
+		if IsAccessRequest(ev) {
+			if role, err := s.Role(ctx, ev.PubKey); err != nil {
+				return MembershipResult{}, err
+			} else if role != "" {
+				return MembershipResult{OK: true, Message: "duplicate: already a member", Stored: false}, nil
+			}
+			created, err := s.RecordJoinRequest(ctx, ev.PubKey, JoinReason(ev.Content))
+			if err != nil {
+				return MembershipResult{}, err
+			}
+			return MembershipResult{OK: true, Message: JoinRequestReceived, AccessRequest: true, NewRequest: created}, nil
+		}
 		claim := tagValue(ev, "code")
 		if ev.Kind == event.KIND_NIP43_JOIN {
 			claim = tagValue(ev, "claim")

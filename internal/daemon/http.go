@@ -595,7 +595,7 @@ func (t *Tenant) executeCommunity(ctx context.Context, actor, method string, par
 
 func communityACLMutation(method string) bool {
 	switch method {
-	case "setmember", "allowpubkey", "removemember", "unrulepubkey", "removesubtree", "banpubkey", "banevent", "allowevent", "blockip", "unblockip", "resolvereport", "allowkind", "disallowkind", "unrulekind", "setblockedwords":
+	case "setmember", "allowpubkey", "removemember", "unrulepubkey", "removesubtree", "approvejoin", "banpubkey", "banevent", "allowevent", "blockip", "unblockip", "resolvereport", "allowkind", "disallowkind", "unrulekind", "setblockedwords":
 		return true
 	default:
 		return false

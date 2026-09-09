@@ -29,6 +29,7 @@ CREATE TABLE IF NOT EXISTS community_invites(code TEXT PRIMARY KEY,created_by TE
 CREATE TABLE IF NOT EXISTS community_reports(id INTEGER PRIMARY KEY AUTOINCREMENT,reporter TEXT NOT NULL,target_event TEXT NOT NULL,type TEXT NOT NULL,content TEXT NOT NULL,at INTEGER NOT NULL,status TEXT NOT NULL DEFAULT 'open',resolved_by TEXT NOT NULL DEFAULT '',resolved_at INTEGER NOT NULL DEFAULT 0,action TEXT NOT NULL DEFAULT '',UNIQUE(reporter,target_event));
 CREATE TABLE IF NOT EXISTS community_audit(id INTEGER PRIMARY KEY AUTOINCREMENT,at INTEGER NOT NULL,actor TEXT NOT NULL,action TEXT NOT NULL,target TEXT NOT NULL DEFAULT '',detail TEXT NOT NULL DEFAULT '');
 CREATE TABLE IF NOT EXISTS community_meta(key TEXT PRIMARY KEY,value TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS join_requests(pubkey TEXT PRIMARY KEY,reason TEXT NOT NULL DEFAULT '',requested_at INTEGER NOT NULL,status TEXT NOT NULL DEFAULT 'pending',decided_by TEXT NOT NULL DEFAULT '',decided_at INTEGER NOT NULL DEFAULT 0);
 CREATE TRIGGER IF NOT EXISTS community_member_projection_insert AFTER INSERT ON community_members
 BEGIN
  INSERT OR IGNORE INTO work_intents(id,kind,event_id,target,payload,next_at,created_at,updated_at)
@@ -64,6 +65,17 @@ type Invite struct {
 	MaxUses   int    `json:"max_uses"`
 	Uses      int    `json:"uses"`
 	Note      string `json:"note"`
+}
+
+// JoinRequest is an access request from a key that asked to join without
+// an invite. It waits for the owner or a moderator to approve or deny it.
+type JoinRequest struct {
+	PubKey      string `json:"pubkey"`
+	Reason      string `json:"reason"`
+	RequestedAt int64  `json:"requested_at"`
+	Status      string `json:"status"`
+	DecidedBy   string `json:"decided_by"`
+	DecidedAt   int64  `json:"decided_at"`
 }
 type Report struct {
 	ID          int64  `json:"id"`
@@ -232,6 +244,12 @@ func (s *Service) Execute(ctx context.Context, actor, method string, params []js
 		return s.removeSubtree(ctx, actor, params)
 	case "listmembers", "listpeople":
 		return s.members(ctx)
+	case "listjoinrequests":
+		return s.listJoinRequests(ctx)
+	case "approvejoin":
+		return s.approveJoin(ctx, actor, params)
+	case "denyjoin":
+		return s.denyJoin(ctx, actor, params)
 	case "listallowedpubkeys":
 		return s.allowedMembers(ctx)
 	case "createinvite":
@@ -292,7 +310,7 @@ func (s *Service) Execute(ctx context.Context, actor, method string, params []js
 }
 
 func allowed(method, role string) bool {
-	if method == "listmembers" || method == "listpeople" || method == "listallowedpubkeys" || method == "listbannedpubkeys" || method == "listbannedevents" || method == "listblockedips" || method == "listreports" || method == "listeventsneedingmoderation" || method == "listallowedkinds" || method == "listblockedkinds" || method == "listretention" {
+	if method == "listmembers" || method == "listpeople" || method == "listjoinrequests" || method == "listallowedpubkeys" || method == "listbannedpubkeys" || method == "listbannedevents" || method == "listblockedips" || method == "listreports" || method == "listeventsneedingmoderation" || method == "listallowedkinds" || method == "listblockedkinds" || method == "listretention" {
 		return role == "owner" || role == "moderator"
 	}
 	if role == "owner" {
@@ -309,7 +327,7 @@ func allowed(method, role string) bool {
 	if role != "moderator" {
 		return false
 	}
-	for _, name := range []string{"setmember", "allowpubkey", "removemember", "unrulepubkey", "removesubtree", "createinvite", "createclaim", "listinvites", "listclaims", "revokeinvite", "deleteclaim", "banpubkey", "banevent", "allowevent", "blockip", "unblockip", "listaudit", "resolvereport", "allowkind", "disallowkind", "unrulekind", "setblockedwords"} {
+	for _, name := range []string{"setmember", "allowpubkey", "removemember", "unrulepubkey", "removesubtree", "approvejoin", "denyjoin", "createinvite", "createclaim", "listinvites", "listclaims", "revokeinvite", "deleteclaim", "banpubkey", "banevent", "allowevent", "blockip", "unblockip", "listaudit", "resolvereport", "allowkind", "disallowkind", "unrulekind", "setblockedwords"} {
 		if method == name {
 			return true
 		}
@@ -318,7 +336,7 @@ func allowed(method, role string) bool {
 }
 
 func (s *Service) Methods() []string {
-	return []string{"supportedmethods", "listaudit", "listmembers", "listpeople", "listallowedpubkeys", "listbannedpubkeys", "setmember", "allowpubkey", "removemember", "unrulepubkey", "removesubtree", "createinvite", "listinvites", "revokeinvite", "listclaims", "createclaim", "deleteclaim", "banpubkey", "banevent", "allowevent", "listbannedevents", "blockip", "unblockip", "listblockedips", "listreports", "listeventsneedingmoderation", "resolvereport", "allowkind", "disallowkind", "unrulekind", "listallowedkinds", "listblockedkinds", "setretention", "listretention", "purgekind", "setblockedwords"}
+	return []string{"supportedmethods", "listaudit", "listmembers", "listpeople", "listjoinrequests", "approvejoin", "denyjoin", "listallowedpubkeys", "listbannedpubkeys", "setmember", "allowpubkey", "removemember", "unrulepubkey", "removesubtree", "createinvite", "listinvites", "revokeinvite", "listclaims", "createclaim", "deleteclaim", "banpubkey", "banevent", "allowevent", "listbannedevents", "blockip", "unblockip", "listblockedips", "listreports", "listeventsneedingmoderation", "resolvereport", "allowkind", "disallowkind", "unrulekind", "listallowedkinds", "listblockedkinds", "setretention", "listretention", "purgekind", "setblockedwords"}
 }
 
 func roleOrGuest(role string) string {

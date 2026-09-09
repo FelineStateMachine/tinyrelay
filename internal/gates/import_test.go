@@ -36,6 +36,7 @@ func TestNIP43RequestsRequireProtectedShape(t *testing.T) {
 		tags [][]string
 	}{
 		{name: "join claim", kind: event.KIND_NIP43_JOIN, tags: [][]string{{"-"}, {"claim", "code"}}},
+		{name: "join without claim is an access request", kind: event.KIND_NIP43_JOIN, tags: [][]string{{"-"}}},
 		{name: "leave", kind: event.KIND_NIP43_LEAVE, tags: [][]string{{"-"}}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -52,12 +53,13 @@ func TestNIP43RequestsRequireProtectedShape(t *testing.T) {
 		name string
 		kind int
 		tags [][]string
+		at   int64
 	}{
-		{name: "join without claim", kind: event.KIND_NIP43_JOIN, tags: [][]string{{"-"}}},
-		{name: "leave without protection", kind: event.KIND_NIP43_LEAVE, tags: [][]string{}},
+		{name: "join outside the time window", kind: event.KIND_NIP43_JOIN, tags: [][]string{{"-"}}, at: 1000},
+		{name: "leave without protection", kind: event.KIND_NIP43_LEAVE, tags: [][]string{}, at: 10},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			e := event.Event{CreatedAt: 10, Kind: tc.kind, Tags: tc.tags}
+			e := event.Event{CreatedAt: tc.at, Kind: tc.kind, Tags: tc.tags}
 			if err := event.Sign(&e, strings.Repeat("1", 64)); err != nil {
 				t.Fatal(err)
 			}

@@ -911,6 +911,10 @@ func knownProtocolReason(reason string) bool {
 }
 
 func accessEvent(e event.Event) bool {
+	if e.Kind == event.KIND_NIP43_JOIN && event.Tag(e, "claim") == "" {
+		// An access request waits for review and changes nobody's access.
+		return false
+	}
 	switch e.Kind {
 	case event.KIND_REPORT, event.KIND_VANISH, event.KIND_JOIN, event.KIND_LEAVE,
 		event.KIND_NIP43_JOIN, event.KIND_NIP43_LEAVE, event.KIND_PUT_USER,

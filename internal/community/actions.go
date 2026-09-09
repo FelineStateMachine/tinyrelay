@@ -13,6 +13,12 @@ import (
 )
 
 func (s *Service) setMember(ctx context.Context, actor string, p []json.RawMessage) (any, error) {
+	return s.setMemberVia(ctx, actor, p, "management")
+}
+
+// setMemberVia adds or updates a member and records how the key came in:
+// management for the setmember call, request for an approved access request.
+func (s *Service) setMemberVia(ctx context.Context, actor string, p []json.RawMessage, via string) (any, error) {
 	var pk, name, role string
 	if err := decode(p, 0, &pk); err != nil {
 		return nil, err
@@ -65,7 +71,7 @@ func (s *Service) setMember(ctx context.Context, actor string, p []json.RawMessa
 		if _, err := tx.ExecContext(ctx, `DELETE FROM community_bans WHERE pubkey=?`, pk); err != nil {
 			return err
 		}
-		_, err := tx.ExecContext(ctx, `INSERT INTO community_members(pubkey,name,role,created_at,via) VALUES(?,?,?,?,?) ON CONFLICT(pubkey) DO UPDATE SET name=excluded.name,role=excluded.role`, pk, name, role, now(), "management")
+		_, err := tx.ExecContext(ctx, `INSERT INTO community_members(pubkey,name,role,created_at,via) VALUES(?,?,?,?,?) ON CONFLICT(pubkey) DO UPDATE SET name=excluded.name,role=excluded.role`, pk, name, role, now(), via)
 		if err != nil {
 			return fmt.Errorf("set member: %w", err)
 		}

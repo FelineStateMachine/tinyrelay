@@ -527,9 +527,8 @@ func nip43Shape(e event.Event, now int64) error {
 			return errors.New("invalid: NIP-43 leave needs one protected tag")
 		}
 	}
-	if e.Kind == event.KIND_NIP43_JOIN && event.Tag(e, "claim") == "" {
-		return errors.New("invalid: NIP-43 join needs a claim tag")
-	}
+	// A join without a claim tag is an access request held for the owner's
+	// review, so the claim stays optional.
 	return nil
 }
 

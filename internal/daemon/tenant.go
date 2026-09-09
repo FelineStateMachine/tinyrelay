@@ -364,6 +364,9 @@ func (t *Tenant) Publish(ctx context.Context, e event.Event, s relay.Session) (s
 		_, saveErr := storage.SaveTx(ctx, tx, e, opts)
 		return saveErr
 	}
+	// reason is the OK message; an access request tells the asker it waits,
+	// and a member asking again is told so.
+	reason := ""
 	room := t.roomScope(e)
 	switch {
 	case room != "" && community.RoomAdminKind(e.Kind):
@@ -371,7 +374,14 @@ func (t *Tenant) Publish(ctx context.Context, e event.Event, s relay.Session) (s
 	case room != "" && !event.IsEphemeral(e.Kind):
 		err = t.community.HandleRoomMessageTx(ctx, e, persist)
 	case e.Kind == event.KIND_JOIN, e.Kind == event.KIND_LEAVE, e.Kind == event.KIND_NIP43_JOIN, e.Kind == event.KIND_NIP43_LEAVE:
-		_, err = t.community.HandleMembershipEventTx(ctx, e, persist)
+		var membership community.MembershipResult
+		membership, err = t.community.HandleMembershipEventTx(ctx, e, persist)
+		if err == nil && (membership.AccessRequest || strings.HasPrefix(membership.Message, "duplicate:")) {
+			reason = membership.Message
+		}
+		if err == nil && membership.NewRequest {
+			t.notifyJoinRequest(ctx, e)
+		}
 	case e.Kind == event.KIND_PUT_USER, e.Kind == event.KIND_REMOVE_USER, e.Kind == event.KIND_DELETE_EVENT, e.Kind == event.KIND_CREATE_INVITE:
 		_, err = t.community.HandleModerationEventTx(ctx, e, persist)
 	default:
@@ -410,7 +420,7 @@ func (t *Tenant) Publish(ctx context.Context, e event.Event, s relay.Session) (s
 		}
 	}
 	outcome = "ok"
-	return "", nil
+	return reason, nil
 }
 
 // agentBeforeCommit mirrors agent grants and grant deletions into the agent

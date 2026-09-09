@@ -133,6 +133,9 @@ func (t *Tenant) mcpTools() (*mcp.Registry, error) {
 	add("list_callbacks", "List event callbacks: id, owner, host, filter, paused state, failures and last delivery. Members and agents see their own; the owner and moderators see every callback. The secret is never listed.", mcp.Object(nil), mcpReads, func(ctx context.Context, call mcp.Call) (mcp.Result, error) {
 		return t.mcpManage(ctx, call, "listcallbacks")
 	})
+	add("list_join_requests", "List access requests from people who asked to join without an invite: pubkey, reason, requested_at, status (pending, approved or denied), decided_by and decided_at. Pending requests come first. Requires an owner or moderator key.", mcp.Object(nil), mcpReads, func(ctx context.Context, call mcp.Call) (mcp.Result, error) {
+		return t.mcpManage(ctx, call, "listjoinrequests")
+	})
 
 	add("run_job", "Queue an existing job to run now. Read jobs through read_management to check its completion.", mcp.Object(map[string]any{"id": mcpID}, "id"), mcpChanges, func(ctx context.Context, call mcp.Call) (mcp.Result, error) {
 		return t.mcpManage(ctx, call, "runjob", call.String("id"))
@@ -178,6 +181,12 @@ func (t *Tenant) mcpTools() (*mcp.Registry, error) {
 	})
 	add("revoke_agent", "End an agent's grant and remove its agent role. The grant event stays stored for audit; a fresh grant restores access. Requires an owner or moderator key.", mcp.Object(map[string]any{"agent": mcpPubKey}, "agent"), mcpSettings, func(ctx context.Context, call mcp.Call) (mcp.Result, error) {
 		return t.mcpManage(ctx, call, "revokeagent", call.String("agent"))
+	})
+	add("approve_join", "Approve an access request: the key becomes a member, the relay's member list and add-user record follow, and the request is marked approved. Requires an owner or moderator key.", mcp.Object(map[string]any{"pubkey": mcpPubKey}, "pubkey"), mcpControls, func(ctx context.Context, call mcp.Call) (mcp.Result, error) {
+		return t.mcpManage(ctx, call, "approvejoin", call.String("pubkey"))
+	})
+	add("deny_join", "Deny an access request. The key stays outside the relay and may ask again. Requires an owner or moderator key.", mcp.Object(map[string]any{"pubkey": mcpPubKey}, "pubkey"), mcpControls, func(ctx context.Context, call mcp.Call) (mcp.Result, error) {
+		return t.mcpManage(ctx, call, "denyjoin", call.String("pubkey"))
 	})
 	add("pause_all_agents", "Pause every active agent at once. Requires an owner or moderator key.", mcp.Object(nil), mcpControls, func(ctx context.Context, call mcp.Call) (mcp.Result, error) {
 		return t.mcpManage(ctx, call, "pauseallagents")

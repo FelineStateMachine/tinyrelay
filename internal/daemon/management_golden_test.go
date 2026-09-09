@@ -24,7 +24,7 @@ func TestManagementGoldenInventory(t *testing.T) {
 	params["forkrelay"] = []json.RawMessage{json.RawMessage(`{"name":"fork-golden"}`)}
 	params["transferowner"] = []json.RawMessage{json.RawMessage(`"` + strings.Repeat("1", 64) + `"`)}
 	readMethods := map[string]bool{}
-	for _, method := range []string{"supportedmethods", "listaudit", "stats", "getpolicy", "listviews", "listbannedpubkeys", "listallowedpubkeys", "listmembers", "listpeople", "listinvites", "listclaims", "listlisthistory", "listeventsneedingmoderation", "listblockedips", "listreports", "exportconfig", "listblobs", "listsites", "listrecentevents", "searchevents", "listpins", "storagestats", "listretention", "listallowedkinds", "listblockedkinds", "listpresets", "listconnectiontemplates", "listconnections", "pullstatus", "listjobs", "deliverystatus", "listdumps", "listbackups", "clearsuccession", "successionstatus", "listdomains"} {
+	for _, method := range []string{"supportedmethods", "listaudit", "stats", "getpolicy", "listviews", "listbannedpubkeys", "listallowedpubkeys", "listmembers", "listpeople", "listjoinrequests", "listinvites", "listclaims", "listlisthistory", "listeventsneedingmoderation", "listblockedips", "listreports", "exportconfig", "listblobs", "listsites", "listrecentevents", "searchevents", "listpins", "storagestats", "listretention", "listallowedkinds", "listblockedkinds", "listpresets", "listconnectiontemplates", "listconnections", "pullstatus", "listjobs", "deliverystatus", "listdumps", "listbackups", "clearsuccession", "successionstatus", "listdomains"} {
 		readMethods[method] = true
 	}
 	for _, method := range ManagementMethods() {
