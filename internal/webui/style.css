@@ -239,6 +239,37 @@ wiki-compose output{display:block;font:12px var(--mono);color:var(--muted);margi
 /* Sign in. */
 #signer-qr:not([hidden]){display:block;margin:8px 0;background:#fff;padding:8px;border:1px solid var(--line)}
 
+/* Rooms: the rail lists rooms, messages read oldest first, and the compose bar stays at the bottom of the column. */
+#rail h4{margin:16px 0 4px;padding:0 2ch 0 2.5ch;font:11px var(--mono);color:var(--muted);text-transform:uppercase;letter-spacing:.04em}
+#room-list a{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}#room-list a small{float:right;color:var(--muted);font-size:11px}
+#rooms #rows td:first-child{width:220px}#rooms #rows td:nth-child(3){text-align:right;width:80px;font:12px var(--mono)}
+#content>section#room,#content>section#thread{padding-bottom:0}
+#room h1 small,#thread h1 small{font:12px var(--mono);color:var(--muted)}
+#crumbs,#newest,#empty{font:12px var(--mono);color:var(--muted)}
+#messages,#root{max-width:720px}
+room-message{display:block;padding:8px 0;border-bottom:1px solid var(--line)}
+room-message>header{font:12px var(--mono);color:var(--muted);margin-bottom:2px;user-select:none;-webkit-user-select:none}
+room-message>header b{color:var(--ink);font-weight:500}room-message>header b nostr-key{cursor:copy}
+room-message>header small{float:right}
+room-message>p{margin:0;font:14px/1.45 var(--sans);white-space:pre-wrap;overflow-wrap:anywhere}
+room-message>p a{color:var(--accent)}
+room-message>footer{font:12px var(--mono);color:var(--muted);margin-top:4px}
+room-message>footer>*+*::before{content:" | "}
+room-message[data-agent]>header b::after{content:" agent";color:var(--bark);font-size:11px}
+room-message[data-notice]>p{color:var(--muted);font-size:13px}
+room-live{display:block;font:11px var(--mono);color:var(--muted);text-align:right}room-live:empty{display:none}
+room-compose{display:block;position:sticky;bottom:0;margin:8px -22px 0;padding:10px 22px 8px;background:var(--paper);border-top:1px solid var(--line)}
+room-compose textarea{min-height:3.2em;width:100%;font:14px var(--sans);max-width:720px;display:block}
+room-compose p{margin:6px 0 0}room-compose button{margin-right:6px}
+room-compose output,room-create output,room-action output{display:block;font:12px var(--mono);color:var(--muted);margin-top:4px;overflow-wrap:anywhere}
+room-compose output[data-error],room-create output[data-error],room-action output[data-error]{color:var(--alert)}
+room-create{display:block;max-width:720px;border-bottom:1px solid var(--line);padding:10px 0}
+room-create label{display:inline-block;margin:0 10px 6px 0;vertical-align:top;font:13px var(--sans);color:var(--muted)}
+room-create label input,room-create label select{display:block;margin-top:2px;font:13px var(--mono);min-width:200px}room-create label:has(textarea){display:block}
+room-action{display:block}#panel room-action label{margin-top:6px}#panel room-action button{margin-top:8px}
+#members li[data-agent] small{color:var(--bark)}
+#panel #members li{font:12px var(--mono);line-height:22px}
+
 /* Phones: a top bar with a menu, the rail slides in, the panel stacks under the content. */
 @media(max-width:720px){
 html,body{overflow:auto}
@@ -264,4 +295,6 @@ html,body{overflow:auto}
 #rows{table-layout:fixed}#rows td{white-space:normal;overflow-wrap:anywhere;height:auto;padding:8px 6px;line-height:1.35}#rows td:first-child{width:90px}#rows td:last-child{width:80px}#rows:has(td[data-state]) td:nth-child(3),#rows:has(td[data-state]) th:nth-child(3){display:none}#rows:has(td[data-state]) td:last-child{width:80px}connect-list #rows td:nth-child(2),connect-list #rows th:nth-child(2){display:none}connect-list #rows td:nth-child(3),connect-list #rows td:last-child{width:auto}connect-list #rows td:last-child{white-space:normal}connect-list #rows td:last-child button{margin:2px 0}
 #grid,#gridhead,h2:has(+#gridhead){display:none}
 #wiki-list #rows th{white-space:normal}#wiki-list #rows td:nth-child(3),#wiki-list #rows th:nth-child(3){display:none}#wiki-list #rows td:nth-child(4){width:70px}
+room-compose{bottom:calc(28px + env(safe-area-inset-bottom,0px));margin:8px -2.5ch 0;padding:10px 2.5ch 8px;z-index:2}
+body:has(#room) #layout>tbody>tr>td#aside,body:has(#thread) #layout>tbody>tr>td#aside{display:none}
 }

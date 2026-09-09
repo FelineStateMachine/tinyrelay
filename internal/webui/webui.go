@@ -90,6 +90,8 @@ type PageData struct {
 	// Connections lists the ways to open this relay in client apps that the
 	// viewer may see, with link placeholders already resolved.
 	Connections []any
+	// Rooms lists the rooms the viewer may see; the rooms rail renders it.
+	Rooms []any
 }
 
 func New(backend Backend, options Options) (*App, error) {
@@ -160,7 +162,7 @@ func (a *App) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
 		http.Redirect(writer, request, requestPrefix(request)+"/manage/health", http.StatusMovedPermanently)
 		return
 	}
-	if request.Method == http.MethodGet && (request.URL.Path == "/repos" || request.URL.Path == "/repo" || request.URL.Path == "/files" || request.URL.Path == "/file" || request.URL.Path == "/approvals" || request.URL.Path == "/wiki" || strings.HasPrefix(request.URL.Path, "/wiki/") || request.URL.Path == "/manage/health") {
+	if request.Method == http.MethodGet && (request.URL.Path == "/repos" || request.URL.Path == "/repo" || request.URL.Path == "/files" || request.URL.Path == "/file" || request.URL.Path == "/approvals" || request.URL.Path == "/wiki" || strings.HasPrefix(request.URL.Path, "/wiki/") || request.URL.Path == "/manage/health" || roomRoute(request.URL.Path).tab != "") {
 		a.browse(writer, request)
 		return
 	}
@@ -531,6 +533,15 @@ func (a *App) browse(writer http.ResponseWriter, request *http.Request) {
 	case "/manage/health":
 		method = "browsestatus"
 	}
+	room := roomRoute(path)
+	switch room.tab {
+	case "rooms":
+		method = "browserooms"
+	case "room":
+		method = "browseroom"
+	case "thread":
+		method = "browsethread"
+	}
 	if strings.HasPrefix(path, "/wiki/") {
 		method = "browsewikipage"
 	}
@@ -594,6 +605,10 @@ func (a *App) browse(writer http.ResponseWriter, request *http.Request) {
 		query = map[string]any{"d": pageQuery.Get("d"), "author": request.URL.Query().Get("author"), "version": request.URL.Query().Get("version")}
 	case "browsestatus":
 		query = map[string]any{}
+	case "browserooms":
+		query = map[string]any{"cursor": request.URL.Query().Get("cursor"), "limit": 100}
+	case "browseroom", "browsethread":
+		query = map[string]any{"id": room.id, "event": room.event, "cursor": request.URL.Query().Get("cursor"), "limit": 50}
 	}
 	raw, _ := json.Marshal(query)
 	params = append(params, raw)
@@ -603,7 +618,11 @@ func (a *App) browse(writer http.ResponseWriter, request *http.Request) {
 	}
 	result, err := a.backend.Query(request.Context(), method, params, actor)
 	if err != nil {
-		a.render(writer, request, PageData{Tab: browseTab(path), Error: err.Error(), Query: pageQuery})
+		data := PageData{Tab: browseTab(path), Error: err.Error(), Query: pageQuery, View: room.id}
+		if room.tab != "" {
+			data.Rooms = a.roomList(request.Context(), actor)
+		}
+		a.render(writer, request, data)
 		return
 	}
 	if method == "browserepo" && pageQuery.Get("view") == "" {
@@ -614,7 +633,7 @@ func (a *App) browse(writer http.ResponseWriter, request *http.Request) {
 		// the first page.
 		result = a.includeApproval(request.Context(), actor, result, pageQuery.Get("id"))
 	}
-	data := PageData{Tab: browseTab(path), Feed: browseRows(result), Event: result, Query: pageQuery}
+	data := PageData{Tab: browseTab(path), Feed: browseRows(result), Event: result, Query: pageQuery, View: room.id}
 	data.Title = browseTitle(path, pageQuery, result, a.backend.Slug())
 	if id := pageQuery.Get("merge"); method == "browsewikipage" && len(id) == 64 {
 		raw, _ := json.Marshal(map[string]any{"id": id})
@@ -624,6 +643,12 @@ func (a *App) browse(writer http.ResponseWriter, request *http.Request) {
 			data.Notice = mergeErr.Error()
 		}
 	}
+	switch room.tab {
+	case "rooms":
+		data.Rooms = data.Feed
+	case "room", "thread":
+		data.Rooms = a.roomList(request.Context(), actor)
+	}
 	if method == "browserepo" && pageQuery.Get("view") == "home" {
 		data.Readme = a.readme(request.Context(), actor, pageQuery)
 	}
@@ -632,13 +657,19 @@ func (a *App) browse(writer http.ResponseWriter, request *http.Request) {
 }
 
 func browseTitle(path string, query url.Values, result any, slug string) string {
-	label := map[string]string{"/repos": "Repositories", "/files": "Files", "/file": "File", "/approvals": "Approvals", "/wiki": "Wiki"}[path]
+	label := map[string]string{"/repos": "Repositories", "/files": "Files", "/file": "File", "/approvals": "Approvals", "/wiki": "Wiki", "/rooms": "Rooms"}[path]
 	if strings.HasPrefix(path, "/wiki/") {
 		label = plainString(valueMap(result)["title"])
 		if label == "" {
 			label = query.Get("d")
 		}
 		label += " | wiki"
+	}
+	if room := roomRoute(path); room.tab == "room" || room.tab == "thread" {
+		label = "#" + room.id
+		if room.tab == "thread" {
+			label += " | thread"
+		}
 	}
 	if path == "/repo" {
 		label = query.Get("repo")
@@ -694,6 +725,9 @@ func (a *App) siblings(ctx context.Context, actor string, query url.Values) []an
 func browseTab(path string) string {
 	if strings.HasPrefix(path, "/wiki/") {
 		return "wikipage"
+	}
+	if room := roomRoute(path); room.tab != "" {
+		return room.tab
 	}
 	switch path {
 	case "/wiki":

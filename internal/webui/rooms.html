@@ -1,0 +1,64 @@
+{{/* Rooms: the list, one room's timeline with its compose bar, and one thread. */}}
+{{define "rooms"}}<section id="rooms">
+<h1>Rooms</h1>
+{{if .Error}}{{template "alert" .Error}}
+{{else if .Feed}}<table id="rows">
+<thead><tr><th>room</th><th>access</th><th>members</th><th>last message</th></tr></thead>
+<tbody>
+{{range .Feed}}{{$r := asMap .}}<tr><td><a href="/rooms/{{str (index $r "id")}}">{{or (str (index $r "name")) (str (index $r "id"))}}</a></td><td>{{if eq (str (index $r "access")) "members"}}members only{{else}}open{{end}}{{with str (index $r "about")}} <small>{{.}}</small>{{end}}</td><td>{{str (index $r "members")}}</td><td>{{with index $r "last_message_at"}}<time datetime="{{datetime .}}">{{when .}}</time>{{else}}no messages{{end}}</td></tr>
+{{end}}</tbody>
+</table>
+{{else}}<p>No rooms yet.</p>
+{{end}}{{with (asMap .Event).next_cursor}}<p id="pages"><a href="{{browsePageURL "/rooms" $.Query "cursor" .}}">next page</a></p>
+{{end}}{{if .Actor}}<h2 id="new-room">New room</h2>
+<room-create><label>Name <input name="name" required maxlength="200" placeholder="build"></label><label>Access <select name="access"><option value="open">open</option><option value="members">members only</option></select></label><label>About <textarea name="about" maxlength="2000"></textarea></label><button>Create room</button></room-create>
+<noscript><p>Creating a room needs JavaScript and a connected signer.</p></noscript>
+{{else}}<p><a href="/signin">Sign in</a> to create a room.</p>
+{{end}}</section>
+{{end}}
+
+{{define "room"}}{{if .Error}}<section id="room">
+<h1>#{{.View}}</h1>
+{{template "alert" .Error}}
+{{if not .Actor}}<p><a href="/signin">Sign in</a> to read this room.</p>{{end}}
+</section>
+{{else}}{{$data := asMap .Event}}{{$room := asMap (index $data "room")}}{{$id := str (index $room "id")}}<section id="room">
+<h1>{{or (str (index $room "name")) $id}} <small>{{if eq (str (index $room "access")) "members"}}members only{{else}}open room{{end}}</small></h1>
+{{with str (index $room "about")}}<p>{{.}}</p>{{end}}
+{{with index $data "next_cursor"}}<p id="pages"><a href="/rooms/{{$id}}?cursor={{urlquery (str .)}}">load earlier</a></p>{{end}}
+{{if .Query.Get "cursor"}}<p id="newest"><a href="/rooms/{{$id}}">newest messages</a></p>{{end}}
+<div id="messages">{{range roomItems .Event "messages"}}
+{{template "roomMessage" .}}{{else}}<p id="empty">No messages yet.</p>{{end}}
+</div>
+{{if not (.Query.Get "cursor")}}<room-live room="{{$id}}"></room-live>
+{{if .Actor}}<room-compose room="{{$id}}" pubkey="{{.Actor}}"><textarea name="content" rows="2" placeholder="Message #{{$id}}. Mention with @npub or @hex." required></textarea><p><button>Send</button></p></room-compose>
+<noscript><p>Sending needs JavaScript and a connected signer.</p></noscript>
+{{else}}<p id="guest"><a href="/signin">Sign in</a> to send messages.</p>
+{{end}}{{end}}</section>
+{{end}}{{end}}
+
+{{define "thread"}}{{if .Error}}<section id="thread">
+<h1>Thread</h1>
+{{template "alert" .Error}}
+</section>
+{{else}}{{$data := asMap .Event}}{{$room := asMap (index $data "room")}}{{$id := str (index $room "id")}}{{$root := roomRoot .Event}}<section id="thread">
+<p id="crumbs"><a href="/rooms/{{$id}}">{{or (str (index $room "name")) $id}}</a></p>
+<h1>Thread <small>{{$root.Replies}} replies</small></h1>
+<div id="root">{{template "roomMessage" $root}}</div>
+<div id="messages">{{range roomItems .Event "replies"}}
+{{template "roomMessage" .}}{{else}}<p id="empty">No replies yet.</p>{{end}}
+</div>
+{{with index $data "next_cursor"}}<p id="pages"><a href="/rooms/{{$id}}/thread/{{$root.ID}}?cursor={{urlquery (str .)}}">load earlier</a></p>{{end}}
+{{if not (.Query.Get "cursor")}}<room-live room="{{$id}}" root="{{$root.ID}}"></room-live>
+{{if .Actor}}<room-compose room="{{$id}}" pubkey="{{.Actor}}" kind="12" root="{{$root.ID}}" root-pubkey="{{$root.PubKey}}"><textarea name="content" rows="2" placeholder="Reply in this thread" required></textarea><p><button>Reply</button></p></room-compose>
+<noscript><p>Replying needs JavaScript and a connected signer.</p></noscript>
+{{else}}<p id="guest"><a href="/signin">Sign in</a> to reply.</p>
+{{end}}{{end}}</section>
+{{end}}{{end}}
+
+{{/* One message. room-live builds the same markup for messages that arrive on the stream. */}}
+{{define "roomMessage"}}<room-message id="msg-{{.ID}}" data-id="{{.ID}}" data-kind="{{.Kind}}" data-pubkey="{{.PubKey}}"{{if .Agent}} data-agent{{end}}{{if .Notice}} data-notice{{end}}>
+<header><b>{{template "nostrKey" .PubKey}}</b>{{if .Role}} | {{.Role}}{{end}}<small><time datetime="{{datetime .CreatedAt}}" title="{{when .CreatedAt}}">{{clock .CreatedAt}}</time></small></header>
+<p>{{if .Notice}}{{.Notice}}{{else}}{{roomContent .Content}}{{end}}</p>
+{{if or .Mentions (and (not .InThread) (or (eq .Kind "11") .Root)) .Reactions}}<footer>{{if .Mentions}}<span>to {{range .Mentions}}{{template "nostrKey" .}} {{end}}</span>{{end}}{{if not .InThread}}{{if eq .Kind "11"}}<a href="/rooms/{{.Room}}/thread/{{.ID}}">thread{{if .Replies}} | {{.Replies}} replies{{end}}</a>{{else if .Root}}<a href="/rooms/{{.Room}}/thread/{{.Root}}">in thread</a>{{end}}{{end}}{{range .Reactions}}<span data-reaction="{{.Content}}">{{.Content}} {{.Count}}</span>{{end}}</footer>{{end}}
+</room-message>{{end}}

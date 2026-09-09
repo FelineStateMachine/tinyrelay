@@ -56,6 +56,9 @@
 {{else if eq .Tab "wikipage"}}{{template "wikipage" .}}
 {{else if eq .Tab "file"}}{{template "file" .}}
 {{else if eq .Tab "approvals"}}{{template "approvals" .}}
+{{else if eq .Tab "rooms"}}{{template "rooms" .}}
+{{else if eq .Tab "room"}}{{template "room" .}}
+{{else if eq .Tab "thread"}}{{template "thread" .}}
 {{else if eq .Tab "event"}}{{template "event" .}}
 {{else if eq .Tab "view"}}{{template "view" .}}
 {{else if eq .Tab "invite"}}{{template "invite" .}}
@@ -85,15 +88,20 @@
 <nav>{{$v := repoView .Query}}<a href="{{repoURL .Query "home" ""}}"{{if eq $v "home"}} aria-current="page"{{end}}>/home</a><a href="{{repoURL .Query "tree" ""}}"{{if or (eq $v "tree") (eq $v "file")}} aria-current="page"{{end}}>/code</a><a href="{{repoURL .Query "history" ""}}"{{if or (eq $v "history") (eq $v "commit")}} aria-current="page"{{end}}>/history</a><a href="{{repoURL .Query "issues" ""}}"{{if or (eq $v "issues") (eq $v "issue")}} aria-current="page"{{end}}>/issues</a><a href="{{repoURL .Query "prs" ""}}"{{if or (eq $v "prs") (eq $v "pr")}} aria-current="page"{{end}}>/prs</a><a href="{{repoURL .Query "activity" ""}}"{{if eq $v "activity"}} aria-current="page"{{end}}>/activity</a></nav>
 {{else if eq $kind "manage"}}<header><span><a href="/">{{.Slug}}</a>/<b>manage</b></span></header>
 {{range $group := navGroups manageItems}}<nav>{{range $item := $group}}<a href="{{$item.Href}}"{{if eq $item.Tab $.Tab}} aria-current="page"{{end}}>{{$item.Label}}</a>{{end}}</nav>{{end}}
+{{else if eq $kind "rooms"}}<header><span><a href="/">{{.Slug}}</a>/<a href="/rooms"><b>rooms</b></a></span></header>
+<h4>Rooms</h4>
+<nav id="room-list">{{range .Rooms}}{{$r := asMap .}}<a href="/rooms/{{str (index $r "id")}}"{{if eq (str (index $r "id")) $.View}} aria-current="page"{{end}}>{{or (str (index $r "name")) (str (index $r "id"))}}{{with age (index $r "last_message_at")}} <small>{{.}}</small>{{end}}</a>{{else}}<a href="/rooms"{{if eq $.Tab "rooms"}} aria-current="page"{{end}}>/rooms</a>{{end}}</nav>
+<p><a href="/rooms#new-room">+ new room</a></p>
 {{else}}<header><span><a id="mark" href="/" title="{{.Slug}}"><i>t</i><i>i</i><i>n</i><i>y</i></a></span></header>
 {{range $group := navGroups relayItems}}<nav>{{range $item := $group}}<a href="{{$item.Href}}"{{if eq $item.Tab $.Tab}} aria-current="page"{{end}}>{{$item.Label}}</a>{{end}}</nav>{{end}}
-{{end}}<p id="rail-tools">{{if eq $kind "repo"}}<a href="/repos">&larr; all repositories</a>{{else if eq $kind "manage"}}<a href="/">&larr; relay</a>{{end}}<button id="theme" type="button" aria-label="Switch theme">theme</button></p>{{end}}
+{{end}}<p id="rail-tools">{{if eq $kind "repo"}}<a href="/repos">&larr; all repositories</a>{{else if or (eq $kind "manage") (eq $kind "rooms")}}<a href="/">&larr; relay</a>{{end}}<button id="theme" type="button" aria-label="Switch theme">theme</button></p>{{end}}
 
 {{/* The panel holds facts and filters for the current page. */}}
 {{define "panel"}}{{$kind := railKind .Tab}}{{if .Private}}{{template "panel-signin" .}}
 {{else if eq .Tab "repo"}}{{template "panel-repo" .}}
 {{else if eq .Tab "agents"}}{{template "panel-agents" .}}
 {{else if eq $kind "manage"}}{{template "panel-manage" .}}
+{{else if eq $kind "rooms"}}{{template "panel-rooms" .}}
 {{else if or (eq .Tab "inbox") (eq .Tab "outbox") (eq .Tab "search") (eq .Tab "articles")}}{{template "panel-feed" .}}
 {{else if eq .Tab "repos"}}{{template "panel-repos" .}}
 {{else if or (eq .Tab "files") (eq .Tab "file")}}{{template "panel-files" .}}
@@ -135,6 +143,16 @@
 <section><h4>Machine access</h4><table><tr><th>mcp</th><td><code>/mcp</code> 2026-07-28</td></tr><tr><th>auth</th><td>NIP-98 per request</td></tr><tr><th>rest</th><td><code>/events</code> <code>/query</code></td></tr></table></section>
 <section><h4>Kill switch</h4><rpc-form method="pauseallagents" refresh><button>Pause all agents</button></rpc-form><rpc-form method="resumeallagents" refresh><button>Resume all agents</button></rpc-form><p><small>Pausing keeps grants and rejects writes until resumed.</small></p></section>
 <section><h4>Session</h4><table><tr><th>you</th><td>{{if .Actor}}{{template "nostrKey" .Actor}}{{else}}guest{{end}}</td></tr><tr><th>role</th><td>{{if .Owner}}owner{{else if .Actor}}member{{else}}none{{end}}</td></tr></table></section>{{end}}
+{{define "panel-rooms"}}{{if eq .Tab "rooms"}}<section><h4>Rooms</h4><table><tr><th>rooms</th><td>{{len .Rooms}}</td></tr><tr><th>protocol</th><td>NIP-29</td></tr></table></section>
+<section><h4>Actions</h4><ul>{{if .Actor}}<li><a href="/rooms#new-room">new room</a></li>{{else}}<li><a href="/signin">sign in</a></li>{{end}}</ul></section>
+{{else if .Error}}<section><h4>Room</h4><table><tr><th>id</th><td><code>{{.View}}</code></td></tr></table></section>
+{{else}}{{$data := asMap .Event}}{{$room := asMap (index $data "room")}}{{$id := str (index $room "id")}}{{$role := str (index $room "role")}}<section><h4>Room</h4><table><tr><th>id</th><td><code>{{$id}}</code></td></tr><tr><th>access</th><td>{{if eq (str (index $room "access")) "members"}}members only{{else}}open{{end}}</td></tr><tr><th>created</th><td>{{short (index $room "created_at")}}</td></tr>{{if $role}}<tr><th>you</th><td>{{$role}}</td></tr>{{end}}</table></section>
+{{if eq .Tab "thread"}}<section><h4>Actions</h4><ul><li><a href="/rooms/{{$id}}">open room</a></li></ul></section>
+{{else}}<section><h4>Members</h4><ul id="members">{{range roomMembers .Event}}{{$m := asMap .}}<li{{if index $m "agent"}} data-agent{{end}}>{{template "nostrKey" (str (index $m "pubkey"))}} <small>{{str (index $m "role")}}{{if index $m "agent"}} | agent{{end}}</small></li>{{else}}<li>{{str (index $room "members")}} members</li>{{end}}</ul></section>
+{{if .Actor}}<section><h4>Actions</h4>{{if roomAdmin $role}}<details><summary>invite member</summary><room-action room="{{$id}}" kind="9000"><label>pubkey <input name="pubkey" placeholder="npub or 64 hex" required></label><label>role <select name="role"><option value="member">member</option><option value="admin">admin</option>{{if eq $role "owner"}}<option value="owner">owner</option>{{end}}</select></label><button>Add member</button></room-action></details>
+<details><summary>room settings</summary><room-action room="{{$id}}" kind="9002"><label>name <input name="name" value="{{str (index $room "name")}}" required maxlength="200"></label><label>about <input name="about" value="{{str (index $room "about")}}" maxlength="2000"></label><label>picture <input name="picture" value="{{str (index $room "picture")}}" placeholder="https://"></label><label>access <select name="access"><option value="open"{{if ne (str (index $room "access")) "members"}} selected{{end}}>open</option><option value="members"{{if eq (str (index $room "access")) "members"}} selected{{end}}>members only</option></select></label><button>Save</button></room-action></details>
+{{end}}{{if $role}}<room-action room="{{$id}}" kind="9022"><button>Leave room</button></room-action>{{else}}<room-action room="{{$id}}" kind="9021"><button>Join room</button></room-action>{{end}}<noscript><p>Room actions need JavaScript and a connected signer.</p></noscript></section>
+{{end}}{{end}}{{end}}{{end}}
 
 {{/* Shared partials. */}}
 
