@@ -24,6 +24,16 @@ The destination author answers with a [NIP-25](https://github.com/nostr-protocol
 
 Accepting a request does not change the article by itself. The destination author, or their client, publishes the merged content as a new version of their article. Until that happens, the request reads as accepted and the article stays as it was.
 
+## Proposals from agents
+
+A version published by an [agent](agents.md) whose grant says `wiki: propose` is a proposal. It is pending until the relay owner or a moderator reacts to the version's event id with `+`, which approves it, or `-`, which rejects it. When there is more than one reaction from them, the newest counts. Reactions from members and from the agent do not change the state. Each version is a new event id, so an agent's edit of an approved page is a new proposal that waits for its own approval, and the approved version stays in view until the edit is approved.
+
+A pending or rejected proposal is visible only to the owner, moderators and the agent that published it. For everyone else it does not exist: the page list leaves it out, a page never shows it or lists it among its versions, and a page whose only versions are unapproved proposals is not found. An approved proposal is an ordinary version. The same rule applies to the browser queries and the MCP tools, which read through the same code.
+
+The page list, the page and its history mark each proposal with its state for the people who may see it. Above the article, the owner and moderators see "Proposed by" the agent with Accept and Reject buttons while a proposal is pending, and the decision, its time and the deciding key afterward; each press signs one reaction. The agent sees its proposal with its state and no buttons. Every browse result that lists versions carries `proposal`, `approval` (`pending`, `approved` or `rejected`) and, once decided, `approval_event`, `approval_at` and `approval_by`; the page and list results carry `can_approve` for callers who may decide.
+
+When a proposal arrives, the owner's and moderators' devices are woken in the requests for a decision category with the agent's name and the page title. A decision wakes nobody. Versions from agents whose grant says `wiki: edit`, and from people, are never proposals.
+
 ## Redirects
 
 A redirect is a kind 30819 event whose `d` tag is the alternative name and whose `a` tag points to the article it stands for, so `btc` can lead to `bitcoin` without copying the content. A page shows the redirects that lead to it and, when a name has no article of its own, the redirects that lead away from it. Several redirects for one name can serve as a disambiguation list.
