@@ -145,6 +145,8 @@
     object({agent: pubkey}, ["agent"]), reads, (input, signal) => query("browseagent", input, signal));
   register("tiny.list_callbacks", "List event callbacks: id, owner, host, filter, paused state, failures and last delivery. Members and agents see their own; the owner and moderators see every callback. Uses your connected signer.",
     object(), reads, (input, signal) => manage("listcallbacks", [], signal));
+  register("tiny.list_join_requests", "List access requests from people who asked to join without an invite: pubkey, reason, time asked, status (pending, approved or denied), who decided and when. Pending requests come first. Uses your connected signer; owner or moderator.",
+    object(), reads, (input, signal) => manage("listjoinrequests", [], signal));
 
   function open(path) {
     const url = new URL(local(path), location.href);
@@ -232,6 +234,10 @@
     object({agent: pubkey}, ["agent"]), "resumeagent", input => [input.agent]);
   control("tiny.revoke_agent", "Revoke an agent's grant. The agent loses its role at once; only a new grant restores it.",
     object({agent: pubkey}, ["agent"]), "revokeagent", input => [input.agent]);
+  control("tiny.approve_join", "Approve an access request: the key becomes a member, the relay's member list and add-user record follow, and the request is marked approved. Owner or moderator.",
+    object({pubkey}, ["pubkey"]), "approvejoin", input => [input.pubkey]);
+  control("tiny.deny_join", "Deny an access request. The key stays outside the relay and may ask again. Owner or moderator.",
+    object({pubkey}, ["pubkey"]), "denyjoin", input => [input.pubkey]);
   control("tiny.pause_callback", "Pause an event callback by id. Deliveries stop until it is resumed. The callback's owner, the relay owner and moderators may do this.",
     object({id}, ["id"]), "pausecallback", input => [input.id]);
   control("tiny.resume_callback", "Resume a paused event callback by id and clear its failure count.",

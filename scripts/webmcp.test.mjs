@@ -238,6 +238,36 @@ test("agent tools list through the signer, read through the session and control 
   }
 });
 
+test("access request tools list through the signer and decide by pubkey", async () => {
+  const calls = [];
+  const asker = "b".repeat(64);
+  const {tools} = await browser({path: "/r/work/manage/people", signedFetch: async (url, method, body) => {
+    calls.push({url, method, body: JSON.parse(body)});
+    const request = JSON.parse(body);
+    if (request.method === "listjoinrequests") {
+      return new Response(JSON.stringify({result: [{pubkey: asker, reason: "Met you at the meetup", requested_at: 1700000000, status: "pending", decided_by: "", decided_at: 0}]}));
+    }
+    return new Response(JSON.stringify({result: {pubkey: asker, status: request.method === "approvejoin" ? "approved" : "denied"}}));
+  }});
+  const list = tools.get("tiny.list_join_requests");
+  assert.equal(list.annotations.readOnlyHint, true);
+  const listed = await list.execute({});
+  assert.equal(listed.structuredContent.result[0].pubkey, asker);
+  assert.equal(listed.structuredContent.result[0].status, "pending");
+  assert.equal(calls[0].url, "/r/work/manage/rpc");
+  assert.equal(calls[0].method, "POST");
+  assert.deepEqual(calls[0].body, {method: "listjoinrequests", params: []});
+  for (const [name, method, status] of [["tiny.approve_join", "approvejoin", "approved"], ["tiny.deny_join", "denyjoin", "denied"]]) {
+    const tool = tools.get(name);
+    assert.equal(tool.annotations.consequentialHint, true);
+    assert.deepEqual([...tool.inputSchema.required], ["pubkey"]);
+    assert.equal(tool.inputSchema.properties.pubkey.pattern, "^[0-9a-f]{64}$");
+    const result = await tool.execute({pubkey: asker});
+    assert.deepEqual(calls.at(-1).body, {method, params: [asker]});
+    assert.equal(result.structuredContent.result.status, status);
+  }
+});
+
 test("callback tools list through the signer and control by id", async () => {
   const calls = [];
   const {tools} = await browser({path: "/r/work/manage/agents", signedFetch: async (url, method, body) => {
