@@ -152,3 +152,33 @@ test("link, files and notification tools reach the new surfaces", async () => {
   assert.equal(calls[0].url, "/r/work/manage/rpc");
   assert.equal(calls[0].body.method, "notifytest");
 });
+
+test("agent tools list through the signer, read through the session and control through management", async () => {
+  const calls = [], queries = [];
+  const {tools} = await browser({path: "/r/work/manage/agents", fetch: async url => {
+    queries.push(new URL(url, "https://tiny.example"));
+    return new Response(JSON.stringify({agent: {name: "hermes"}, events: []}));
+  }, signedFetch: async (url, method, body) => {
+    calls.push({url, method, body: JSON.parse(body)});
+    return new Response(JSON.stringify({result: [{name: "hermes", paused: false}]}));
+  }});
+  const agent = "a".repeat(64);
+  const list = tools.get("tiny.list_agents");
+  assert.equal(list.annotations.readOnlyHint, true);
+  const listed = await list.execute({});
+  assert.equal(listed.structuredContent.result[0].name, "hermes");
+  assert.deepEqual(calls[0].body, {method: "listagents", params: []});
+  assert.equal(calls[0].url, "/r/work/manage/rpc");
+  const read = await tools.get("tiny.read_agent").execute({agent});
+  assert.equal(queries[0].pathname, "/r/work/webmcp/query");
+  assert.equal(queries[0].searchParams.get("method"), "browseagent");
+  assert.deepEqual(JSON.parse(queries[0].searchParams.get("params")), [{agent}]);
+  assert.equal(read.structuredContent.result.agent.name, "hermes");
+  for (const [name, method] of [["tiny.pause_agent", "pauseagent"], ["tiny.resume_agent", "resumeagent"], ["tiny.revoke_agent", "revokeagent"]]) {
+    const tool = tools.get(name);
+    assert.equal(tool.annotations.consequentialHint, true);
+    assert.deepEqual([...tool.inputSchema.required], ["agent"]);
+    await tool.execute({agent});
+    assert.deepEqual(calls.at(-1).body, {method, params: [agent]});
+  }
+});

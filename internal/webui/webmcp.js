@@ -112,6 +112,11 @@
       return manage(input.method, [], signal);
     });
 
+  register("tiny.list_agents", "List agent grants: name, public key, owner, scope, paused or revoked state, expiry and last event time. Uses your connected signer; owner or moderator.",
+    object(), reads, (input, signal) => manage("listagents", [], signal));
+  register("tiny.read_agent", "Read one agent's grant and its ten newest events. Requires a signed-in owner or moderator session.",
+    object({agent: pubkey}, ["agent"]), reads, (input, signal) => query("browseagent", input, signal));
+
   function open(path) {
     const url = new URL(local(path), location.href);
     location.assign(url.href);
@@ -156,6 +161,12 @@
       every: {type: "integer", minimum: 0, description: "Interval in hours. Zero runs once."}, discoverPubKey: pubkey}, ["id", "kind"]),
     "addjob", input => [input]);
   control("tiny.remove_job", "Remove a job and cancel its pending runs.", object({id}, ["id"]), "removejob", input => [input.id]);
+  control("tiny.pause_agent", "Pause an agent. Its grant stays and the relay rejects its events until it is resumed.",
+    object({agent: pubkey}, ["agent"]), "pauseagent", input => [input.agent]);
+  control("tiny.resume_agent", "Resume a paused agent so it may publish again.",
+    object({agent: pubkey}, ["agent"]), "resumeagent", input => [input.agent]);
+  control("tiny.revoke_agent", "Revoke an agent's grant. The agent loses its role at once; only a new grant restores it.",
+    object({agent: pubkey}, ["agent"]), "revokeagent", input => [input.agent]);
   control("tiny.backup_now", "Queue a backup of relay data. Inspect jobs and backups to check completion.", object(), "backupnow", () => []);
   control("tiny.dump_now", "Queue an event export. Inspect jobs and dumps to check completion.", object(), "dumpnow", () => []);
   control("tiny.set_connections", "Replace the relay's connection list. Read the current list before editing it.",
