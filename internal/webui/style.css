@@ -216,8 +216,8 @@ diff-view ins,diff-view del{text-decoration:none}diff-view tr:has(ins){backgroun
 diff-view caption{text-align:left;font:13px var(--mono);padding:8px 12px;border-bottom:1px solid var(--line);caption-side:top}
 
 /* Wiki: the page list, one article, the merge request bar and the editor. */
-#wiki-list #rows td:first-child{width:auto;font:14px var(--sans)}#wiki-list #rows td:nth-child(3),#wiki-list #rows td:nth-child(4){width:110px;font:12px var(--mono);color:var(--muted)}
-wiki-article{display:block;max-width:720px}wiki-article>header{font:12px var(--mono);color:var(--muted);margin-bottom:8px}wiki-article>header nostr-key{color:var(--ink)}
+#wiki-list #rows th{white-space:nowrap}#wiki-list #rows td:first-child{width:auto;font:14px var(--sans)}#wiki-list #rows td:nth-child(3),#wiki-list #rows td:nth-child(4){width:110px;font:12px var(--mono);color:var(--muted)}
+wiki-article{display:block;max-width:720px;overflow-wrap:anywhere}wiki-article>header{font:12px var(--mono);color:var(--muted);margin-bottom:8px}wiki-article>header nostr-key{color:var(--ink)}
 wiki-article h1{font-size:20px;margin:18px 0 8px}wiki-article h2{font-size:17px}wiki-article h3{font-size:15px}wiki-article p{margin:0 0 10px}
 wiki-article pre{background:var(--rail);border:1px solid var(--line);padding:10px 12px;overflow:auto;font-size:12.5px;line-height:1.5;white-space:pre}wiki-article ul,wiki-article ol{padding-left:20px;margin:0 0 10px}
 merge-request{display:block;border:1px solid var(--line);background:var(--soft);padding:8px 10px;margin:0 0 14px;max-width:720px;font:13px var(--sans)}
@@ -263,4 +263,5 @@ html,body{overflow:auto}
 #tree{border-right:0;border-bottom:1px solid var(--line)}
 #rows{table-layout:fixed}#rows td{white-space:normal;overflow-wrap:anywhere;height:auto;padding:8px 6px;line-height:1.35}#rows td:first-child{width:90px}#rows td:last-child{width:80px}#rows:has(td[data-state]) td:nth-child(3),#rows:has(td[data-state]) th:nth-child(3){display:none}#rows:has(td[data-state]) td:last-child{width:80px}connect-list #rows td:nth-child(2),connect-list #rows th:nth-child(2){display:none}connect-list #rows td:nth-child(3),connect-list #rows td:last-child{width:auto}connect-list #rows td:last-child{white-space:normal}connect-list #rows td:last-child button{margin:2px 0}
 #grid,#gridhead,h2:has(+#gridhead){display:none}
+#wiki-list #rows th{white-space:normal}#wiki-list #rows td:nth-child(3),#wiki-list #rows th:nth-child(3){display:none}#wiki-list #rows td:nth-child(4){width:70px}
 }
