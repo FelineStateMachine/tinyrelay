@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -20,6 +21,7 @@ type mcpCall struct {
 	meta      string
 	version   string
 	sign      bool
+	secret    string
 	headers   map[string]string
 }
 
@@ -57,7 +59,9 @@ func (c mcpCall) do(t *testing.T, app *App, path string) (*httptest.ResponseReco
 	for key, value := range c.headers {
 		r.Header.Set(key, value)
 	}
-	if c.sign {
+	if c.secret != "" {
+		signRequestWithSecret(t, r, string(raw), c.secret)
+	} else if c.sign {
 		signRequest(t, r, string(raw))
 	}
 	w := httptest.NewRecorder()
@@ -232,7 +236,241 @@ func TestMCPRejectsUnauthorizedForeignAndMismatchedRequests(t *testing.T) {
 	r := httptest.NewRequest(http.MethodGet, "http://relay.test/r/main/llms.txt", nil)
 	w = httptest.NewRecorder()
 	app.ServeHTTP(w, r)
-	if w.Code != http.StatusOK || !strings.HasPrefix(w.Header().Get("Content-Type"), "text/plain") || !strings.Contains(w.Body.String(), "http://relay.test/r/main/mcp") || !strings.Contains(w.Body.String(), mcp.Version) {
+	if w.Code != http.StatusOK || !strings.HasPrefix(w.Header().Get("Content-Type"), "text/plain") || !strings.Contains(w.Body.String(), "http://relay.test/r/main/mcp") || !strings.Contains(w.Body.String(), mcp.Version) || !strings.Contains(w.Body.String(), "list_rooms") || !strings.Contains(w.Body.String(), "request_decision") {
 		t.Fatalf("llms.txt: %d %s", w.Code, w.Body.String())
+	}
+}
+
+// mcpSigned signs an event with the secret and returns it as the JSON object
+// a client passes in the event argument.
+func mcpSigned(t *testing.T, secret string, kind int, tags [][]string, content string) map[string]any {
+	t.Helper()
+	e := event.Event{Kind: kind, CreatedAt: time.Now().Unix(), Tags: tags, Content: content}
+	if err := event.Sign(&e, secret); err != nil {
+		t.Fatal(err)
+	}
+	raw, _ := json.Marshal(e)
+	var value map[string]any
+	_ = json.Unmarshal(raw, &value)
+	return value
+}
+
+func TestMCPRoomWikiAndAgentTools(t *testing.T) {
+	app, tenant := testTenant(t)
+	ctx := context.Background()
+	owner := tenant.Policy().Owner
+	member, _ := event.PublicKey(testMemberSecret)
+	agent, _ := event.PublicKey(testAgentSecret)
+	if _, err := tenant.Execute(ctx, owner, "setmember", []json.RawMessage{json.RawMessage(strconv.Quote(member)), json.RawMessage(`{"role":"member"}`)}); err != nil {
+		t.Fatal(err)
+	}
+	call := func(name string, arguments map[string]any, secret string) (map[string]any, bool) {
+		t.Helper()
+		w, response := mcpCall{method: "tools/call", name: name, arguments: arguments, sign: true, secret: secret}.do(t, app, "/mcp")
+		if w.Code != http.StatusOK {
+			t.Fatalf("%s: %d %s", name, w.Code, w.Body.String())
+		}
+		return mcpToolResult(t, response)
+	}
+	structured := func(result map[string]any) map[string]any {
+		value, _ := result["structuredContent"].(map[string]any)
+		return value
+	}
+	text := func(result map[string]any) string {
+		content, _ := result["content"].([]any)
+		if len(content) == 0 {
+			return ""
+		}
+		return content[0].(map[string]any)["text"].(string)
+	}
+	_, response := mcpCall{method: "tools/list", sign: true}.do(t, app, "/mcp")
+	names := map[string]bool{}
+	for _, tool := range response.Result.(map[string]any)["tools"].([]any) {
+		names[tool.(map[string]any)["name"].(string)] = true
+	}
+	for _, want := range []string{"list_rooms", "read_room", "read_thread", "list_wiki", "read_wiki_page", "read_merge_request", "list_agents", "post_message", "start_thread", "reply_in_thread", "react", "publish_wiki_page", "propose_wiki_merge", "create_room", "pause_agent", "resume_agent", "revoke_agent", "pause_all_agents", "resume_all_agents", "request_decision"} {
+		if !names[want] {
+			t.Fatalf("missing tool %s", want)
+		}
+	}
+
+	// Rooms: the template carries the room tags, the signed event creates
+	// the room and the list shows it.
+	result, isError := call("create_room", map[string]any{"room": "general", "name": "General", "about": "Talk", "visibility": "open"}, "")
+	unsigned, _ := structured(result)["unsigned"].(map[string]any)
+	tags, _ := json.Marshal(unsigned["tags"])
+	if isError || unsigned["kind"] != float64(9007) || string(tags) != `[["h","general"],["name","General"],["about","Talk"],["visibility","open"]]` {
+		t.Fatalf("create_room template: %v %s", isError, text(result))
+	}
+	result, isError = call("create_room", map[string]any{"event": mcpSigned(t, testOwnerSecret, 9007, [][]string{{"h", "general"}, {"name", "General"}, {"visibility", "open"}}, "")}, "")
+	if isError || structured(result)["accepted"] != true {
+		t.Fatalf("create_room publish: %s", text(result))
+	}
+	result, isError = call("list_rooms", map[string]any{}, "")
+	found := false
+	for _, item := range structured(result)["items"].([]any) {
+		room := item.(map[string]any)
+		if room["id"] == "general" && room["name"] == "General" && room["access"] == "open" {
+			found = true
+		}
+	}
+	if isError || !found {
+		t.Fatalf("list_rooms: %s", text(result))
+	}
+	// post_message: the template, then the signed message read back.
+	result, isError = call("post_message", map[string]any{"room": "general", "content": "hello room", "mentions": []any{member, member}}, testMemberSecret)
+	unsigned, _ = structured(result)["unsigned"].(map[string]any)
+	tags, _ = json.Marshal(unsigned["tags"])
+	if isError || unsigned["kind"] != float64(9) || unsigned["content"] != "hello room" || string(tags) != `[["h","general"],["p","`+member+`"]]` {
+		t.Fatalf("post_message template: %s", text(result))
+	}
+	result, isError = call("post_message", map[string]any{"event": mcpSigned(t, testMemberSecret, 9, [][]string{{"h", "general"}, {"p", member}}, "hello room")}, testMemberSecret)
+	messageID, _ := structured(result)["event_id"].(string)
+	if isError || structured(result)["accepted"] != true || messageID == "" {
+		t.Fatalf("post_message publish: %s", text(result))
+	}
+	result, isError = call("post_message", map[string]any{"event": mcpSigned(t, testMemberSecret, 9, [][]string{}, "no room")}, testMemberSecret)
+	if !isError || !strings.Contains(text(result), "the h tag must name the room") {
+		t.Fatalf("post_message without room: %s", text(result))
+	}
+	result, isError = call("read_room", map[string]any{"id": "general"}, "")
+	messages, _ := structured(result)["messages"].([]any)
+	if isError || len(messages) != 1 || messages[0].(map[string]any)["id"] != messageID {
+		t.Fatalf("read_room: %s", text(result))
+	}
+	result, isError = call("reply_in_thread", map[string]any{"room": "general", "root": messageID, "root_pubkey": member, "content": "and back"}, "")
+	unsigned, _ = structured(result)["unsigned"].(map[string]any)
+	tags, _ = json.Marshal(unsigned["tags"])
+	if isError || unsigned["kind"] != float64(12) || string(tags) != `[["h","general"],["e","`+messageID+`"],["p","`+member+`"]]` {
+		t.Fatalf("reply_in_thread template: %s", text(result))
+	}
+	result, isError = call("reply_in_thread", map[string]any{"event": mcpSigned(t, testOwnerSecret, 12, [][]string{{"h", "general"}, {"e", messageID}, {"p", member}}, "and back")}, "")
+	if isError || structured(result)["accepted"] != true {
+		t.Fatalf("reply_in_thread publish: %s", text(result))
+	}
+	result, isError = call("read_thread", map[string]any{"id": "general", "event": messageID}, "")
+	replies, _ := structured(result)["replies"].([]any)
+	if isError || len(replies) != 1 || structured(result)["root"].(map[string]any)["id"] != messageID {
+		t.Fatalf("read_thread: %s", text(result))
+	}
+
+	// react: content is +, - or one emoji, whether templated or signed.
+	result, isError = call("react", map[string]any{"target": messageID, "target_pubkey": member, "content": "great", "room": "general"}, "")
+	if !isError || !strings.Contains(text(result), "content must be +, - or one emoji") {
+		t.Fatalf("react template validation: %s", text(result))
+	}
+	result, isError = call("react", map[string]any{"target": messageID, "target_pubkey": member, "content": "\U0001F44D", "room": "general"}, "")
+	unsigned, _ = structured(result)["unsigned"].(map[string]any)
+	tags, _ = json.Marshal(unsigned["tags"])
+	if isError || unsigned["kind"] != float64(7) || unsigned["content"] != "\U0001F44D" || string(tags) != `[["e","`+messageID+`"],["p","`+member+`"],["h","general"]]` {
+		t.Fatalf("react template: %s", text(result))
+	}
+	result, isError = call("react", map[string]any{"event": mcpSigned(t, testOwnerSecret, 7, [][]string{{"e", messageID}, {"p", member}, {"h", "general"}}, "great")}, "")
+	if !isError || !strings.Contains(text(result), `Expected a signed kind 7 event`) {
+		t.Fatalf("react signed validation: %s", text(result))
+	}
+	result, isError = call("react", map[string]any{"event": mcpSigned(t, testOwnerSecret, 7, [][]string{{"e", messageID}, {"p", member}, {"h", "general"}}, "+")}, "")
+	if isError || structured(result)["accepted"] != true {
+		t.Fatalf("react publish: %s", text(result))
+	}
+
+	// Wiki: the template normalizes the name; the signed page reads back.
+	result, isError = call("publish_wiki_page", map[string]any{"d": "Bitcoin Basics", "title": "Bitcoin Basics", "summary": "A primer", "content": "Digital cash."}, "")
+	unsigned, _ = structured(result)["unsigned"].(map[string]any)
+	tags, _ = json.Marshal(unsigned["tags"])
+	if isError || unsigned["kind"] != float64(30818) || string(tags) != `[["d","bitcoin-basics"],["title","Bitcoin Basics"],["summary","A primer"]]` {
+		t.Fatalf("publish_wiki_page template: %s", text(result))
+	}
+	result, isError = call("publish_wiki_page", map[string]any{"event": mcpSigned(t, testOwnerSecret, 30818, [][]string{{"d", "Bitcoin Basics"}, {"title", "Bitcoin Basics"}}, "Digital cash.")}, "")
+	if !isError || !strings.Contains(text(result), "normalized page name") {
+		t.Fatalf("publish_wiki_page unnormalized: %s", text(result))
+	}
+	result, isError = call("publish_wiki_page", map[string]any{"event": mcpSigned(t, testOwnerSecret, 30818, [][]string{{"d", "bitcoin-basics"}, {"title", "Bitcoin Basics"}, {"summary", "A primer"}}, "Digital cash.")}, "")
+	pageID, _ := structured(result)["event_id"].(string)
+	if isError || structured(result)["accepted"] != true {
+		t.Fatalf("publish_wiki_page publish: %s", text(result))
+	}
+	result, isError = call("read_wiki_page", map[string]any{"d": "Bitcoin Basics"}, testMemberSecret)
+	page := structured(result)
+	version, _ := page["version"].(map[string]any)
+	if isError || page["d"] != "bitcoin-basics" || page["title"] != "Bitcoin Basics" || version["id"] != pageID || version["content"] != "Digital cash." || page["preferred_by"] != "owner" {
+		t.Fatalf("read_wiki_page: %s", text(result))
+	}
+	result, isError = call("list_wiki", map[string]any{"q": "primer"}, "")
+	if items, _ := structured(result)["items"].([]any); isError || len(items) != 1 {
+		t.Fatalf("list_wiki: %s", text(result))
+	}
+	result, isError = call("propose_wiki_merge", map[string]any{"d": "Bitcoin Basics", "destination": owner, "source": pageID, "content": "Take my edits."}, testMemberSecret)
+	unsigned, _ = structured(result)["unsigned"].(map[string]any)
+	tags, _ = json.Marshal(unsigned["tags"])
+	if isError || unsigned["kind"] != float64(818) || string(tags) != `[["a","30818:`+owner+`:bitcoin-basics"],["p","`+owner+`"],["e","`+pageID+`","","source"]]` {
+		t.Fatalf("propose_wiki_merge template: %s", text(result))
+	}
+	result, isError = call("propose_wiki_merge", map[string]any{"event": mcpSigned(t, testMemberSecret, 818, [][]string{{"a", "30818:" + owner + ":bitcoin-basics"}, {"p", owner}, {"e", pageID, "", "source"}}, "Take my edits.")}, testMemberSecret)
+	mergeID, _ := structured(result)["event_id"].(string)
+	if isError || mergeID == "" {
+		t.Fatalf("propose_wiki_merge publish: %s", text(result))
+	}
+	result, isError = call("read_merge_request", map[string]any{"id": mergeID}, "")
+	merge, _ := structured(result)["merge"].(map[string]any)
+	if isError || merge["id"] != mergeID || merge["status"] != "open" {
+		t.Fatalf("read_merge_request: %s", text(result))
+	}
+
+	// Agents: owners and moderators read and control them, members do not.
+	now := time.Now().Unix()
+	if err := publishAs(t, tenant, agentGrantEvent(t, agent, now, now+3600, []string{"k", "1"})); err != nil {
+		t.Fatal(err)
+	}
+	result, isError = call("list_agents", map[string]any{}, testMemberSecret)
+	if !isError || !strings.Contains(text(result), "restricted") {
+		t.Fatalf("list_agents as member: %v %s", isError, text(result))
+	}
+	result, isError = call("list_agents", map[string]any{}, "")
+	agents, _ := structured(result)["result"].([]any)
+	if isError || len(agents) != 1 || agents[0].(map[string]any)["pubkey"] != agent || agents[0].(map[string]any)["paused"] != false {
+		t.Fatalf("list_agents as owner: %s", text(result))
+	}
+	result, isError = call("pause_agent", map[string]any{"agent": agent}, testMemberSecret)
+	if !isError {
+		t.Fatalf("pause_agent as member: %s", text(result))
+	}
+	result, isError = call("pause_agent", map[string]any{"agent": agent}, "")
+	if isError {
+		t.Fatalf("pause_agent: %s", text(result))
+	}
+	result, _ = call("list_agents", map[string]any{}, "")
+	if agents, _ = structured(result)["result"].([]any); agents[0].(map[string]any)["paused"] != true {
+		t.Fatalf("list_agents after pause: %s", text(result))
+	}
+	result, isError = call("resume_all_agents", map[string]any{}, "")
+	if isError || structured(result)["result"].(map[string]any)["changed"] != float64(1) {
+		t.Fatalf("resume_all_agents: %s", text(result))
+	}
+	result, isError = call("revoke_agent", map[string]any{"agent": agent}, "")
+	if isError {
+		t.Fatalf("revoke_agent: %s", text(result))
+	}
+
+	// request_decision: a room message or a comment carrying the request.
+	result, isError = call("request_decision", map[string]any{"pubkey": member, "request": "approve", "content": "Ship 1.2?", "room": "general", "expiration": now + 3600, "subject": "Release"}, "")
+	unsigned, _ = structured(result)["unsigned"].(map[string]any)
+	tags, _ = json.Marshal(unsigned["tags"])
+	if isError || unsigned["kind"] != float64(9) || string(tags) != `[["h","general"],["request","approve"],["p","`+member+`"],["expiration","`+strconv.FormatInt(now+3600, 10)+`"],["subject","Release"]]` {
+		t.Fatalf("request_decision room template: %s", text(result))
+	}
+	result, isError = call("request_decision", map[string]any{"pubkey": member, "request": "question", "content": "Which name?", "root": pageID, "root_kind": 30818, "root_pubkey": owner}, "")
+	unsigned, _ = structured(result)["unsigned"].(map[string]any)
+	tags, _ = json.Marshal(unsigned["tags"])
+	if isError || unsigned["kind"] != float64(1111) || string(tags) != `[["E","`+pageID+`","","`+owner+`"],["K","30818"],["P","`+owner+`"],["e","`+pageID+`","","`+owner+`"],["k","30818"],["p","`+owner+`"],["request","question"],["p","`+member+`"]]` {
+		t.Fatalf("request_decision comment template: %s", text(result))
+	}
+	result, isError = call("request_decision", map[string]any{"pubkey": member, "request": "decide", "content": "Pick one."}, "")
+	if !isError || !strings.Contains(text(result), "room or root is required") {
+		t.Fatalf("request_decision without target: %s", text(result))
+	}
+	result, isError = call("request_decision", map[string]any{"event": mcpSigned(t, testOwnerSecret, 9, [][]string{{"h", "general"}, {"request", "approve"}, {"p", member}}, "Ship 1.2?")}, "")
+	if isError || structured(result)["accepted"] != true {
+		t.Fatalf("request_decision publish: %s", text(result))
 	}
 }
