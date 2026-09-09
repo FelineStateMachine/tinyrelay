@@ -266,6 +266,8 @@ func parseTemplates() (*template.Template, error) {
 		"agentScope":      agentScope,
 		"agentLabel":      agentLabel,
 		"agentCounts":     agentCounts,
+		"pendingRequests": pendingRequests,
+		"decidedRequests": decidedRequests,
 		"callbacksFor":    callbacksFor,
 		"callbackState":   callbackState,
 		"callbackKinds":   callbackKinds,

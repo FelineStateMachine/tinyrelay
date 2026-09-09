@@ -141,6 +141,15 @@ agent-card th{text-align:left;font-weight:normal;color:var(--muted);width:9em;pa
 agent-card td code{color:var(--muted)}
 agent-card p{margin:8px 0 0}agent-card rpc-form{display:inline-block;border:0;padding:0;margin:0 8px 0 0;vertical-align:top}agent-card rpc-form output:empty{display:none}
 agent-card p>a{display:inline-block;font:12px var(--mono);line-height:29px;vertical-align:top}
+/* #requests: access requests waiting for a decision, with their controls. #decided lists the last answered ones. */
+#requests{border-collapse:collapse;width:100%;max-width:720px;font:13px var(--mono)}
+#requests th{text-align:left;font:12px var(--mono);color:var(--muted);font-weight:normal;padding:0 6px;height:28px;border-bottom:1px solid var(--line)}
+#requests td{padding:8px 6px;border-bottom:1px solid var(--line);vertical-align:top;overflow-wrap:anywhere;line-height:1.35}
+#requests td:nth-child(2){font-family:var(--sans)}#requests td:nth-child(3){white-space:nowrap;color:var(--muted);font-size:12px}#requests td:last-child{white-space:nowrap;width:150px}
+#requests rpc-form{display:inline-block;border:0;padding:0;margin:0 6px 0 0;vertical-align:middle}#requests rpc-form output:empty{display:none}#requests button{font-size:12px;padding:1px 6px}
+#decided{list-style:none;margin:8px 0 0;padding:0;max-width:720px}#decided li{padding:3px 0;font:13px var(--mono)}#decided li small{color:var(--muted)}
+#decided li[data-state=approved] small{color:var(--accent)}#decided li[data-state=denied] small{color:var(--alert)}
+
 /* agent-callback: one registered callback on an agent card, with its controls. */
 agent-callback{display:block;margin:0 0 4px}agent-callback code{color:inherit}
 agent-callback rpc-form{display:inline-block;border:0;padding:0;margin:0 0 0 6px;vertical-align:middle}agent-callback rpc-form output:empty{display:none}agent-callback button{font-size:12px;padding:1px 6px}

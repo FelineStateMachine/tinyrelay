@@ -94,6 +94,10 @@ type PageData struct {
 	Rooms []any
 	// Callbacks lists the event callbacks shown beside each agent.
 	Callbacks []any
+	// Requests lists the access requests on the People page, pending first;
+	// Review is true when the viewer may decide them.
+	Requests []any
+	Review   bool
 }
 
 func New(backend Backend, options Options) (*App, error) {
@@ -918,6 +922,9 @@ func (a *App) page(writer http.ResponseWriter, request *http.Request) {
 	if tab == "agents" && actor != "" {
 		a.agentsPage(request, actor, &data)
 	}
+	if tab == "people" && actor != "" {
+		a.peoplePage(request, actor, &data)
+	}
 	if tab != "" {
 		data.Title = tab + " | " + a.backend.Slug()
 	}
@@ -961,6 +968,47 @@ func (a *App) agentsPage(request *http.Request, actor string, data *PageData) {
 		return
 	}
 	data.Event = detail
+}
+
+// peoplePage loads the access requests for the owner and moderators. A
+// member's request is refused by the backend, and the section stays out.
+func (a *App) peoplePage(request *http.Request, actor string, data *PageData) {
+	result, err := a.backend.Query(request.Context(), "listjoinrequests", nil, actor)
+	if err != nil {
+		return
+	}
+	data.Review = true
+	for _, row := range browseRows(result) {
+		if plainString(valueMap(row)["pubkey"]) != "" {
+			data.Requests = append(data.Requests, row)
+		}
+	}
+}
+
+// pendingRequests keeps the access requests that wait for a decision.
+func pendingRequests(rows []any) []any {
+	var pending []any
+	for _, row := range rows {
+		if plainString(valueMap(row)["status"]) == "pending" {
+			pending = append(pending, row)
+		}
+	}
+	return pending
+}
+
+// decidedRequests keeps the last decided access requests, newest first as
+// the backend lists them.
+func decidedRequests(rows []any) []any {
+	var decided []any
+	for _, row := range rows {
+		if status := plainString(valueMap(row)["status"]); status != "" && status != "pending" {
+			decided = append(decided, row)
+		}
+		if len(decided) == 10 {
+			break
+		}
+	}
+	return decided
 }
 
 // agentState folds a grant's marks into one word for data-state: revoked
@@ -1157,7 +1205,7 @@ func dateOf(value any) string {
 }
 
 var supportedMethods = []string{
-	"supportedmethods", "stats", "getpolicy", "setpolicy", "listaudit", "listviews", "listmembers", "listpeople", "setmember", "allowpubkey", "unrulepubkey", "removemember", "createinvite", "listinvites", "revokeinvite", "listclaims", "createclaim", "deleteclaim", "removesubtree", "listbannedpubkeys", "listallowedpubkeys", "banpubkey", "listreports", "resolvereport", "banevent", "allowevent", "listeventsneedingmoderation", "blockip", "unblockip", "listblockedips", "exportconfig", "importconfig", "planconfig", "listblobs", "deleteblob", "listbannedevents", "deleteevent", "listrecentevents", "searchevents", "pinevent", "unpinevent", "listpins", "allowkind", "disallowkind", "unrulekind", "storagestats", "gitstorage", "setretention", "listretention", "purgekind", "listallowedkinds", "listblockedkinds", "notifytest", "resetrules", "listpresets", "listconnectiontemplates", "listconnections", "setconnections", "applypreset", "forkrelay", "pullfrom", "pullstatus", "listjobs", "deliverystatus", "addjob", "removejob", "runjob", "backfill", "transferowner", "listdumps", "deletedump", "dumpnow", "backupnow", "listbackups", "deletebackup", "changerelayname", "changerelaydescription", "changerelayicon", "adddomain", "setdomainsite", "checkdomain", "removedomain", "listdomains", "listcallbacks", "addcallback", "removecallback", "pausecallback", "resumecallback",
+	"supportedmethods", "stats", "getpolicy", "setpolicy", "listaudit", "listviews", "listmembers", "listpeople", "listjoinrequests", "approvejoin", "denyjoin", "setmember", "allowpubkey", "unrulepubkey", "removemember", "createinvite", "listinvites", "revokeinvite", "listclaims", "createclaim", "deleteclaim", "removesubtree", "listbannedpubkeys", "listallowedpubkeys", "banpubkey", "listreports", "resolvereport", "banevent", "allowevent", "listeventsneedingmoderation", "blockip", "unblockip", "listblockedips", "exportconfig", "importconfig", "planconfig", "listblobs", "deleteblob", "listbannedevents", "deleteevent", "listrecentevents", "searchevents", "pinevent", "unpinevent", "listpins", "allowkind", "disallowkind", "unrulekind", "storagestats", "gitstorage", "setretention", "listretention", "purgekind", "listallowedkinds", "listblockedkinds", "notifytest", "resetrules", "listpresets", "listconnectiontemplates", "listconnections", "setconnections", "applypreset", "forkrelay", "pullfrom", "pullstatus", "listjobs", "deliverystatus", "addjob", "removejob", "runjob", "backfill", "transferowner", "listdumps", "deletedump", "dumpnow", "backupnow", "listbackups", "deletebackup", "changerelayname", "changerelaydescription", "changerelayicon", "adddomain", "setdomainsite", "checkdomain", "removedomain", "listdomains", "listcallbacks", "addcallback", "removecallback", "pausecallback", "resumecallback",
 }
 
 func (a *App) card(writer http.ResponseWriter) {

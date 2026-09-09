@@ -11,7 +11,13 @@
 </rpc-form>
 <rpc-form method="removemember"><label>Pubkey <input name="param" required></label><button>Remove member</button></rpc-form>
 <rpc-form method="removesubtree"><label>Member pubkey <input name="param" required></label><button>Remove invite subtree</button></rpc-form>
-<h3>Invites</h3>
+{{if .Review}}<h3>Access requests</h3>
+<p><small>People who asked to join without an invite. Approving adds them as members.</small></p>
+{{with pendingRequests .Requests}}<table id="requests"><thead><tr><th>person</th><th>reason</th><th>asked</th><th></th></tr></thead><tbody>
+{{range .}}{{$r := asMap .}}{{$pk := str (index $r "pubkey")}}<tr><td>{{template "nostrName" $pk}}</td><td>{{with str (index $r "reason")}}{{.}}{{else}}<small>no reason given</small>{{end}}</td><td><time datetime="{{datetime (index $r "requested_at")}}">{{short (index $r "requested_at")}}</time></td><td><rpc-form method="approvejoin" refresh><input type="hidden" name="param" value="&quot;{{$pk}}&quot;"><button>Approve</button></rpc-form><rpc-form method="denyjoin" refresh><input type="hidden" name="param" value="&quot;{{$pk}}&quot;"><button>Deny</button></rpc-form></td></tr>
+{{end}}</tbody></table>{{else}}<p>No pending requests.</p>{{end}}
+{{with decidedRequests .Requests}}<ul id="decided">{{range .}}{{$r := asMap .}}{{$status := str (index $r "status")}}<li data-state="{{$status}}">{{template "nostrName" (str (index $r "pubkey"))}} <small>{{$status}}{{with index $r "decided_at"}}{{if short .}} <time datetime="{{datetime .}}">{{short .}}</time>{{end}}{{end}}{{with str (index $r "decided_by")}} by {{template "nostrName" .}}{{end}}</small></li>{{end}}</ul>{{end}}
+{{end}}<h3>Invites</h3>
 <rpc-form method="createinvite">
 <label>TTL seconds <input name="param" type="number" value="259200"></label>
 <label>Maximum uses <input name="param" type="number" value="1"></label>
