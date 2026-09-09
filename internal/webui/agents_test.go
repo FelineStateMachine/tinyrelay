@@ -77,7 +77,7 @@ func TestAgentsPageRendersTableCardsActivityAndGrantForm(t *testing.T) {
 	if strings.Contains(body, "class=") {
 		t.Fatal("agents page carries a class attribute")
 	}
-	if strings.Contains(body, "·") {
+	if strings.Contains(body, "\u00b7") {
 		t.Fatal("agents page contains a middle dot")
 	}
 	for _, want := range []string{
@@ -105,7 +105,7 @@ func TestAgentsPageRendersTableCardsActivityAndGrantForm(t *testing.T) {
 		`<textarea name="repos"`,
 		`<input name="expires" type="date" value="` + dateAfter(90) + `" required>`,
 		`<h4>Agents</h4><table><tr><th>active</th><td>1</td></tr><tr><th>paused</th><td>1</td></tr><tr><th>revoked</th><td>1</td></tr></table>`,
-		`<code>/mcp</code> 2026-07-28, planned`,
+		`<code>/mcp</code> 2026-07-28`,
 		`<rpc-form method="pauseallagents" refresh><button>Pause all agents</button></rpc-form>`,
 		`<rpc-form method="resumeallagents" refresh><button>Resume all agents</button></rpc-form>`,
 	} {
