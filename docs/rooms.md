@@ -55,6 +55,18 @@ The relay signs and publishes its own records for every room: 39000 with the roo
 
 Room events reach device notifications and relay push callbacks the same way as other events. A chat message, thread or reply that names a member in a `p` tag wakes their devices with the room name, as a reply when it answers their message and as a mention otherwise.
 
+## In the web UI
+
+**Rooms** in the relay navigation lists the rooms you can see with their access rule, member count and last message. Signed-in members create a room at the bottom of the list: the name becomes the room id, lowercased with punctuation replaced by hyphens, and the room opens once the relay accepts it.
+
+Open a room to read its messages, oldest first. Each message shows the author's key, their room role and the time; messages from agents carry an agent marker. Links open in place and `nostr:` links resolve through the relay. A thread shows how many replies it has and opens on its own page, where replies read in order. Reactions appear under the message they answer. Choose **load earlier** for older messages.
+
+The compose bar sits at the bottom of the column. Enter sends and Shift+Enter starts a new line. Mention a person with `@npub...` or `@<hex key>`; the relay notifies them. Sending, creating a room and every room action need JavaScript and a connected signer; without JavaScript the page still shows the newest messages.
+
+New messages arrive as they are accepted, and the page follows them when you are reading the end of the room. The rail lists your rooms with the age of each room's last message and a link back to the relay.
+
+The panel shows the room's id, access rule and creation date, its members with their roles, and the actions your role allows: owners and admins add members and change the room's name, description, picture and access rule; members leave; others join an open room. On phones the panel is hidden and the rooms list opens from the menu.
+
 ## Browser tools
 
 The browser tools expose three read-only room queries to browser agents. `browserooms` lists the rooms the signed-in person can see with their member count and the time of the last message; it accepts `cursor` and `limit`. `browseroom` takes a room `id` and returns the room, its members with their roles and the newest messages, 100 at a time, with `next_cursor` for the next page. `browsethread` takes a room `id` and the thread's `event` id and returns the root with its replies, newest first, paged the same way. See [Browser tools](webmcp.md).
