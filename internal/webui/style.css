@@ -24,13 +24,13 @@ img{max-width:100%}
 
 /* Shell: a table with three columns; each column scrolls on its own. */
 #topbar{display:none}
-#layout{border-collapse:collapse;table-layout:fixed;width:100%;height:calc(100vh - 28px)}
+#layout{border-collapse:collapse;table-layout:fixed;width:100%;height:calc(100vh - 28px - env(safe-area-inset-bottom,0px))}
 #layout>tbody>tr>td{vertical-align:top;padding:0;position:relative;height:100%}
 #railbox,#content,#panel{position:absolute;top:0;right:0;bottom:0;left:0;overflow:auto;overscroll-behavior:contain}
 #rail{width:240px;background:var(--rail);border-right:1px solid var(--line)}
 #aside{width:280px;border-left:1px solid var(--line)}
 #content>section{padding:14px 22px 30px}
-#footer{position:fixed;left:0;right:0;bottom:0;height:28px;border-top:1px solid var(--line);background:var(--rail);font:13px var(--mono);padding:0 2ch 0 2.5ch;box-sizing:border-box}
+#footer{position:fixed;left:0;right:0;bottom:0;height:calc(28px + env(safe-area-inset-bottom,0px));border-top:1px solid var(--line);background:var(--rail);font:13px var(--mono);padding:0 calc(2ch + env(safe-area-inset-right,0px)) env(safe-area-inset-bottom,0px) calc(2.5ch + env(safe-area-inset-left,0px));box-sizing:border-box}
 #footer table{width:100%;border-collapse:collapse;height:27px}#footer td{border:0;padding:0;vertical-align:middle}
 #footer td:last-child{text-align:right}
 #prompt{color:var(--muted)}#prompt b{color:var(--ink);font-weight:500}

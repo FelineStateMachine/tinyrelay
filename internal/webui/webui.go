@@ -199,6 +199,12 @@ func (a *App) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
 		_, _ = writer.Write(serviceWorkerJS)
 		return
 	}
+	if png, ok := map[string][]byte{"/icon-192.png": icon192PNG, "/icon-512.png": icon512PNG, "/icon-maskable-512.png": iconMaskablePNG, "/apple-touch-icon.png": appleTouchIconPNG}[request.URL.Path]; ok {
+		writer.Header().Set("content-type", "image/png")
+		writer.Header().Set("cache-control", "public, max-age=86400")
+		_, _ = writer.Write(png)
+		return
+	}
 	if request.URL.Path == "/icon.svg" || request.URL.Path == "/icon-mono.svg" {
 		writer.Header().Set("content-type", "image/svg+xml; charset=utf-8")
 		if request.URL.Path == "/icon.svg" {
@@ -730,6 +736,15 @@ func (a *App) manifest(writer http.ResponseWriter, request *http.Request) {
 	encoded, _ := json.Marshal(name)
 	body := strings.ReplaceAll(manifestTemplate, `"NAME"`, string(encoded))
 	body = strings.ReplaceAll(body, "BASE/", requestPrefix(request)+"/")
+	// A manifest carries one set of launch colours. The page links the
+	// variant that matches the active theme so the installed app's splash
+	// screen and status bar do not flash light on a dark phone.
+	theme, background := "#f4f2ec", "#fbfaf7"
+	if request.URL.Query().Get("theme") == "dark" {
+		theme, background = "#1e1d1a", "#171614"
+	}
+	body = strings.ReplaceAll(body, "THEME", theme)
+	body = strings.ReplaceAll(body, "BACKGROUND", background)
 	writer.Header().Set("content-type", "application/manifest+json; charset=utf-8")
 	_, _ = writer.Write([]byte(body))
 }

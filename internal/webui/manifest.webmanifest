@@ -1,14 +1,27 @@
 {
+  "id": "BASE/",
   "name": "NAME",
   "short_name": "NAME",
   "description": "A tiny Nostr relay",
   "start_url": "BASE/",
   "scope": "BASE/",
   "display": "standalone",
-  "background_color": "#fbfaf7",
-  "theme_color": "#f4f2ec",
+  "display_override": ["standalone", "minimal-ui"],
+  "launch_handler": {"client_mode": "navigate-existing"},
+  "background_color": "BACKGROUND",
+  "theme_color": "THEME",
+  "categories": ["social", "utilities"],
+  "prefer_related_applications": false,
   "icons": [
+    {"src": "BASE/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any"},
+    {"src": "BASE/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any"},
+    {"src": "BASE/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable"},
     {"src": "BASE/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any"},
     {"src": "BASE/icon-mono.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "monochrome"}
+  ],
+  "shortcuts": [
+    {"name": "Files", "url": "BASE/files", "icons": [{"src": "BASE/icon-192.png", "sizes": "192x192"}]},
+    {"name": "Repositories", "url": "BASE/repos", "icons": [{"src": "BASE/icon-192.png", "sizes": "192x192"}]},
+    {"name": "Manage", "url": "BASE/manage", "icons": [{"src": "BASE/icon-192.png", "sizes": "192x192"}]}
   ]
 }

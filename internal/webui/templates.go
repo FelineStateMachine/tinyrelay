@@ -59,6 +59,18 @@ var fileWorkspaceJS string
 //go:embed manifest.webmanifest
 var manifestTemplate string
 
+//go:embed icon-192.png
+var icon192PNG []byte
+
+//go:embed icon-512.png
+var icon512PNG []byte
+
+//go:embed icon-maskable-512.png
+var iconMaskablePNG []byte
+
+//go:embed apple-touch-icon.png
+var appleTouchIconPNG []byte
+
 //go:embed sw.js
 var serviceWorkerJS []byte
 

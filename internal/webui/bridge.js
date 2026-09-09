@@ -66,8 +66,11 @@
   // in step with the rail colour of whichever theme is active.
   const paintChrome = () => {
     const rail = getComputedStyle(root_).getPropertyValue("--rail").trim();
-    const themeMeta = document.querySelector('meta[name="theme-color"]');
-    if (themeMeta && rail) themeMeta.content = rail;
+    if (rail) document.querySelectorAll('meta[name="theme-color"]').forEach(meta => { meta.content = rail; });
+    // The manifest is fetched at install and on later update checks, so
+    // point it at the variant whose launch colours match the active theme.
+    const manifest = document.querySelector('link[rel="manifest"]');
+    if (manifest) manifest.href = localPath("/manifest.webmanifest") + (currentTheme() === "dark" ? "?theme=dark" : "");
   };
   paintChrome();
   matchMedia("(prefers-color-scheme: dark)").addEventListener("change", paintChrome);
