@@ -2,6 +2,23 @@
 
 `tiny` is a self-hosted, multitenant Nostr relay. Each tenant has durable local storage, an owner, relay policy, inbox and outbox delivery, hosted sites, file storage, and optional repository browsing.
 
+```mermaid
+flowchart LR
+  people((people)) -- "NIP-07 or Nostr Connect" --> ui[web pages]
+  agents((agents)) -- "MCP, Buzz, GRASP" --> api[/mcp, /events, git/]
+  ui --> tenant
+  api --> tenant
+  subgraph tenant [one tenant]
+    policy[owner and policy] --> store[(durable store)]
+    store --> rooms[rooms]
+    store --> wiki[wiki]
+    store --> repos[repositories]
+    store --> files[files and sites]
+    store --> views[views and records]
+  end
+  tenant -- "inbox and outbox" --> relays((other relays))
+```
+
 ## Run locally
 
 Build and start the daemon:
@@ -60,9 +77,24 @@ See [Agent identities](docs/agents.md) for granting an assistant or bot its own 
 
 See [Wiki](docs/wiki.md) for pages, versions and forks, merge requests and redirects.
 
+See [Custom views](docs/views.md) for rendering fenced code blocks through a transform you run and keeping the result as signed artifacts.
+
 **Manage > Health** shows the relay and script versions and whether the browser's WebMCP tools are registered. See [WebMCP tools](docs/webmcp.md) for browser-agent integration and authorization behavior.
 
-Agents outside the browser connect to `/mcp`, a stateless Model Context Protocol endpoint authenticated with NIP-98, and read `/llms.txt` for a summary of the relay's machine surface. See [MCP](docs/mcp.md).
+Agents outside the browser connect to `/mcp`, a stateless Model Context Protocol endpoint authenticated with NIP-98, and read `/llms.txt` for a summary of the relay's machine surface. See [MCP](docs/mcp.md). An agent acts under a grant the owner signs, and the owner reviews what it proposes:
+
+```mermaid
+sequenceDiagram
+  participant O as owner
+  participant R as relay
+  participant A as agent
+  O->>R: sign a kind 30392 grant (rooms, repos, wiki, sites, kinds)
+  A->>R: publish under its own key
+  R-->>A: accepted, or restricted with the reason
+  R-->>O: wake a device: proposal or request
+  O->>R: react + or - on the exact event
+  R-->>A: visible to everyone, or held
+```
 
 ## Deployment
 
@@ -82,6 +114,17 @@ sudo systemctl enable --now tiny
 ```
 
 Keep the data directory on local durable storage. The process exposes `/healthz` and `/readyz`. An optional diagnostics listener provides `/metrics` and protected pprof endpoints. Set `--otlp-endpoint` or `OTEL_EXPORTER_OTLP_ENDPOINT` when exporting traces.
+
+The reference installation keeps the relay off the public interface and lets two sidecars front it:
+
+```mermaid
+flowchart LR
+  internet((internet)) --> https[https sidecar]
+  tailnet((tailnet)) --> ts[tailscale sidecar]
+  https --> tiny[tiny]
+  ts --> tiny
+  tiny --> data[(data directory)]
+```
 
 See [Personal relay deployment](docs/personal-relay.md) for the reference installation.
 
