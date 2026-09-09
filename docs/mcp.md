@@ -64,7 +64,7 @@ Read tools, which need a key that may read the relay:
 | `read_room` | Read a room by `id` with its members and newest messages, paged with `cursor` and `limit`. |
 | `read_thread` | Read a thread root by room `id` and `event` with its replies, newest first. |
 | `list_wiki` | List wiki pages with their preferred version. `q` searches titles and summaries, `author` prefers that key's versions. |
-| `read_wiki_page` | Read a page by `d` with its versions, merge requests and redirects. `author` or `version` selects the version shown. |
+| `read_wiki_page` | Read a page by `d` with its versions, its `history` of revisions with their states, merge requests and redirects. `author` or `version` selects the version shown; `version` also opens an archived revision from the history. |
 | `read_merge_request` | Read a wiki merge request by `id` with its status, proposed version and target version. |
 | `list_agents` | List granted agents with their state, scope and last event, as an owner or moderator. |
 | `list_jobs` | List long task requests visible to the key with each one's newest feedback status and result. `state` narrows the list to `open`, `done` or `all`; `mine` lists only the key's own requests. |
