@@ -653,5 +653,8 @@ func (t *Tenant) commitImported(ctx context.Context, e event.Event, origin repli
 		opts.Intents = append(opts.Intents, storage.Intent{Kind: "view-publish", EventID: e.ID, Target: "articles", Payload: "{}"})
 	}
 	_, err := t.store.Save(ctx, e, opts)
+	if err == nil {
+		t.notifyDevices(ctx, e)
+	}
 	return err
 }

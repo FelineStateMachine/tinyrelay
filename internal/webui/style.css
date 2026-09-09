@@ -117,7 +117,8 @@ rpc-form label,signed-form label,publish-list label,nostr-compose label,file-too
 rpc-form label input,rpc-form label select,signed-form label input,nostr-compose label input,nostr-compose label select,file-tools label input,file-tools label select,file-upload label input,#collaboration-filter label input,#collaboration-filter label select,#file-search label input{display:block;margin-top:2px;font:13px var(--mono);min-width:200px}
 file-upload label[data-share]{display:block}file-upload input[data-share-url]{width:100%}
 file-upload label:has([type=checkbox]),#panel file-upload label:has([type=checkbox]){display:inline-block;margin:8px 14px 8px 0}file-upload label:has([type=checkbox]) input,#panel file-upload label:has([type=checkbox]) input{display:inline-block;width:auto;min-width:0;margin:0 4px 0 0;vertical-align:middle}
-#panel file-upload [hidden],file-upload [hidden],file-tools [hidden]{display:none}
+#panel file-upload [hidden],file-upload [hidden],file-tools [hidden],#panel push-toggle [hidden]{display:none}
+#panel push-toggle label{display:inline-block;margin:6px 12px 0 0}#panel push-toggle label input{display:inline-block;width:auto;min-width:0;margin:0 4px 0 0;vertical-align:middle}#panel push-toggle form{margin-top:4px}
 file-upload p[data-drop]{margin:6px 0;color:var(--muted);font-size:12px}file-upload[data-over]{outline:1px dashed var(--accent);outline-offset:4px}
 #panel file-upload,#panel file-mirror{border:0;padding:0;max-width:none}#panel details{margin-top:8px}#panel details>summary{cursor:pointer;color:var(--muted);font-size:12px}
 rpc-form label:has(textarea),publish-list label:has(textarea),nostr-compose label:has(textarea){display:block}

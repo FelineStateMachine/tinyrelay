@@ -11,6 +11,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/FelineStateMachine/tinyrelay/internal/event"
+	"github.com/FelineStateMachine/tinyrelay/internal/storage"
 	"github.com/FelineStateMachine/tinyrelay/internal/webpush"
 	"github.com/FelineStateMachine/tinyrelay/internal/work"
 )
@@ -110,4 +112,90 @@ func countIntents(t *testing.T, tenant *Tenant, kind string) int {
 		t.Fatal(err)
 	}
 	return count
+}
+
+func TestDeviceNotificationsFollowCategoriesAndBadge(t *testing.T) {
+	a, tenant := testTenant(t)
+	ctx := context.Background()
+	owner := tenant.Policy().Owner
+	other := strings.Repeat("b", 64)
+	// Register one device that only wants replies and relay notices.
+	subscription := testSubscription(t, "https://push.example/send/device-2")
+	body, _ := json.Marshal(map[string]any{"subscription": subscription, "categories": []string{"replies", "relay", "bogus"}})
+	req := httptest.NewRequest("POST", "http://relay.test/push/subscribe", strings.NewReader(string(body)))
+	signRequest(t, req, string(body))
+	res := httptest.NewRecorder()
+	a.ServeHTTP(res, req)
+	if res.Code != 200 {
+		t.Fatalf("subscribe %d %s", res.Code, res.Body.String())
+	}
+	var categories string
+	if err := tenant.store.DB().QueryRowContext(ctx, "SELECT categories FROM web_push").Scan(&categories); err != nil || categories != `["replies","relay"]` {
+		t.Fatalf("categories %q %v", categories, err)
+	}
+
+	mention := event.Event{Kind: 1, PubKey: other, CreatedAt: 1, Tags: [][]string{{"p", owner}}, Content: "hello  there\n friend"}
+	notices := tenant.pushNotices(ctx, mention)
+	if len(notices) != 1 || notices[0].category != pushMentions || notices[0].recipient != owner || notices[0].body != "Mentioned you: hello there friend" {
+		t.Fatalf("mention notices %+v", notices)
+	}
+	wrap := event.Event{Kind: 1059, PubKey: other, CreatedAt: 1, Tags: [][]string{{"p", owner}, {"p", other}}}
+	if notices := tenant.pushNotices(ctx, wrap); len(notices) != 1 || notices[0].category != pushMessages {
+		t.Fatalf("message notices %+v", notices)
+	}
+	issue := event.Event{Kind: 1621, PubKey: other, CreatedAt: 1, Tags: [][]string{{"a", "30617:" + owner + ":notes"}, {"subject", "Broken build"}}}
+	if notices := tenant.pushNotices(ctx, issue); len(notices) != 1 || notices[0].category != pushReplies || notices[0].body != "New issue: Broken build" || !strings.Contains(notices[0].url, "view=issue") {
+		t.Fatalf("issue notices %+v", notices)
+	}
+
+	// Coalescing: the second mention within the window is dropped, and a
+	// device limited to replies is skipped by the handler for mentions.
+	tenant.notifyDevices(ctx, mention)
+	tenant.notifyDevices(ctx, mention)
+	if got := countIntents(t, tenant, notificationPush); got != 1 {
+		t.Fatalf("coalesced intents = %d", got)
+	}
+	var payload string
+	if err := tenant.store.DB().QueryRowContext(ctx, "SELECT payload FROM work_intents WHERE kind=?", notificationPush).Scan(&payload); err != nil {
+		t.Fatal(err)
+	}
+	tenant.pushClient = &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		t.Fatal("mention reached a replies-only device")
+		return nil, nil
+	})}
+	if err := tenant.handleNotificationPush(ctx, work.Intent{Kind: notificationPush, Target: owner, Payload: payload}); err != nil {
+		t.Fatal(err)
+	}
+
+	// The badge counts inbox events since the last visit and the visit
+	// endpoint accepts the browser session from this origin.
+	if _, err := tenant.store.Save(ctx, mention, storageSave(tenant)); err != nil {
+		t.Fatal(err)
+	}
+	if got := tenant.inboxUnread(ctx, owner); got != 1 {
+		t.Fatalf("unread = %d", got)
+	}
+	login := httptest.NewRequest("POST", "http://relay.test/session", strings.NewReader(""))
+	signRequest(t, login, "")
+	loginRes := httptest.NewRecorder()
+	a.ServeHTTP(loginRes, login)
+	seen := httptest.NewRequest("POST", "http://relay.test/inbox/seen", nil)
+	seen.Header.Set("Origin", "http://relay.test")
+	seen.AddCookie(loginRes.Result().Cookies()[0])
+	seenRes := httptest.NewRecorder()
+	a.ServeHTTP(seenRes, seen)
+	if seenRes.Code != 200 {
+		t.Fatalf("inbox seen %d %s", seenRes.Code, seenRes.Body.String())
+	}
+	if got := tenant.inboxUnread(ctx, owner); got != 0 {
+		t.Fatalf("unread after visit = %d", got)
+	}
+}
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
+
+func storageSave(tenant *Tenant) storage.SaveOptions {
+	return storage.SaveOptions{Now: 2, SearchMode: tenant.Policy().Features.Search}
 }

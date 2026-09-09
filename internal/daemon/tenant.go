@@ -69,6 +69,7 @@ type Tenant struct {
 	pushMu        sync.Mutex
 	pushVAPID     *webpush.Keys
 	pushClient    *http.Client
+	pushRecent    map[string]time.Time
 }
 
 func newTenant(ctx context.Context, cfg tenantConfig) (*Tenant, error) {
@@ -365,6 +366,7 @@ func (t *Tenant) Publish(ctx context.Context, e event.Event, s relay.Session) (s
 	if err != nil {
 		return "", err
 	}
+	t.notifyDevices(ctx, e)
 	// Stage Git metadata before acknowledging the event. This closes the
 	// publish-ACK/receive-pack race: the signed pending refs and hook exist
 	// before a client can push objects for the state.

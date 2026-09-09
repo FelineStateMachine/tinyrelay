@@ -15,6 +15,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/FelineStateMachine/tinyrelay/internal/relay"
 	"github.com/FelineStateMachine/tinyrelay/internal/replication"
 	"github.com/FelineStateMachine/tinyrelay/internal/storage"
 	"github.com/FelineStateMachine/tinyrelay/internal/webpush"
@@ -30,14 +31,16 @@ const (
 	pushSummaryMaxLength = 160
 )
 
-const pushSchema = `CREATE TABLE IF NOT EXISTS web_push(endpoint TEXT PRIMARY KEY, pubkey TEXT NOT NULL, subscription TEXT NOT NULL, created_at INTEGER NOT NULL, failures INTEGER NOT NULL DEFAULT 0);
+const pushSchema = `CREATE TABLE IF NOT EXISTS web_push(endpoint TEXT PRIMARY KEY, pubkey TEXT NOT NULL, subscription TEXT NOT NULL, created_at INTEGER NOT NULL, failures INTEGER NOT NULL DEFAULT 0, categories TEXT NOT NULL DEFAULT '');
 CREATE INDEX IF NOT EXISTS web_push_pubkey ON web_push(pubkey);`
 
 type pushPayload struct {
 	Recipient string `json:"recipient"`
-	Kind      string `json:"kind"`
-	Subject   string `json:"subject"`
-	Text      string `json:"text"`
+	// Kind is a device category for event summaries or a relay notice kind.
+	Kind    string `json:"kind"`
+	Subject string `json:"subject"`
+	Text    string `json:"text"`
+	URL     string `json:"url,omitempty"`
 }
 
 // pushMessage is what the service worker receives after decryption.
@@ -46,11 +49,25 @@ type pushMessage struct {
 	Body  string `json:"body"`
 	URL   string `json:"url"`
 	Tag   string `json:"tag"`
+	Badge int    `json:"badge"`
+}
+
+// pushRegistration is the browser's subscription with its chosen categories.
+type pushRegistration struct {
+	Subscription webpush.Subscription `json:"subscription"`
+	Categories   []string             `json:"categories"`
 }
 
 func (t *Tenant) initPush(ctx context.Context) error {
-	_, err := t.store.DB().ExecContext(ctx, pushSchema)
-	return err
+	if _, err := t.store.DB().ExecContext(ctx, pushSchema); err != nil {
+		return err
+	}
+	// Devices registered before categories existed receive everything.
+	_, err := t.store.DB().ExecContext(ctx, "ALTER TABLE web_push ADD COLUMN categories TEXT NOT NULL DEFAULT ''")
+	if err != nil && !strings.Contains(err.Error(), "duplicate column") {
+		return err
+	}
+	return nil
 }
 
 // pushVAPIDKeys returns the tenant's VAPID pair, creating it on first use.
@@ -101,6 +118,24 @@ func (t *Tenant) pushHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		writeJSON(w, 200, map[string]string{"key": keys.PublicKey()})
+	case r.URL.Path == "/inbox/seen" && r.Method == http.MethodPost:
+		// Opening the inbox clears the badge. This is the person's own
+		// read marker, so the browser session may set it from this origin.
+		actor, err := t.resolveUIActor(r)
+		if err != nil || actor == "" {
+			if s, sessionErr := t.cookieReadSession(r, relay.Session{RelayURL: t.RelayURL()}); sessionErr == nil {
+				actor = first(s.PubKeys)
+			}
+		}
+		if actor == "" {
+			writeJSON(w, 401, map[string]string{"error": "auth-required: sign this request"})
+			return
+		}
+		if err := t.markInboxSeen(r.Context(), actor); err != nil {
+			writeJSON(w, 500, map[string]string{"error": "could not record inbox visit"})
+			return
+		}
+		writeJSON(w, 200, map[string]any{"ok": true})
 	case (r.URL.Path == "/push/subscribe" || r.URL.Path == "/push/unsubscribe") && r.Method == http.MethodPost:
 		// Registration is a signed mutation like every other change made
 		// from the browser; the session cookie alone is not enough.
@@ -114,11 +149,12 @@ func (t *Tenant) pushHTTP(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, 400, map[string]string{"error": err.Error()})
 			return
 		}
-		var subscription webpush.Subscription
-		if err := json.Unmarshal(body, &subscription); err != nil || subscription.Validate() != nil {
+		registration, err := parsePushRegistration(body)
+		if err != nil {
 			writeJSON(w, 400, map[string]string{"error": "invalid: push subscription"})
 			return
 		}
+		subscription := registration.Subscription
 		if r.URL.Path == "/push/unsubscribe" {
 			if _, err := t.store.DB().ExecContext(r.Context(), "DELETE FROM web_push WHERE endpoint=? AND pubkey=?", subscription.Endpoint, actor); err != nil {
 				writeJSON(w, 500, map[string]string{"error": "unsubscribe failed"})
@@ -131,7 +167,7 @@ func (t *Tenant) pushHTTP(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, 403, map[string]string{"error": "restricted: notifications are limited to relay members"})
 			return
 		}
-		if err := t.savePushSubscription(r.Context(), actor, subscription); err != nil {
+		if err := t.savePushSubscription(r.Context(), actor, registration); err != nil {
 			writeJSON(w, statusForPush(err), map[string]string{"error": err.Error()})
 			return
 		}
@@ -148,10 +184,42 @@ func statusForPush(err error) int {
 	return 500
 }
 
-func (t *Tenant) savePushSubscription(ctx context.Context, actor string, subscription webpush.Subscription) error {
+// parsePushRegistration accepts the browser's registration, with or without
+// categories, and validates the subscription inside it.
+func parsePushRegistration(body []byte) (pushRegistration, error) {
+	var registration pushRegistration
+	if err := json.Unmarshal(body, &registration); err != nil || registration.Subscription.Endpoint == "" {
+		registration = pushRegistration{}
+		if err := json.Unmarshal(body, &registration.Subscription); err != nil {
+			return registration, err
+		}
+	}
+	if err := registration.Subscription.Validate(); err != nil {
+		return registration, err
+	}
+	var kept []string
+	for _, category := range registration.Categories {
+		if containsString(pushCategories, category) && !containsString(kept, category) {
+			kept = append(kept, category)
+		}
+	}
+	registration.Categories = kept
+	return registration, nil
+}
+
+func (t *Tenant) savePushSubscription(ctx context.Context, actor string, registration pushRegistration) error {
+	subscription := registration.Subscription
 	raw, err := json.Marshal(subscription)
 	if err != nil {
 		return err
+	}
+	categories := ""
+	if len(registration.Categories) > 0 {
+		encoded, err := json.Marshal(registration.Categories)
+		if err != nil {
+			return err
+		}
+		categories = string(encoded)
 	}
 	return t.store.WithTx(ctx, func(tx *sql.Tx) error {
 		var count int
@@ -161,7 +229,7 @@ func (t *Tenant) savePushSubscription(ctx context.Context, actor string, subscri
 		if count >= pushMaxPerPubkey {
 			return fmt.Errorf("invalid: at most %d devices per key", pushMaxPerPubkey)
 		}
-		_, err := tx.ExecContext(ctx, "INSERT INTO web_push(endpoint,pubkey,subscription,created_at,failures) VALUES(?,?,?,?,0) ON CONFLICT(endpoint) DO UPDATE SET pubkey=excluded.pubkey, subscription=excluded.subscription, failures=0", subscription.Endpoint, actor, string(raw), time.Now().Unix())
+		_, err := tx.ExecContext(ctx, "INSERT INTO web_push(endpoint,pubkey,subscription,created_at,failures,categories) VALUES(?,?,?,?,0,?) ON CONFLICT(endpoint) DO UPDATE SET pubkey=excluded.pubkey, subscription=excluded.subscription, failures=0, categories=excluded.categories", subscription.Endpoint, actor, string(raw), time.Now().Unix(), categories)
 		return err
 	})
 }
@@ -170,19 +238,25 @@ func (t *Tenant) savePushSubscription(ctx context.Context, actor string, subscri
 // suitable for records.Config.PushNotification and does nothing for
 // recipients without registered devices.
 func (t *Tenant) enqueuePush(ctx context.Context, recipient, kind, subject, text string) error {
+	return t.enqueuePushPayload(ctx, pushPayload{Recipient: recipient, Kind: kind, Subject: subject, Text: text})
+}
+
+func (t *Tenant) enqueuePushPayload(ctx context.Context, payload pushPayload) error {
 	var count int
-	if err := t.store.DB().QueryRowContext(ctx, "SELECT count(*) FROM web_push WHERE pubkey=?", recipient).Scan(&count); err != nil || count == 0 {
+	if err := t.store.DB().QueryRowContext(ctx, "SELECT count(*) FROM web_push WHERE pubkey=?", payload.Recipient).Scan(&count); err != nil || count == 0 {
 		return err
 	}
-	if len(text) > pushSummaryMaxLength {
-		text = text[:pushSummaryMaxLength]
+	if len(payload.Text) > pushSummaryMaxLength {
+		payload.Text = payload.Text[:pushSummaryMaxLength]
 	}
-	payload, err := json.Marshal(pushPayload{Recipient: recipient, Kind: kind, Subject: subject, Text: text})
+	recipient := payload.Recipient
+	encoded, err := json.Marshal(payload)
 	if err != nil {
 		return err
 	}
+	payloadJSON := string(encoded)
 	return t.store.WithTx(ctx, func(tx *sql.Tx) error {
-		return storage.AddIntents(ctx, tx, []storage.Intent{{Kind: notificationPush, EventID: uuid.NewString(), Target: recipient, Payload: string(payload)}}, time.Now().Unix())
+		return storage.AddIntents(ctx, tx, []storage.Intent{{Kind: notificationPush, EventID: uuid.NewString(), Target: recipient, Payload: payloadJSON}}, time.Now().Unix())
 	})
 }
 
@@ -191,7 +265,7 @@ func (t *Tenant) handleNotificationPush(ctx context.Context, intent work.Intent)
 	if err := json.Unmarshal([]byte(intent.Payload), &payload); err != nil || payload.Recipient != intent.Target {
 		return errors.New("notification-push: invalid payload")
 	}
-	rows, err := t.store.DB().QueryContext(ctx, "SELECT endpoint, subscription, failures FROM web_push WHERE pubkey=?", payload.Recipient)
+	rows, err := t.store.DB().QueryContext(ctx, "SELECT endpoint, subscription, failures, categories FROM web_push WHERE pubkey=?", payload.Recipient)
 	if err != nil {
 		return err
 	}
@@ -200,13 +274,21 @@ func (t *Tenant) handleNotificationPush(ctx context.Context, intent work.Intent)
 		subscription webpush.Subscription
 		failures     int
 	}
+	category := payload.Kind
+	if !containsString(pushCategories, category) {
+		category = pushRelay
+	}
 	var devices []device
 	for rows.Next() {
 		var item device
-		var raw string
-		if err := rows.Scan(&item.endpoint, &raw, &item.failures); err != nil {
+		var raw, categories string
+		if err := rows.Scan(&item.endpoint, &raw, &item.failures, &categories); err != nil {
 			rows.Close()
 			return err
+		}
+		// A device that chose categories only wakes for those.
+		if allowed := decodeCategories(categories); allowed != nil && !allowed[category] {
+			continue
 		}
 		if json.Unmarshal([]byte(raw), &item.subscription) == nil {
 			devices = append(devices, item)
@@ -220,7 +302,7 @@ func (t *Tenant) handleNotificationPush(ctx context.Context, intent work.Intent)
 	if err != nil {
 		return err
 	}
-	message, err := json.Marshal(t.pushMessage(payload))
+	message, err := json.Marshal(t.pushMessage(ctx, payload))
 	if err != nil {
 		return err
 	}
@@ -245,7 +327,7 @@ func (t *Tenant) handleNotificationPush(ctx context.Context, intent work.Intent)
 }
 
 // pushMessage turns a notification summary into what the device shows.
-func (t *Tenant) pushMessage(payload pushPayload) pushMessage {
+func (t *Tenant) pushMessage(ctx context.Context, payload pushPayload) pushMessage {
 	title := t.Policy().Name
 	if title == "" {
 		title = t.meta.Name
@@ -264,5 +346,9 @@ func (t *Tenant) pushMessage(payload pushPayload) pushMessage {
 	if payload.Subject != "" && payload.Subject != "relay" && !strings.EqualFold(payload.Subject, payload.Kind) {
 		title = title + ": " + payload.Subject
 	}
-	return pushMessage{Title: title, Body: body, URL: strings.TrimRight(t.publicURL, "/") + "/inbox", Tag: "tiny-" + payload.Kind}
+	url := payload.URL
+	if url == "" {
+		url = strings.TrimRight(t.publicURL, "/") + "/inbox"
+	}
+	return pushMessage{Title: title, Body: body, URL: url, Tag: "tiny-" + payload.Kind, Badge: t.inboxUnread(ctx, payload.Recipient)}
 }

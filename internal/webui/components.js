@@ -432,13 +432,18 @@
   // PushToggle opts this browser into relay notifications. Nothing happens
   // until the button is pressed: permission is requested then, and the
   // device subscription is registered with a signed request.
+  const pushCategories = [["messages", "private messages"], ["replies", "replies to you"], ["mentions", "mentions"], ["relay", "relay notices"]];
   class PushToggle extends HTMLElement {
     connectedCallback() {
       if (this.bound) return;
       this.bound = true;
-      this.innerHTML = '<p><button type="button">Enable on this device</button></p><output role="status"></output>';
+      this.innerHTML = '<p><button type="button">Enable on this device</button></p><form hidden>' + pushCategories.map(([name, label]) => '<label><input type="checkbox" name="' + name + '" checked> ' + label + '</label>').join("") + '</form><output role="status"></output>';
       this.button = this.querySelector("button");
+      this.form = this.querySelector("form");
       this.output = this.querySelector("output");
+      const saved = (localStorage.getItem("tiny.push.categories") || "").split(",").filter(Boolean);
+      if (saved.length) this.form.querySelectorAll("input").forEach(input => { input.checked = saved.includes(input.name); });
+      this.form.addEventListener("change", () => this.register().catch(err => this.say("error: " + err.message, true)));
       if (!("serviceWorker" in navigator) || !("PushManager" in window) || !("Notification" in window)) {
         this.button.disabled = true;
         this.say("This browser does not support notifications.");
@@ -453,7 +458,20 @@
       const current = await this.subscription();
       this.enabled = Boolean(current) && localStorage.getItem("tiny.push") === current.endpoint;
       this.button.textContent = this.enabled ? "Disable on this device" : "Enable on this device";
+      this.form.hidden = !this.enabled;
       if (!this.enabled && Notification.permission === "denied") this.say("Notifications are blocked in the browser settings.");
+    }
+    categories() { return [...this.form.querySelectorAll("input")].filter(input => input.checked).map(input => input.name); }
+    // register sends the subscription with the chosen categories; it runs on
+    // enable and again whenever a category changes.
+    async register(current) {
+      current = current || (await this.subscription());
+      if (!current) return;
+      const categories = this.categories();
+      await tiny.signedFetch("/push/subscribe", "POST", JSON.stringify({subscription: current.toJSON(), categories}), {contentType: "application/json"});
+      localStorage.setItem("tiny.push", current.endpoint);
+      localStorage.setItem("tiny.push.categories", categories.join(","));
+      this.say(categories.length ? "Notifications are on for this device." : "No categories chosen; nothing will arrive.");
     }
     async toggle() {
       this.button.disabled = true;
@@ -471,9 +489,7 @@
           const {key} = await (await fetch(tiny.localPath("/push/key"), {credentials: "same-origin"})).json();
           const registration = await navigator.serviceWorker.ready;
           const current = (await registration.pushManager.getSubscription()) || (await registration.pushManager.subscribe({userVisibleOnly: true, applicationServerKey: tiny.util.fromB64url(key)}));
-          await tiny.signedFetch("/push/subscribe", "POST", JSON.stringify(current.toJSON()), {contentType: "application/json"});
-          localStorage.setItem("tiny.push", current.endpoint);
-          this.say("Notifications are on for this device.");
+          await this.register(current);
         }
         await this.refresh();
       } finally { this.button.disabled = false; }
@@ -828,6 +844,15 @@
   // page whose definition has not arrived, such as after an in-place
   // navigation to the Files or Connect pages.
   const bundlesFor = {"file-upload": "files", "file-workspace-root": "files", "private-services": "private"};
+  // Opening the inbox records the visit for the badge and clears it.
+  const markInboxSeen = () => {
+    if (!/\/inbox$/.test(location.pathname) || !document.getElementById("session-logout")) return;
+    navigator.clearAppBadge?.().catch?.(() => {});
+    fetch(tiny.localPath("/inbox/seen"), {method: "POST", credentials: "same-origin"}).catch(() => {});
+  };
+  document.addEventListener("tiny:navigation", markInboxSeen);
+  markInboxSeen();
+
   const ensureModules = () => {
     if (!tiny.require || typeof customElements.get !== "function") return;
     const wanted = new Set();

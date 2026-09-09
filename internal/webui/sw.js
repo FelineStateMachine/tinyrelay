@@ -47,9 +47,10 @@ self.addEventListener("push", event => {
   let data = {};
   try { data = event.data?.json() || {}; } catch { data = {body: event.data?.text() || ""}; }
   const base = new URL(self.registration.scope);
-  event.waitUntil(self.registration.showNotification(data.title || "tiny", {
+  const badge = Number.isInteger(data.badge) && data.badge > 0 ? navigator.setAppBadge?.(data.badge) : navigator.clearAppBadge?.();
+  event.waitUntil(Promise.all([Promise.resolve(badge).catch(() => {}), self.registration.showNotification(data.title || "tiny", {
     body: data.body || "", tag: data.tag || "tiny", icon: new URL("icon-192.png", base).href, badge: new URL("badge-96.png", base).href, data: {url: data.url || base.href}
-  }));
+  })]));
 });
 self.addEventListener("notificationclick", event => {
   event.notification.close();
