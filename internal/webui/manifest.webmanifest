@@ -12,6 +12,13 @@
   "theme_color": "THEME",
   "categories": ["social", "utilities"],
   "prefer_related_applications": false,
+  "share_target": {
+    "action": "BASE/share",
+    "method": "POST",
+    "enctype": "multipart/form-data",
+    "params": {"title": "title", "text": "text", "url": "url", "files": [{"name": "files", "accept": ["*/*"]}]}
+  },
+  "protocol_handlers": [{"protocol": "web+nostr", "url": "BASE/open?target=%s"}],
   "icons": [
     {"src": "BASE/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any"},
     {"src": "BASE/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any"},

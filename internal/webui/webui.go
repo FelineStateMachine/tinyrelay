@@ -151,6 +151,12 @@ func (a *App) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
 		a.browse(writer, request)
 		return
 	}
+	if request.URL.Path == "/share" {
+		// The service worker receives shares before they reach the network.
+		// Without it, send the person to the Files page to upload directly.
+		http.Redirect(writer, request, requestPrefix(request)+"/files", http.StatusSeeOther)
+		return
+	}
 	if request.Method != http.MethodGet && request.Method != http.MethodHead {
 		http.Error(writer, "method not allowed", http.StatusMethodNotAllowed)
 		return
@@ -199,7 +205,7 @@ func (a *App) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
 		_, _ = writer.Write(serviceWorkerJS)
 		return
 	}
-	if png, ok := map[string][]byte{"/icon-192.png": icon192PNG, "/icon-512.png": icon512PNG, "/icon-maskable-512.png": iconMaskablePNG, "/apple-touch-icon.png": appleTouchIconPNG}[request.URL.Path]; ok {
+	if png, ok := map[string][]byte{"/icon-192.png": icon192PNG, "/icon-512.png": icon512PNG, "/icon-maskable-512.png": iconMaskablePNG, "/apple-touch-icon.png": appleTouchIconPNG, "/badge-96.png": badgePNG}[request.URL.Path]; ok {
 		writer.Header().Set("content-type", "image/png")
 		writer.Header().Set("cache-control", "public, max-age=86400")
 		_, _ = writer.Write(png)
@@ -212,6 +218,10 @@ func (a *App) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
 		} else {
 			_, _ = writer.Write(iconMonoSVG)
 		}
+		return
+	}
+	if request.URL.Path == "/open" {
+		a.openLink(writer, request)
 		return
 	}
 	if request.URL.Path == "/manifest.webmanifest" {

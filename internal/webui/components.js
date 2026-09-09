@@ -26,6 +26,9 @@
 //   <nostr-compose kind="…" coordinate="30617:…" [root="…" root-pubkey="…" root-kind="…"] [parent="…" …]>
 //     Signs a NIP-34 issue, pull request, NIP-22 reply or status event and
 //     posts it to the relay.
+//   <push-toggle>
+//     Opts this browser into relay notifications; asks for permission only
+//     when pressed and registers the device with a signed request.
 //   <file-upload> and <file-workspace-root> live in file-workspace.js;
 //   <private-services> lives in private-services.js.
 (() => {
@@ -402,6 +405,57 @@
   // JsonView renders any JSON value. Arrays of objects become tables, objects
   // become definition lists, scalar arrays become lists, and deep nesting
   // falls back to compact JSON so a response never explodes the page.
+  // PushToggle opts this browser into relay notifications. Nothing happens
+  // until the button is pressed: permission is requested then, and the
+  // device subscription is registered with a signed request.
+  class PushToggle extends HTMLElement {
+    connectedCallback() {
+      if (this.bound) return;
+      this.bound = true;
+      this.innerHTML = '<p><button type="button">Enable on this device</button></p><output role="status"></output>';
+      this.button = this.querySelector("button");
+      this.output = this.querySelector("output");
+      if (!("serviceWorker" in navigator) || !("PushManager" in window) || !("Notification" in window)) {
+        this.button.disabled = true;
+        this.say("This browser does not support notifications.");
+        return;
+      }
+      this.button.addEventListener("click", () => this.toggle().catch(err => this.say("error: " + err.message, true)));
+      this.refresh().catch(() => {});
+    }
+    say(text, error) { this.output.textContent = text; if (error) this.output.dataset.error = ""; else delete this.output.dataset.error; }
+    async subscription() { return (await navigator.serviceWorker.ready).pushManager.getSubscription(); }
+    async refresh() {
+      const current = await this.subscription();
+      this.enabled = Boolean(current) && localStorage.getItem("tiny.push") === current.endpoint;
+      this.button.textContent = this.enabled ? "Disable on this device" : "Enable on this device";
+      if (!this.enabled && Notification.permission === "denied") this.say("Notifications are blocked in the browser settings.");
+    }
+    async toggle() {
+      this.button.disabled = true;
+      try {
+        if (this.enabled) {
+          const current = await this.subscription();
+          if (current) {
+            await tiny.signedFetch("/push/unsubscribe", "POST", JSON.stringify(current.toJSON()), {contentType: "application/json"});
+            await current.unsubscribe();
+          }
+          localStorage.removeItem("tiny.push");
+          this.say("Notifications are off on this device.");
+        } else {
+          if ((await Notification.requestPermission()) !== "granted") throw Error("Permission was not granted.");
+          const {key} = await (await fetch(tiny.localPath("/push/key"), {credentials: "same-origin"})).json();
+          const registration = await navigator.serviceWorker.ready;
+          const current = (await registration.pushManager.getSubscription()) || (await registration.pushManager.subscribe({userVisibleOnly: true, applicationServerKey: tiny.util.fromB64url(key)}));
+          await tiny.signedFetch("/push/subscribe", "POST", JSON.stringify(current.toJSON()), {contentType: "application/json"});
+          localStorage.setItem("tiny.push", current.endpoint);
+          this.say("Notifications are on for this device.");
+        }
+        await this.refresh();
+      } finally { this.button.disabled = false; }
+    }
+  }
+
   class JsonView extends HTMLElement {
     connectedCallback() {
       if (this.rendered) return;
@@ -755,6 +809,7 @@
   customElements.define("file-tools", FileTools);
   customElements.define("publish-list", PublishList);
   customElements.define("nostr-compose", NostrCompose);
+  customElements.define("push-toggle", PushToggle);
   customElements.define("nostr-key", NostrKey);
   customElements.define("json-view", JsonView);
 

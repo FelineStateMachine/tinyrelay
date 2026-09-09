@@ -175,6 +175,37 @@
       });
       this.querySelector("[data-cancel]").addEventListener("click", () => this.controller?.abort());
       this.querySelector("[data-retry]").addEventListener("click", () => this.run().catch(() => {}));
+      this.intake().catch(error => this.say(error.message, true));
+    }
+    // intake collects files parked by the service worker for a share from
+    // another app. They wait here until the person presses Upload.
+    async intake() {
+      const id = new URLSearchParams(location.hash.slice(1)).get("share");
+      if (!id || !/^[0-9a-f-]{36}$/.test(id) || !globalThis.caches) return;
+      const cache = await caches.open("tiny-share");
+      const meta = await (await cache.match("/share/" + id + "/meta"))?.json();
+      if (!meta) return;
+      const files = [];
+      for (let index = 0; index < (meta.count || 0); index++) {
+        const response = await cache.match("/share/" + id + "/" + index);
+        if (!response) continue;
+        const blob = await response.blob();
+        files.push(new File([blob], decodeURIComponent(response.headers.get("x-name") || "shared"), {type: response.headers.get("content-type") || blob.type}));
+      }
+      for (const key of await cache.keys()) if (new URL(key.url).pathname.startsWith("/share/" + id + "/")) await cache.delete(key);
+      history.replaceState?.(null, "", location.pathname + location.search);
+      if (files.length) {
+        this.choose(files);
+        this.say(files.length + " shared file" + (files.length === 1 ? "" : "s") + " ready. Press Upload.");
+        return;
+      }
+      const link = meta.url || (meta.text || "").match(/https?:\/\/\S+/)?.[0];
+      const mirror = link && document.querySelector("file-mirror input[name=url]");
+      if (mirror) {
+        mirror.value = link;
+        mirror.closest("details")?.setAttribute("open", "");
+        this.say("Shared link ready to import.");
+      }
     }
     // choose records a selection. A folder is recognized from the relative
     // paths that folder pickers and folder drops attach to their files.

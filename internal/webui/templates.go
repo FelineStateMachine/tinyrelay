@@ -71,6 +71,9 @@ var iconMaskablePNG []byte
 //go:embed apple-touch-icon.png
 var appleTouchIconPNG []byte
 
+//go:embed badge-96.png
+var badgePNG []byte
+
 //go:embed sw.js
 var serviceWorkerJS []byte
 
