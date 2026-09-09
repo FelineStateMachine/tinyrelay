@@ -59,6 +59,15 @@ Private repositories require a dedicated [GRASP-08 private tenant](https://ngit.
 
 Git clients authenticate with a signed kind 27235 event whose URL is the repository root ending in `.git` and whose method is `GET`. The proof can be reused across that repository's Git HTTP requests while its timestamp is within a minute of the server's clock. Relay events require NIP-42 authentication and current membership.
 
+Plain git and agents can mint that proof with `tiny git-token`. Put the signing key in an environment variable as hex or an `nsec`, then pass the header to git for the push or clone:
+
+```sh
+export TINY_AGENT_KEY=nsec1...
+git -c "$(tiny git-token --repo https://relay.example/<npub>/project.git --format git)" push tiny main
+```
+
+The token is valid for about a minute and never contains the key.
+
 Open tenants reject private repository announcements. A tenant that already holds a private repository announcement stays private, including after that announcement is removed. Policy changes and configuration imports cannot reopen a private tenant. Moving data to a public tenant requires a deliberate migration.
 
 Under **Manage > Connect**, edit your encrypted kind 10318 private service list. URLs and other private entries are encrypted to your own signer with NIP-44. The editor saves the event on the current relay; clients must be able to find it there.

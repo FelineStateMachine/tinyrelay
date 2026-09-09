@@ -35,7 +35,7 @@ func main() {
 
 func run(ctx context.Context, args []string, out io.Writer) error {
 	if len(args) == 0 || args[0] == "help" || args[0] == "--help" || args[0] == "-h" {
-		_, err := fmt.Fprintln(out, "tiny serve [--data-dir PATH] [--listen :7447]\ntiny tenant create --name NAME --owner PUBKEY [--template default]\ntiny tenant list|enable|disable|host [options]\ntiny templates\ntiny version")
+		_, err := fmt.Fprintln(out, "tiny serve [--data-dir PATH] [--listen :7447]\ntiny tenant create --name NAME --owner PUBKEY [--template default]\ntiny tenant list|enable|disable|host [options]\ntiny git-token --repo URL [--key-env TINY_AGENT_KEY] [--format header|value|git]\ntiny templates\ntiny version")
 		return err
 	}
 	switch args[0] {
@@ -48,6 +48,8 @@ func run(ctx context.Context, args []string, out io.Writer) error {
 		return serve(ctx, args[1:], out)
 	case "tenant":
 		return tenantCommand(ctx, args[1:], out)
+	case "git-token":
+		return gitToken(args[1:], out)
 	default:
 		return fmt.Errorf("unknown command %q; run tiny help", args[0])
 	}

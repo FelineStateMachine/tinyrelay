@@ -25,6 +25,7 @@ The command is `tiny`. Useful commands include:
 tiny serve [--data-dir PATH] [--listen :7447]
 tiny tenant create --name NAME --owner PUBKEY [--template default] [--source wss://...]
 tiny tenant list|enable|disable|host [options]
+tiny git-token --repo URL [--key-env TINY_AGENT_KEY] [--format header|value|git]
 tiny templates
 tiny version
 ```
