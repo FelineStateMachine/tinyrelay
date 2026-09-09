@@ -45,6 +45,7 @@
 <tr><th>rooms</th><td>{{or (scopeList $a "rooms") "none"}}</td></tr>
 <tr><th>repositories</th><td>{{range $i, $r := index $scope "repos"}}{{$repo := asMap $r}}{{if $i}}<br>{{end}}<code>{{str (index $repo "identifier")}}</code> {{str (index $repo "level")}}, owner {{template "nostrName" (str (index $repo "owner"))}}{{else}}none{{end}}</td></tr>
 <tr><th>wiki</th><td>{{or (str (index $scope "wiki")) "none"}}</td></tr>
+<tr><th>sites</th><td>{{range $i, $s := index $scope "sites"}}{{$site := asMap $s}}{{if $i}}<br>{{end}}<code>{{str (index $site "label")}}</code>{{with index $site "ttl"}} {{str .}} days{{end}}{{if index $site "encrypted"}} encrypted{{end}}{{else}}none{{end}}</td></tr>
 <tr><th>kinds</th><td>{{or (scopeList $a "kinds") "profile and relay list only"}}</td></tr>
 <tr><th>rate</th><td>{{str (index $scope "rate")}} events per minute</td></tr>
 <tr><th>expires</th><td><time datetime="{{datetime (index $a "expires")}}">{{when (index $a "expires")}}</time></td></tr>
@@ -70,6 +71,7 @@
 <label>Rooms <input name="rooms" placeholder="build, agents"{{with $edit}} value="{{scopeList . "rooms"}}"{{end}}></label>
 <label>Repositories <textarea name="repos" placeholder="owner pubkey:identifier:read&#10;owner pubkey:identifier:maintain">{{with $edit}}{{repoLines .}}{{end}}</textarea></label>
 <label>Wiki <select name="wiki"><option value="">none</option><option value="propose"{{if eq (str (index $es "wiki")) "propose"}} selected{{end}}>propose</option><option value="edit"{{if eq (str (index $es "wiki")) "edit"}} selected{{end}}>edit</option></select></label>
+<label>Sites <textarea name="sites" placeholder="npub1... ttl=30 encrypted&#10;* ttl=7">{{with $edit}}{{siteLines .}}{{end}}</textarea></label>
 <label>Kinds <input name="kinds" placeholder="1, 1111, 1621"{{with $edit}} value="{{scopeList . "kinds"}}"{{end}}></label>
 <label>Rate per minute <input name="rate" type="number" min="1" max="600" value="{{if $edit}}{{str (index $es "rate")}}{{else}}60{{end}}"></label>
 <label>Expires <input name="expires" type="date" value="{{if $edit}}{{dateOf (index (asMap $edit) "expires")}}{{else}}{{dateAfter 90}}{{end}}" required></label>

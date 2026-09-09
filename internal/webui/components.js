@@ -545,6 +545,24 @@
       const wiki = text("wiki");
       if (wiki && wiki !== "propose" && wiki !== "edit") throw Error("Wiki access is propose or edit.");
       if (wiki) tags.push(["wiki", wiki]);
+      // Sites: a label under the agent's key or *, then ttl=<days> and
+      // encrypted, one entry per line. The relay checks the label's key.
+      const seenSites = new Set();
+      for (const line of text("sites").split(/\r?\n/).map(line => line.trim()).filter(Boolean)) {
+        const [label, ...flags] = line.split(/\s+/);
+        if (label !== "*" && !/^npub1[a-z0-9]{58}$/.test(label) && !/^[0-9a-z]{50}[a-z0-9-]{1,13}$/.test(label))
+          throw Error("Sites are a site label or *, then ttl=<days> and encrypted, one per line.");
+        const tag = ["sites", label];
+        for (const flag of flags) {
+          const ttl = /^ttl=(\d{1,3})$/.exec(flag);
+          if (ttl && Number(ttl[1]) >= 1 && Number(ttl[1]) <= 365) tag.push("ttl=" + Number(ttl[1]));
+          else if (flag === "encrypted") tag.push("encrypted");
+          else throw Error("Sites take ttl=<days> from 1 to 365 and encrypted after the label.");
+        }
+        if (seenSites.has(label)) continue;
+        seenSites.add(label);
+        tags.push(tag);
+      }
       const rate = text("rate");
       if (rate) {
         if (!/^\d+$/.test(rate) || Number(rate) < 1 || Number(rate) > 600) throw Error("Rate is 1 to 600 events per minute.");
@@ -556,7 +574,7 @@
     async submit(form) {
       if (!window.nostr?.signEvent) throw Error("Connect a signer first.");
       const value = name => form.elements[name]?.value ?? "";
-      const values = {name: value("name"), expires: value("expires"), rooms: value("rooms"), repos: value("repos"), kinds: value("kinds"), wiki: value("wiki"), rate: value("rate")};
+      const values = {name: value("name"), expires: value("expires"), rooms: value("rooms"), repos: value("repos"), kinds: value("kinds"), wiki: value("wiki"), sites: value("sites"), rate: value("rate")};
       let secret = null, pubkey = value("pubkey").trim().toLowerCase();
       if (value("key") !== "paste") {
         if (!window.NostrSigner?.generateSecretKey) throw Error("The signer bundle is still loading.");

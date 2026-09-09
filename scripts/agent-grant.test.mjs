@@ -42,7 +42,7 @@ function setup(values = {}, options = {}) {
   };
   const Constructor = vm.runInNewContext(`${grantSource}\nAgentGrant`, {FormElement, window, tiny, el, URL, isHex64: value => /^[0-9a-f]{64}$/.test(value || ""), globalThis: {location: {pathname: "/manage/agents"}}});
   const component = new Constructor();
-  const form = {elements: Object.fromEntries(Object.entries({key: "generate", name: "helper", expires: dateAfter(90), rooms: "", repos: "", kinds: "", wiki: "", rate: "60", pubkey: "", ...values}).map(([key, value]) => [key, {value}])), reset: () => { resets++; }};
+  const form = {elements: Object.fromEntries(Object.entries({key: "generate", name: "helper", expires: dateAfter(90), rooms: "", repos: "", kinds: "", wiki: "", sites: "", rate: "60", pubkey: "", ...values}).map(([key, value]) => [key, {value}])), reset: () => { resets++; }};
   return {Constructor, component, form, sent, signed, appended, resets: () => resets, navigated: () => navigated};
 }
 
@@ -105,6 +105,10 @@ test("invalid fields are refused before anything is signed", async () => {
     [{kinds: "1, abc"}, /Kinds are/],
     [{kinds: "70000"}, /Kinds are/],
     [{wiki: "delete"}, /propose or edit/],
+    [{sites: "not-a-site"}, /Sites are/],
+    [{sites: "* ttl=0"}, /1 to 365/],
+    [{sites: "* ttl=366"}, /1 to 365/],
+    [{sites: "* public"}, /1 to 365/],
     [{rate: "0"}, /1 to 600/],
     [{rate: "601"}, /1 to 600/]
   ]) {
@@ -123,6 +127,22 @@ test("a changed event, a self grant and a relay refusal keep the form", async ()
   await assert.rejects(refused.component.submit(refused.form), /moderator required/);
   assert.equal(refused.appended.length, 0);
   assert.equal(refused.resets(), 0);
+});
+
+test("sites lines become sites tags with their ttl and encrypted flag", async () => {
+  const npub = nip19.npubEncode("e".repeat(64));
+  const named = "0".repeat(50) + "docs";
+  const s = setup({sites: `${npub} ttl=30 encrypted\n  ${named}\n* ttl=7\n${npub} ttl=1`});
+  await s.component.submit(s.form);
+  const {event} = s.sent[0];
+  assert.deepEqual(event.tags.filter(tag => tag[0] === "sites"), [
+    ["sites", npub, "ttl=30", "encrypted"],
+    ["sites", named],
+    ["sites", "*", "ttl=7"]
+  ]);
+  const wiki = event.tags.findIndex(tag => tag[0] === "wiki");
+  const first = event.tags.findIndex(tag => tag[0] === "sites");
+  assert.ok(wiki === -1 || first > wiki, "sites follow the wiki tag");
 });
 
 test("tags dedupe rooms, repositories and kinds", () => {

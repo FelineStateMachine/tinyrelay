@@ -23,6 +23,7 @@ var (
 	agentActive  = strings.Repeat("1", 64)
 	agentPaused  = strings.Repeat("2", 64)
 	agentRevoked = strings.Repeat("3", 64)
+	agentSite    = "npub1" + strings.Repeat("q", 58)
 )
 
 func (b *agentsBackend) Query(_ context.Context, method string, params []json.RawMessage, actor string) (any, error) {
@@ -33,9 +34,10 @@ func (b *agentsBackend) Query(_ context.Context, method string, params []json.Ra
 	scope := func(rooms []string, repos []map[string]any, wiki string, kinds []int) map[string]any {
 		return map[string]any{"rooms": rooms, "repos": repos, "wiki": wiki, "kinds": kinds, "rate": 60}
 	}
+	hermes := scope([]string{"build", "agents"}, []map[string]any{{"owner": owner, "identifier": "tinyrelay", "level": "maintain"}}, "propose", []int{9, 1111, 1621})
+	hermes["sites"] = []map[string]any{{"label": agentSite, "ttl": 30, "encrypted": true}, {"label": "*"}}
 	agents := []any{
-		map[string]any{"pubkey": agentActive, "owner": owner, "name": "hermes", "expires": now + 86400*30, "paused": false, "revoked": 0, "lastEvent": now - 120,
-			"scope": scope([]string{"build", "agents"}, []map[string]any{{"owner": owner, "identifier": "tinyrelay", "level": "maintain"}}, "propose", []int{9, 1111, 1621})},
+		map[string]any{"pubkey": agentActive, "owner": owner, "name": "hermes", "expires": now + 86400*30, "paused": false, "revoked": 0, "lastEvent": now - 120, "scope": hermes},
 		map[string]any{"pubkey": agentPaused, "owner": owner, "name": "reviewer-bot", "expires": now + 86400*30, "paused": true, "revoked": 0, "lastEvent": 0,
 			"scope": scope([]string{"build"}, []map[string]any{{"owner": owner, "identifier": "tinyrelay", "level": "read"}}, "", nil)},
 		map[string]any{"pubkey": agentRevoked, "owner": strings.Repeat("c", 64), "name": "", "expires": now + 86400*30, "paused": false, "revoked": now - 86400, "lastEvent": now - 86400*2,
@@ -90,7 +92,10 @@ func TestAgentsPageRendersTableCardsActivityAndGrantForm(t *testing.T) {
 		`<a href="/manage/agents" aria-current="page">/agents</a>`,
 		`<table id="rows">`,
 		`<a href="#agent-` + agentActive + `">hermes</a>`,
-		`rooms: build, agents | repos: tinyrelay (maintain) | wiki: propose | kinds: 9, 1111, 1621`,
+		`rooms: build, agents | repos: tinyrelay (maintain) | wiki: propose | kinds: 9, 1111, 1621 | sites: ` + agentSite + `, *`,
+		`<tr><th>sites</th><td><code>` + agentSite + `</code> 30 days encrypted<br><code>*</code></td></tr>`,
+		`<tr><th>sites</th><td>none</td></tr>`,
+		`<textarea name="sites" placeholder="npub1... ttl=30 encrypted&#10;* ttl=7"></textarea>`,
 		`<td data-state="active">active | `,
 		`<td data-state="paused">paused</td>`,
 		`<td data-state="revoked">revoked | `,
@@ -236,6 +241,8 @@ func TestAgentsPageEditPrefillsTheGrantForm(t *testing.T) {
 		`placeholder="build, agents" value="build, agents">`,
 		`>` + strings.Repeat("a", 64) + `:tinyrelay:maintain</textarea>`,
 		`<option value="propose" selected>propose</option>`,
+		`<textarea name="sites" placeholder="npub1... ttl=30 encrypted&#10;* ttl=7">` + agentSite + ` ttl=30 encrypted
+*</textarea>`,
 		`placeholder="1, 1111, 1621" value="9, 1111, 1621">`,
 		`<button>Sign the replacement</button>`,
 		`&amp;edit=` + agentActive + `#grant">edit</a>`,

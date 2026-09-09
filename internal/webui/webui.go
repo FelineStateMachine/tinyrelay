@@ -1036,6 +1036,13 @@ func agentScope(agent any) string {
 	if kinds := scopeList(agent, "kinds"); kinds != "" {
 		parts = append(parts, "kinds: "+kinds)
 	}
+	if sites, _ := scope["sites"].([]any); len(sites) > 0 {
+		labels := make([]string, 0, len(sites))
+		for _, site := range sites {
+			labels = append(labels, plainString(valueMap(site)["label"]))
+		}
+		parts = append(parts, "sites: "+strings.Join(labels, ", "))
+	}
 	if len(parts) == 0 {
 		return "profile and relay list only"
 	}
@@ -1117,6 +1124,25 @@ func repoLines(agent any) string {
 	for _, repo := range repos {
 		r := valueMap(repo)
 		lines = append(lines, plainString(r["owner"])+":"+plainString(r["identifier"])+":"+plainString(r["level"]))
+	}
+	return strings.Join(lines, "\n")
+}
+
+// siteLines renders a grant's sites one per line, the way the form takes
+// them: the label, then ttl=<days> and encrypted when set.
+func siteLines(agent any) string {
+	sites, _ := valueMap(valueMap(agent)["scope"])["sites"].([]any)
+	lines := make([]string, 0, len(sites))
+	for _, site := range sites {
+		s := valueMap(site)
+		line := plainString(s["label"])
+		if ttl := plainString(s["ttl"]); ttl != "" && ttl != "0" {
+			line += " ttl=" + ttl
+		}
+		if s["encrypted"] == true {
+			line += " encrypted"
+		}
+		lines = append(lines, line)
 	}
 	return strings.Join(lines, "\n")
 }

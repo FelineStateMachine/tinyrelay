@@ -273,6 +273,7 @@ func parseTemplates() (*template.Template, error) {
 		"dateAfter":       dateAfter,
 		"agentByKey":      agentByKey,
 		"repoLines":       repoLines,
+		"siteLines":       siteLines,
 		"dateOf":          dateOf,
 		"approvalViews":   approvalViews,
 		"approvalCounts":  approvalCounts,
