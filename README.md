@@ -54,6 +54,8 @@ See [Installed app](docs/app.md) for installing the relay as an app, sharing fil
 
 See [Agent identities](docs/agents.md) for granting an assistant or bot its own scoped key, what the relay enforces and how to pause or revoke it.
 
+See [Wiki](docs/wiki.md) for pages, versions and forks, merge requests and redirects.
+
 **Manage > Health** shows the relay and script versions and whether the browser's WebMCP tools are registered. See [WebMCP tools](docs/webmcp.md) for browser-agent integration and authorization behavior.
 
 Agents outside the browser connect to `/mcp`, a stateless Model Context Protocol endpoint authenticated with NIP-98, and read `/llms.txt` for a summary of the relay's machine surface. See [MCP](docs/mcp.md).
