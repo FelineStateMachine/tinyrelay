@@ -51,6 +51,10 @@ This example limits each stored blob to 100 MiB and allows 1 GiB of claimed stor
 
 Each uploader pays the full size of every file they claim, even when another uploader already stores identical bytes. Repeated uploads by the same user count once. Removing an uploader's claim releases their allowance; shared content remains while another claim exists. An owner can remove the stored file for everyone.
 
+## Agent uploads
+
+An agent whose grant carries a `sites` tag with a ttl uploads on a clock: each file it stores is kept for the longest ttl among the grant's site entries, then removed by maintenance. A person who claims the same file keeps it, and the agent's claim alone is released. An agent whose grant says `encrypted` may store only encrypted blobs and manifests. See [Static sites](agents.md#static-sites).
+
 Clients can check an upload with [BUD-06](https://github.com/hzrd149/blossom/blob/master/buds/06.md) `HEAD /upload`, including empty files with `X-Content-Length: 0`. The result is advisory; the upload itself checks the current limits. File descriptors include the optional Nostr metadata field defined by [BUD-08](https://github.com/hzrd149/blossom/blob/master/buds/08.md). A [BUD-13](https://github.com/hzrd149/blossom/pull/100) remote upload may name up to eight `url` sources.
 
 ## Private Git hosting

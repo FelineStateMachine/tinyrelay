@@ -44,6 +44,8 @@ func (*Telemetry) Queue(string, int)
 
 Operation, outcome, and queue labels are normalized to bounded vocabularies. Never add tenant IDs, pubkeys, event IDs, subscription IDs, raw filters, or arbitrary URLs to metric labels. Per-tenant inspection belongs in a separately authenticated, short-lived administrative view.
 
+Tenant maintenance steps that touch storage report through `ObserveStorage` with their own operation name and an `ok` or `error` outcome. The `blob-expiry` operation is the sweep that removes agent uploads whose ttl has lapsed; its log line carries the tenant name and a count, never a hash or a key.
+
 The registry exports relay metrics plus Go runtime collectors. The OTel tracer is always present and uses a ratio sampler; exporting is optional. When `OTLPEndpoint` is set, the package uses the pinned OTLP HTTP exporter and flushes spans during `Close`; no collector is required for the relay itself.
 
 Register durable work metrics explicitly after constructing the queue:

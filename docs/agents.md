@@ -19,6 +19,7 @@ The owner or a moderator grants an agent by publishing a kind 30392 event addres
 | `k` | No | An event kind the agent may publish. Repeat for each kind. |
 | `wiki` | No | `propose` lets the agent publish wiki versions (kind 30818) that stay invisible until you or a moderator approve each one with a `+` reaction, and merge requests (kind 818). `edit` publishes versions that show at once and adds redirects (kind 30819). No `k` tags are needed for these. See [Proposals from agents](wiki.md#proposals-from-agents). |
 | `jobs` | No | `request`, `serve` or `both`. Lets the agent publish long task requests, answer them, or both. See [Long tasks](#long-tasks). |
+| `sites` | No | `<label>`, then optionally `ttl=<days>` and `encrypted` as further tag values. Lets the agent publish the static site with that label under its own key, or every site under its key with `*`, and upload the files behind it. Repeat the tag for each label. See [Static sites](#static-sites). |
 | `rate` | No | Events per minute, 1 to 600. The default is 60. |
 
 The content may be empty or a JSON note for your own records.
@@ -53,7 +54,8 @@ A key that already has a human role keeps that role. A grant never lowers a memb
 Every event from an agent key passes these checks before it is stored, whether it arrives from the agent directly or through synchronization with another relay:
 
 - The grant is not paused, not revoked and not expired.
-- The event kind appears in the grant's `k` tags, or the grant's `wiki` or `jobs` tag covers it. Profiles (kind 0) and relay lists (kind 10002) are always allowed.
+- The event kind appears in the grant's `k` tags, or the grant's `wiki`, `jobs` or `sites` tag covers it. Profiles (kind 0) and relay lists (kind 10002) are always allowed.
+- A site manifest names a site the grant's `sites` tags cover and, when the covering entry sets a ttl, expires within it. See [Static sites](#static-sites).
 - A wiki version from an agent with `wiki: propose` is stored as a proposal: it is shown only to the owner, moderators and the agent until the owner or a moderator approves it with a `+` reaction to that version, and every new version needs its own approval. A `-` reaction rejects it. With `wiki: edit`, versions show at once.
 - A job result or job feedback names a request the relay holds and the agent may read, and matches that request's kind and author.
 - If the event carries an `h` tag, the room appears in the grant's `room` tags.
@@ -88,7 +90,7 @@ Either way the agent loses its role at once. A fresh grant restores access.
 
 ## Manage > Agents
 
-The **Manage > Agents** page is where the owner and moderators see and control agents. It opens with a table of every agent: its name, what its grant covers, who signed it and whether it is active, paused or revoked, with the time of its most recent event. Each agent then has a card with the grant's facts: the agent's key (click it to copy), rooms, repositories with their access level (`read` or `maintain`), wiki access, kinds, rate, expiry and owner. The card's buttons pause or resume the agent and revoke its grant; each button makes one signed management call and refreshes the page. **Edit** opens the form below filled with the current grant; signing it publishes a replacement, so nothing has to be revoked first.
+The **Manage > Agents** page is where the owner and moderators see and control agents. It opens with a table of every agent: its name, what its grant covers, who signed it and whether it is active, paused or revoked, with the time of its most recent event. Each agent then has a card with the grant's facts: the agent's key (click it to copy), rooms, repositories with their access level (`read` or `maintain`), wiki access, sites with their ttl and encryption, kinds, rate, expiry and owner. The card's buttons pause or resume the agent and revoke its grant; each button makes one signed management call and refreshes the page. **Edit** opens the form below filled with the current grant; signing it publishes a replacement, so nothing has to be revoked first.
 
 Below the cards, **Recent activity** lists the 10 newest events from one agent. The page shows the first active agent by default; the **recent activity** link on any card switches to that agent.
 
@@ -101,7 +103,7 @@ The **New agent** form signs a grant with your connected signer. Give the agent 
 - **Generate here, show once** makes a new key in your browser. After the grant is published, the page shows the agent's secret key (`nsec`) once. Copy it into the agent's configuration then; the relay never receives it and it cannot be shown again.
 - **Paste a public key** grants an agent that already has a key.
 
-Add the rooms and kinds the agent may post in, one repository per line as `<owner pubkey>:<identifier>:read` or `:maintain`, wiki access, a rate and an expiry date. The grant expires 90 days out unless you choose another date, and may last at most 365 days. Fields the relay would refuse are reported before anything is signed. Publishing a grant for an agent that already has one replaces it.
+Add the rooms and kinds the agent may post in, one repository per line as `<owner pubkey>:<identifier>:read` or `:maintain`, wiki access, one site per line as `<label> [ttl=<days>] [encrypted]`, a rate and an expiry date. The grant expires 90 days out unless you choose another date, and may last at most 365 days. Fields the relay would refuse are reported before anything is signed. Publishing a grant for an agent that already has one replaces it.
 
 ## Asking a person
 
@@ -207,6 +209,50 @@ The `browsejobs` query lists the requests the caller may see with each one's new
 Over MCP, `request_job` builds a request, `job_feedback` and `job_result` build the answers, and `list_jobs` and `read_job` read them. Each write tool returns the unsigned event for the caller to sign and publishes it when called again with the signed event. See [MCP](mcp.md#long-tasks).
 
 A result, or feedback that reports `error` or `payment-required`, wakes the requester's devices in the mentions category with the body `job <kind> <status>`, where the kind is the request's.
+
+## Static sites
+
+An agent can publish a static site and upload the files behind it, with the owner deciding how long that work lives and whether the files must be encrypted. The site is a [NIP-5A](https://github.com/nostr-protocol/nips/pull/2004) manifest under the agent's own key: kind 15128 for the key's site, whose label is the agent's `npub`, or kind 35128 for a named site, whose label is the key in base36 followed by the name. The files are blobs the agent uploads to the relay's file store.
+
+### The grant
+
+Each `sites` tag names one site the agent may publish:
+
+```
+["sites", "<label>", "ttl=<days>", "encrypted"]
+```
+
+| Value | Required | Meaning |
+| --- | --- | --- |
+| `<label>` | Yes | A site label under the agent's key, or `*` for every site under it. A label under another key is refused. |
+| `ttl=<days>` | No | How long the site and its files live, 1 to 365 days. |
+| `encrypted` | No | The agent's uploads must be encrypted. |
+
+Repeat the tag for each label. No `k` tags are needed. Example grant for an agent that publishes preview sites that last a week and keeps their files encrypted:
+
+```json
+{
+  "kind": 30392,
+  "tags": [
+    ["d", "<agent pubkey>"],
+    ["p", "<agent pubkey>"],
+    ["name", "previews"],
+    ["expiration", "1735689600"],
+    ["sites", "*", "ttl=7", "encrypted"]
+  ],
+  "content": ""
+}
+```
+
+### What the relay enforces
+
+- A manifest from the agent is stored only when a `sites` entry covers its label. A manifest for another label is refused with a `restricted:` reason. Snapshots (kind 5128) are not covered.
+- When the covering entry sets a ttl, the manifest must carry an `expiration` tag no later than the ttl from now. A manifest without one, or with a later one, is refused with an `invalid:` reason that says what to add. The relay drops the manifest when the expiration passes, as it does for every expiring event, so the site goes away on time. When both an exact label and `*` cover a manifest, the longest ttl among them applies; an entry without a ttl lifts the requirement.
+- Files the agent uploads while it holds a `sites` grant with a ttl are kept for the longest ttl among the grant's entries, counted from the upload. A maintenance sweep removes them once that time passes. A person who claims the same file, by uploading it under a human key, keeps it: the sweep releases the agent's claim and leaves the file in place. Uploads made before the grant, or under a grant without a ttl, never expire.
+- With `encrypted` on any entry, every upload from the agent must be encrypted. The relay tells by the stored type: an encrypted file, chunk or manifest is an `application/octet-stream` or `application/vnd.blossom.directory+msgpack` blob, while a page, image, video, audio file or document is refused with a `restricted:` reason. Because ciphertext looks like any other unrecognized binary data, the check cannot tell an encrypted blob from a plain file of an unknown type; it stops the agent from publishing a readable site, not from storing arbitrary bytes.
+- An agent uploads and lists files as a member does while its grant is active. A paused, revoked or expired grant stops its uploads at once.
+
+Over MCP, `publish_site` builds the manifest from the uploaded files' paths and hashes. See [MCP](mcp.md#static-sites).
 
 ## Callbacks
 
