@@ -50,6 +50,7 @@ func (s *Store) Vanish(ctx context.Context, pubkey string, until int64) error {
 			{"DELETE FROM events WHERE pubkey=? AND created_at<=?", []any{pubkey, until}},
 			{"DELETE FROM events WHERE kind=1059 AND id IN(SELECT event_id FROM tags WHERE name='p' AND value=?)", []any{pubkey}},
 			{"DELETE FROM list_history WHERE owner=?", []any{pubkey}},
+			{"DELETE FROM wiki_revisions WHERE author=?", []any{pubkey}},
 		}
 		for _, q := range statements {
 			if _, err := tx.ExecContext(ctx, q.sql, q.args...); err != nil {
@@ -93,7 +94,10 @@ func (s *Store) EraseAuthor(ctx context.Context, pubkey string) (int64, error) {
 		if err != nil {
 			return err
 		}
-		_, err = tx.ExecContext(ctx, "DELETE FROM list_history WHERE owner=?", pubkey)
+		if _, err = tx.ExecContext(ctx, "DELETE FROM list_history WHERE owner=?", pubkey); err != nil {
+			return err
+		}
+		_, err = tx.ExecContext(ctx, "DELETE FROM wiki_revisions WHERE author=?", pubkey)
 		return err
 	})
 	return n, err

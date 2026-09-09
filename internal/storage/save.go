@@ -159,6 +159,14 @@ func replace(ctx context.Context, tx *sql.Tx, e event.Event, now int64) error {
 			return fmt.Errorf("archive replaced list: %w", err)
 		}
 	}
+	if e.Kind == kindWikiArticle {
+		// A wiki page keeps its history: the version being replaced moves
+		// to wiki_revisions with the id of the event that replaced it.
+		_, err := tx.ExecContext(ctx, "INSERT OR IGNORE INTO wiki_revisions(event_id,author,d,created_at,raw,superseded_by) SELECT id,pubkey,d,created_at,raw,? FROM events WHERE pubkey=? AND kind=? AND d=?", e.ID, e.PubKey, e.Kind, d)
+		if err != nil {
+			return fmt.Errorf("archive replaced wiki revision: %w", err)
+		}
+	}
 	_, err = tx.ExecContext(ctx, "DELETE FROM events WHERE pubkey=? AND kind=? AND d=?", e.PubKey, e.Kind, d)
 	if err != nil {
 		return fmt.Errorf("replace event: %w", err)
@@ -182,12 +190,20 @@ func applyDeletion(ctx context.Context, tx *sql.Tx, e event.Event, tag []string)
 		if _, err := tx.ExecContext(ctx, "DELETE FROM list_history WHERE kind=? AND owner=? AND d=? AND created_at<=?", kind, e.PubKey, parts[2], e.CreatedAt); err != nil {
 			return fmt.Errorf("delete list history: %w", err)
 		}
+		if kind == kindWikiArticle {
+			if _, err := tx.ExecContext(ctx, "DELETE FROM wiki_revisions WHERE author=? AND d=? AND created_at<=?", e.PubKey, parts[2], e.CreatedAt); err != nil {
+				return fmt.Errorf("delete wiki revisions: %w", err)
+			}
+		}
 	} else {
 		if _, err := tx.ExecContext(ctx, "DELETE FROM events WHERE id=? AND (pubkey=? OR (kind=1059 AND EXISTS(SELECT 1 FROM tags WHERE event_id=events.id AND name='p' AND value=?)))", tag[1], e.PubKey, e.PubKey); err != nil {
 			return fmt.Errorf("delete event: %w", err)
 		}
 		if _, err := tx.ExecContext(ctx, "DELETE FROM list_history WHERE owner=? AND event_id=?", e.PubKey, tag[1]); err != nil {
 			return fmt.Errorf("delete list version: %w", err)
+		}
+		if _, err := tx.ExecContext(ctx, "DELETE FROM wiki_revisions WHERE author=? AND event_id=?", e.PubKey, tag[1]); err != nil {
+			return fmt.Errorf("delete wiki revision: %w", err)
 		}
 	}
 	_, err := tx.ExecContext(ctx, "INSERT INTO deletions(author,target_type,target,until) VALUES(?,?,?,?) ON CONFLICT(author,target_type,target) DO UPDATE SET until=max(until,excluded.until)", e.PubKey, tag[0], tag[1], e.CreatedAt)
@@ -242,6 +258,10 @@ func indexed(kind int, mode string) bool {
 }
 
 func isListKind(kind int) bool { return kind == 3 || kind == 10002 || kind == 10003 || kind == 30003 }
+
+// kindWikiArticle is the NIP-54 article kind, whose replaced versions are
+// kept as revisions.
+const kindWikiArticle = 30818
 
 func AddIntents(ctx context.Context, tx *sql.Tx, intents []Intent, now int64) error {
 	for _, intent := range intents {
