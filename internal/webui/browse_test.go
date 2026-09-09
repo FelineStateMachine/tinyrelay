@@ -49,7 +49,7 @@ func TestBrowseRoutesUseObjectContractsAndRenderData(t *testing.T) {
 		{"/repo?owner=alice&repo=notes&view=file", "browserepo", "one"},
 		{"/files", "browsefiles", "deadbeef"},
 		{"/file?hash=deadbeef", "browsefile", "blob"},
-		{"/manage/status", "browsestatus", "storage"},
+		{"/manage/status", "browsestatus", "manage this relay"},
 	}
 	for _, test := range tests {
 		recorder := httptest.NewRecorder()
@@ -79,9 +79,15 @@ func TestConnectPublishesGRASPAndDeliveryKinds(t *testing.T) {
 	recorder := httptest.NewRecorder()
 	app.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/manage/connect", nil))
 	body := recorder.Body.String()
-	for _, marker := range []string{`<publish-list kind="10317" tag="g" scheme="ws">`, `<publish-list kind="10063" tag="server">`, `name="lines"`, `customElements.define("publish-list"`, `tiny.signedFetch("/events", "POST"`} {
+	for _, marker := range []string{`<publish-list kind="10317" tag="g" scheme="ws">`, `<publish-list kind="10063" tag="server">`, `name="lines"`, `src="/scripts/components.js?v=`} {
 		if !strings.Contains(body, marker) {
 			t.Fatalf("connect page missing %q", marker)
+		}
+	}
+	components := servedScript(t, app, "/scripts/components.js")
+	for _, marker := range []string{`customElements.define("publish-list"`, `tiny.signedFetch("/events", "POST"`} {
+		if !strings.Contains(components, marker) {
+			t.Fatalf("components script missing %q", marker)
 		}
 	}
 }
@@ -140,4 +146,15 @@ func (b *typedBrowseBackend) Query(_ context.Context, method string, _ []json.Ra
 		return b.page, nil
 	}
 	return b.browseBackend.Query(context.Background(), method, nil, "")
+}
+
+// servedScript fetches one of the cached browser scripts through the app.
+func servedScript(t *testing.T, app *App, path string) string {
+	t.Helper()
+	recorder := httptest.NewRecorder()
+	app.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, path, nil))
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("%s: status=%d", path, recorder.Code)
+	}
+	return recorder.Body.String()
 }

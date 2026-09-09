@@ -1,11 +1,14 @@
 package webui
 
 import (
+	"crypto/sha256"
 	"embed"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"html/template"
 	"net/url"
+	"sort"
 	"strings"
 	"time"
 )
@@ -145,17 +148,36 @@ func repoView(query url.Values) string {
 	return "tree"
 }
 
+// scripts are served at /scripts/<name> and cached by the service worker.
+// One version stamp covers them all, so a change to any file refreshes every
+// cached copy together.
+var scripts = map[string]string{"bridge.js": bridgeJS, "tiny.js": tinyJS, "components.js": componentsJS, "blossom-encryption.js": blossomEncryptionJS, "blossom-manifests.js": blossomManifestsJS, "blossom-upload.js": blossomUploadJS, "file-messages.js": fileMessagesJS, "private-services.js": privateServicesJS, "file-workspace.js": fileWorkspaceJS}
+
+var scriptsVersion = func() string {
+	names := make([]string, 0, len(scripts))
+	for name := range scripts {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	digest := sha256.New()
+	for _, name := range names {
+		digest.Write([]byte(name))
+		digest.Write([]byte{0})
+		digest.Write([]byte(scripts[name]))
+	}
+	return hex.EncodeToString(digest.Sum(nil))[:12]
+}()
+
 func parseTemplates() (*template.Template, error) {
-	scripts := map[string]string{"bridge.js": bridgeJS, "tiny.js": tinyJS, "components.js": componentsJS, "blossom-encryption.js": blossomEncryptionJS, "blossom-manifests.js": blossomManifestsJS, "blossom-upload.js": blossomUploadJS, "file-messages.js": fileMessagesJS, "private-services.js": privateServicesJS, "file-workspace.js": fileWorkspaceJS}
 	funcs := template.FuncMap{
 		"stylesheet": func() template.CSS { return template.CSS(styleCSS) },
-		"script": func(name string) (template.JS, error) {
-			source, ok := scripts[name]
-			if !ok {
+		"scriptURL": func(name string) (string, error) {
+			if _, ok := scripts[name]; !ok {
 				return "", fmt.Errorf("unknown script %q", name)
 			}
-			return template.JS(source), nil
+			return "/scripts/" + name + "?v=" + scriptsVersion, nil
 		},
+		"scriptsVersion": func() string { return scriptsVersion },
 		"json": func(value any) string {
 			encoded, err := json.Marshal(value)
 			if err != nil {

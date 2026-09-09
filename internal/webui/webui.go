@@ -189,6 +189,21 @@ func (a *App) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
 		a.invitePage(writer, request)
 		return
 	}
+	if strings.HasPrefix(request.URL.Path, "/scripts/") {
+		source, ok := scripts[strings.TrimPrefix(request.URL.Path, "/scripts/")]
+		if !ok {
+			http.NotFound(writer, request)
+			return
+		}
+		writer.Header().Set("content-type", "application/javascript; charset=utf-8")
+		if request.URL.Query().Get("v") == scriptsVersion {
+			writer.Header().Set("cache-control", "public, max-age=31536000, immutable")
+		} else {
+			writer.Header().Set("cache-control", "no-cache")
+		}
+		_, _ = writer.Write([]byte(source))
+		return
+	}
 	if request.URL.Path == "/signer.js" {
 		writer.Header().Set("content-type", "application/javascript; charset=utf-8")
 		_, _ = writer.Write([]byte(signerJS))

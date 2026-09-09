@@ -36,7 +36,8 @@ img{max-width:100%}
 #prompt{color:var(--muted)}#prompt b{color:var(--ink);font-weight:500}
 #who{color:var(--muted)}#who b,#who nostr-key{color:var(--ink)}
 #who button{border:0;background:none;padding:0;color:var(--accent);font:inherit}#who button:hover{text-decoration:underline}
-#rail-tools{margin-top:12px}
+#railbox{box-sizing:border-box;padding-bottom:44px}
+#rail-tools{position:absolute;right:0;bottom:0;margin:0;padding:10px 2ch 10px 2.5ch}
 share-link{display:inline-block}share-link:empty{display:none}
 #theme{border:0;background:none;padding:0;color:var(--muted);font:12px var(--mono)}#theme:hover{color:var(--ink);text-decoration:underline}
 
@@ -201,7 +202,8 @@ html,body{overflow:auto}
 #layout,#layout>tbody,#layout>tbody>tr,#layout>tbody>tr>td{display:block;width:auto;height:auto}
 #layout{padding:40px 0 28px}
 #railbox,#content,#panel{position:static;overflow:visible}
-#layout>tbody>tr>td#rail{position:fixed;top:40px;bottom:28px;left:0;width:240px;height:auto;border-right:1px solid var(--line);transform:translateX(-102%);visibility:hidden;transition:transform .15s;z-index:2;overflow:auto}
+#layout>tbody>tr>td#rail{position:fixed;top:40px;bottom:28px;left:0;width:240px;height:auto;box-sizing:border-box;border-right:1px solid var(--line);transform:translateX(-102%);visibility:hidden;transition:transform .15s;z-index:2;overflow:hidden auto}
+#railbox{position:relative;min-height:100%}
 #topbar:has(#nav-menu[open]) + #layout>tbody>tr>td#rail{transform:none;visibility:visible;box-shadow:8px 0 24px rgba(0,0,0,.15)}
 #layout>tbody>tr>td#aside{width:auto;border-left:0;border-top:1px solid var(--line)}
 #content>section{padding:14px 2.5ch 20px}

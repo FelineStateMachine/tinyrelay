@@ -3,7 +3,7 @@
 // page loads and the shell scripts are kept as the offline fallback; relay
 // data requested by scripts is never cached.
 const CACHE = "tiny-shell-v1";
-const shellAsset = url => /\/(fixi\.js|signer\.js|webmcp\.js|sw\.js|icon[^/]*\.(svg|png)|apple-touch-icon\.png|manifest\.webmanifest)$/.test(url.pathname);
+const shellAsset = url => /\/(fixi\.js|signer\.js|webmcp\.js|sw\.js|scripts\/[\w.-]+\.js|icon[^/]*\.(svg|png)|badge-96\.png|apple-touch-icon\.png|manifest\.webmanifest)$/.test(url.pathname);
 self.addEventListener("install", () => self.skipWaiting());
 self.addEventListener("activate", event => {
   event.waitUntil(caches.keys().then(keys => Promise.all(keys.filter(key => key !== CACHE).map(key => caches.delete(key)))).then(() => self.clients.claim()));

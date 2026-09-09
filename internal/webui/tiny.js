@@ -68,6 +68,30 @@
   };
   tiny.nip44Encrypt = (pubkey, text, signer) => nip44("Encrypt", pubkey, text, signer);
   tiny.nip44Decrypt = (pubkey, text, signer) => nip44("Decrypt", pubkey, text, signer);
+  // Feature bundles load on the pages that use them and again after an
+  // in-place navigation lands on such a page. Each script loads once.
+  tiny.bundles = {
+    files: ["blossom-encryption.js", "blossom-manifests.js", "blossom-upload.js", "file-messages.js", "file-workspace.js"],
+    private: ["private-services.js"]
+  };
+  const loaded = new Map();
+  const loadScript = name => {
+    if (!loaded.has(name)) {
+      const version = document.documentElement.dataset.scripts || "";
+      const present = [...(document.scripts || [])].some(script => (script.src || "").includes("/scripts/" + name));
+      loaded.set(name, present ? Promise.resolve() : new Promise((resolve, reject) => {
+        const script = document.createElement("script");
+        script.src = (tiny.localPath ? tiny.localPath("/scripts/" + name) : "/scripts/" + name) + (version ? "?v=" + version : "");
+        script.onload = () => resolve();
+        script.onerror = () => { loaded.delete(name); reject(Error("Could not load " + name)); };
+        document.head.append(script);
+      }));
+    }
+    return loaded.get(name);
+  };
+  tiny.require = async bundle => {
+    for (const name of tiny.bundles[bundle] || [bundle]) await loadScript(name);
+  };
   // Feature modules add to these groups; guards can read them before load.
   tiny.blossom = tiny.blossom || {};
   tiny.files = tiny.files || {};

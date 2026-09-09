@@ -1,5 +1,5 @@
 {{define "page"}}<!doctype html>
-<html lang="en" data-js="no">
+<html lang="en" data-js="no" data-scripts="{{scriptsVersion}}">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
@@ -62,16 +62,16 @@
 <td id="aside"><div id="panel">{{template "panel" .}}</div></td>
 </tr></tbody></table>
 <footer id="footer"><table><tr><td><span id="prompt"><b>{{.Slug}}</b> &raquo; {{prompt .Path .Query}}</span></td><td><span id="who">{{if .Private}}private relay{{else if .Actor}}signed in as {{template "nostrKey" .Actor}} (<button id="session-logout" type="button">sign out</button>){{else}}browsing as guest (<a href="/signin">Sign in</a>){{end}}</span> <span id="session-status" role="status"></span><span id="navigation-status" role="status" aria-live="polite"></span></td></tr></table></footer>
-<script>{{script "tiny.js"}}</script>
-<script>{{script "bridge.js"}}</script>
-<script>{{script "blossom-encryption.js"}}</script>
-<script>{{script "blossom-manifests.js"}}</script>
-<script>{{script "blossom-upload.js"}}</script>
-<script>{{script "file-messages.js"}}</script>
-<script>{{script "file-workspace.js"}}</script>
-<script>{{script "components.js"}}</script>
-<script>{{script "private-services.js"}}</script>
-</body>
+<script src="{{scriptURL "tiny.js"}}"></script>
+<script src="{{scriptURL "bridge.js"}}"></script>
+{{if or (eq .Tab "files") (eq .Tab "file")}}<script src="{{scriptURL "blossom-encryption.js"}}"></script>
+<script src="{{scriptURL "blossom-manifests.js"}}"></script>
+<script src="{{scriptURL "blossom-upload.js"}}"></script>
+<script src="{{scriptURL "file-messages.js"}}"></script>
+<script src="{{scriptURL "file-workspace.js"}}"></script>
+{{end}}<script src="{{scriptURL "components.js"}}"></script>
+{{if eq .Tab "connect"}}<script src="{{scriptURL "private-services.js"}}"></script>
+{{end}}</body>
 </html>
 {{end}}
 

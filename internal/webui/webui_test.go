@@ -229,10 +229,13 @@ func TestSignerBundleAndDedicatedJourneysArePresent(t *testing.T) {
 	recorder := httptest.NewRecorder()
 	app.ServeHTTP(recorder, request)
 	body := recorder.Body.String()
-	for _, want := range []string{"bunker://", "nostrconnect", "signer-qr", "27235", "/signer.js"} {
+	for _, want := range []string{"bunker://", "nostrconnect", "signer-qr", "/signer.js", `src="/scripts/bridge.js?v=`} {
 		if !strings.Contains(body, want) {
 			t.Errorf("connect page missing %q", want)
 		}
+	}
+	if !strings.Contains(servedScript(t, app, "/scripts/bridge.js"), "27235") {
+		t.Error("bridge script missing the NIP-98 kind")
 	}
 	signerRequest := httptest.NewRequest(http.MethodGet, "/signer.js", nil)
 	signerResponse := httptest.NewRecorder()
@@ -343,10 +346,19 @@ func TestTenantPrefixRewritesUIEndpoints(t *testing.T) {
 	recorder := httptest.NewRecorder()
 	app.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/r/alice/manage/sync", nil))
 	body := recorder.Body.String()
-	for _, want := range []string{`src="/r/alice/fixi.js"`, `src="/r/alice/signer.js"`, `fx-action="/r/alice/manage/jobs/status"`, `localPath(action || "/manage/rpc")`, `signedSession("/session")`, `replace(/^http/,"ws")+root`} {
+	for _, want := range []string{`src="/r/alice/fixi.js"`, `src="/r/alice/signer.js"`, `fx-action="/r/alice/manage/jobs/status"`, `src="/r/alice/scripts/bridge.js?v=`, `src="/r/alice/scripts/components.js?v=`} {
 		if !strings.Contains(body, want) {
 			t.Errorf("tenant prefix missing %q", want)
 		}
+	}
+	bridge := servedScript(t, app, "/scripts/bridge.js")
+	for _, want := range []string{`signedSession("/session")`, `replace(/^http/,"ws")+root`} {
+		if !strings.Contains(bridge, want) {
+			t.Errorf("bridge script missing %q", want)
+		}
+	}
+	if !strings.Contains(servedScript(t, app, "/scripts/components.js"), `localPath(action || "/manage/rpc")`) {
+		t.Error("components script missing the prefixed management endpoint")
 	}
 }
 

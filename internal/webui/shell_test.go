@@ -327,10 +327,13 @@ func TestAccountPageOffersRelayListsAndHomeShowsConnectCards(t *testing.T) {
 	recorder := httptest.NewRecorder()
 	app.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/signin", nil))
 	body := recorder.Body.String()
-	for _, want := range []string{`<relay-lists relay="ws://relay.example" server="http://relay.example" pubkey="` + backend.policy.Owner + `">`, `data-kind="10002" data-tag="r"`, `data-kind="10050"`, `data-kind="10007"`, `data-kind="10063" data-tag="server"`, `customElements.define("relay-lists"`} {
+	for _, want := range []string{`<relay-lists relay="ws://relay.example" server="http://relay.example" pubkey="` + backend.policy.Owner + `">`, `data-kind="10002" data-tag="r"`, `data-kind="10050"`, `data-kind="10007"`, `data-kind="10063" data-tag="server"`} {
 		if !strings.Contains(body, want) {
 			t.Errorf("account page missing %q", want)
 		}
+	}
+	if !strings.Contains(servedScript(t, app, "/scripts/components.js"), `customElements.define("relay-lists"`) {
+		t.Error("components script missing relay-lists")
 	}
 	recorder = httptest.NewRecorder()
 	app.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/", nil))

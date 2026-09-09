@@ -220,6 +220,9 @@
     connectedCallback() {
       if (this.bound) return;
       this.bound = true;
+      // The encryption and messaging modules load on demand; the controls
+      // render right away and decryption waits for them.
+      this.ready = Promise.resolve(tiny.require?.("files")).catch(() => {});
       this.innerHTML = '<h3>Share</h3><p><button type="button" data-copy>Copy Blossom URI</button> <button type="button" data-link>Copy share link</button> <share-link></share-link></p><form data-share><label>Send to <input name="recipient" inputmode="text" placeholder="npub or hex pubkey"></label><button>Send privately</button></form><output role="status"></output>';
       this.output = this.querySelector("output");
       this.querySelector("[data-copy]").addEventListener("click", () => this.copy(this.blossomURI()));
@@ -229,7 +232,7 @@
       const params = new URLSearchParams(location.hash.slice(1));
       this.querySelector("[data-share]").hidden = !(params.get("key") && params.get("iv"));
       this.updateFileControls();
-      this.decryptFromFragment();
+      this.ready.then(() => this.decryptFromFragment());
     }
 
     hash() { return this.getAttribute("hash") || ""; }
@@ -279,6 +282,7 @@
 
     async share(form) {
       if (this.sharing) return;
+      await this.ready;
       const recipient = form.elements.namedItem("recipient").value.trim();
       if (!recipient) { this.say("Enter a public key or npub.", true); return; }
       const params = new URLSearchParams(location.hash.slice(1));
@@ -820,6 +824,20 @@
     }
   }
 
+  // ensureModules loads the feature bundle for any custom element on the
+  // page whose definition has not arrived, such as after an in-place
+  // navigation to the Files or Connect pages.
+  const bundlesFor = {"file-upload": "files", "file-workspace-root": "files", "private-services": "private"};
+  const ensureModules = () => {
+    if (!tiny.require || typeof customElements.get !== "function") return;
+    const wanted = new Set();
+    for (const [tag, bundle] of Object.entries(bundlesFor)) {
+      if (!customElements.get(tag) && document.querySelector(tag)) wanted.add(bundle);
+    }
+    wanted.forEach(bundle => tiny.require(bundle).catch(() => {}));
+  };
+  ensureModules();
+
   customElements.define("rpc-form", RpcForm);
   customElements.define("connect-card", ConnectCard);
   customElements.define("connect-list", ConnectList);
@@ -902,6 +920,7 @@
       if (focus && typeof focus.focus === "function") focus.focus({preventScroll: true});
       else document.querySelector("#content")?.focus({preventScroll: true});
       document.dispatchEvent(new CustomEvent("tiny:navigation", {detail: {url: url.href}}));
+      ensureModules();
       decorate();
       decorateForms();
       document.dispatchEvent(new CustomEvent("fx:process", {detail: {url: url.href}, bubbles: false}));
