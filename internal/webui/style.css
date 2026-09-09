@@ -141,7 +141,8 @@ agent-card table{border-collapse:collapse;font:13px var(--mono);width:auto;margi
 agent-card th{text-align:left;font-weight:normal;color:var(--muted);width:9em;padding:3px 0;border:0;vertical-align:top}agent-card td{padding:3px 0;border:0;overflow-wrap:anywhere}
 agent-card td code{color:var(--muted)}
 agent-card p{margin:8px 0 0}agent-card rpc-form{display:inline-block;border:0;padding:0;margin:0 8px 0 0;vertical-align:top}agent-card rpc-form output:empty{display:none}
-agent-card p>a{font:12px var(--mono)}
+agent-card p>a{display:inline-block;font:12px var(--mono);line-height:29px;vertical-align:top}
+#rows:has(td[data-state]){table-layout:fixed}#rows:has(td[data-state]) td:nth-child(3){width:110px}#rows:has(td[data-state]) td:last-child{width:150px}
 [data-state=active],#rows td[data-state=active]{color:var(--accent)}[data-state=paused],#rows td[data-state=paused]{color:var(--bark)}[data-state=revoked],#rows td[data-state=revoked]{color:var(--alert)}
 agent-grant{display:block;border-bottom:1px solid var(--line);padding:10px 0;max-width:720px}
 agent-grant label{display:inline-block;margin:0 10px 6px 0;vertical-align:top;font:13px var(--sans);color:var(--muted)}
@@ -232,6 +233,6 @@ html,body{overflow:auto}
 #navigation-status:not(:empty),#session-status:not(:empty){position:absolute;bottom:100%;left:0;right:0;padding:6px 12px;background:var(--rail);border-top:1px solid var(--line);white-space:normal}
 #split,#split>tbody,#split>tbody>tr,#split>tbody>tr>td{display:block;width:auto}
 #tree{border-right:0;border-bottom:1px solid var(--line)}
-#rows{table-layout:fixed}#rows td{white-space:normal;overflow-wrap:anywhere;height:auto;padding:8px 6px;line-height:1.35}#rows td:first-child{width:90px}#rows td:last-child{width:80px}connect-list #rows td:nth-child(2),connect-list #rows th:nth-child(2){display:none}connect-list #rows td:nth-child(3),connect-list #rows td:last-child{width:auto}connect-list #rows td:last-child{white-space:normal}connect-list #rows td:last-child button{margin:2px 0}
+#rows{table-layout:fixed}#rows td{white-space:normal;overflow-wrap:anywhere;height:auto;padding:8px 6px;line-height:1.35}#rows td:first-child{width:90px}#rows td:last-child{width:80px}#rows:has(td[data-state]) td:nth-child(3),#rows:has(td[data-state]) th:nth-child(3){display:none}#rows:has(td[data-state]) td:last-child{width:80px}connect-list #rows td:nth-child(2),connect-list #rows th:nth-child(2){display:none}connect-list #rows td:nth-child(3),connect-list #rows td:last-child{width:auto}connect-list #rows td:last-child{white-space:normal}connect-list #rows td:last-child button{margin:2px 0}
 #grid,#gridhead,h2:has(+#gridhead){display:none}
 }

@@ -840,8 +840,16 @@ func (a *App) agentsPage(request *http.Request, actor string, data *PageData) {
 	}
 	data.Feed = browseRows(result)
 	selected := request.URL.Query().Get("agent")
-	if selected == "" && len(data.Feed) > 0 {
-		selected = plainString(valueMap(data.Feed[0])["pubkey"])
+	if selected == "" {
+		// Without a choice, show the first agent that can still publish.
+		for _, agent := range data.Feed {
+			if selected == "" || agentState(agent) == "active" {
+				selected = plainString(valueMap(agent)["pubkey"])
+			}
+			if agentState(agent) == "active" {
+				break
+			}
+		}
 	}
 	if selected == "" {
 		return

@@ -27,6 +27,7 @@ var (
 
 func (b *agentsBackend) Query(_ context.Context, method string, params []json.RawMessage, actor string) (any, error) {
 	b.calls = append(b.calls, method+":"+actor)
+	b.params = params
 	owner := b.policy.Owner
 	now := time.Now().Unix()
 	scope := func(rooms []string, repos []map[string]any, wiki string, kinds []int) map[string]any {
@@ -120,6 +121,9 @@ func TestAgentsPageRendersTableCardsActivityAndGrantForm(t *testing.T) {
 	}
 	if got := strings.Join(backend.calls, " "); got != "listagents:"+backend.policy.Owner+" browseagent:"+backend.policy.Owner {
 		t.Fatalf("backend calls = %s", got)
+	}
+	if !strings.Contains(string(backend.params[0]), agentActive) {
+		t.Fatalf("default selection should be the first active agent: %s", backend.params[0])
 	}
 	// ?agent= selects whose activity shows.
 	backend.calls = nil

@@ -41,7 +41,7 @@
 <agent-card id="agent-{{$pk}}">
 <h3>{{agentLabel $a}} <small><span data-state="{{$state}}">{{$state}}</span> | signed by {{if eq (str (index $a "owner")) $.Actor}}you{{else}}{{template "nostrKey" (str (index $a "owner"))}}{{end}} | expires {{short (index $a "expires")}}</small></h3>
 <table>
-<tr><th>key</th><td>{{template "nostrKey" $pk}} <code>{{$pk}}</code></td></tr>
+<tr><th>key</th><td><nostr-key hex="{{$pk}}" title="{{$pk}}">{{$pk}}</nostr-key> <small>click to copy</small></td></tr>
 <tr><th>rooms</th><td>{{or (scopeList $a "rooms") "none"}}</td></tr>
 <tr><th>repositories</th><td>{{range $i, $r := index $scope "repos"}}{{$repo := asMap $r}}{{if $i}}<br>{{end}}<code>{{str (index $repo "identifier")}}</code> {{str (index $repo "level")}}, owner {{template "nostrKey" (str (index $repo "owner"))}}{{else}}none{{end}}</td></tr>
 <tr><th>wiki</th><td>{{or (str (index $scope "wiki")) "none"}}</td></tr>
