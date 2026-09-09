@@ -656,6 +656,24 @@
     }
   }
 
+  // PageLink is the crumb that names the current page. A tap copies the
+  // page's public address, the one the server put in url, and shows
+  // "copied" for a moment. Without JavaScript it is plain text.
+  class PageLink extends HTMLElement {
+    connectedCallback() {
+      if (this.bound) return;
+      this.bound = true;
+      this.addEventListener("click", () => {
+        const url = this.getAttribute("url") || location.href.split("#", 1)[0];
+        navigator.clipboard?.writeText(url).then(() => {
+          this.dataset.copied = "";
+          clearTimeout(this.timer);
+          this.timer = setTimeout(() => { delete this.dataset.copied; }, 1500);
+        }).catch(() => {});
+      });
+    }
+  }
+
   // Rooms: the compose bar, room creation, room administration and the live
   // stream. Each signed event is built here, signed by the connected signer,
   // verified unchanged and published once to /events. room-message markup
@@ -1676,6 +1694,7 @@
   customElements.define("push-toggle", PushToggle);
   customElements.define("share-link", ShareLink);
   customElements.define("nostr-key", NostrKey);
+  customElements.define("page-link", PageLink);
   customElements.define("json-view", JsonView);
 
   // Fixi normally swaps a small target. Internal page links return the full

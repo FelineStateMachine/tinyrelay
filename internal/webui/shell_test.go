@@ -34,8 +34,8 @@ func TestShellRendersRailPanelAndPrompt(t *testing.T) {
 		t.Fatal(err)
 	}
 	for path, wants := range map[string][]string{
-		"/":                                      {`id="mark"`, `href="/search"`, `<b>demo</b> &raquo; home`, `id="panel"`, `id="topbar"`, `rel="manifest"`},
-		"/manage/rules":                          {`<b>manage</b>`, `href="/manage/rules" aria-current="page"`, `manage/rules</span>`},
+		"/":                                      {`id="mark"`, `href="/search"`, `<b>demo</b> &raquo; <page-link url="http://relay.example" title="Copy the page address">home</page-link>`, `id="panel"`, `id="topbar"`, `rel="manifest"`},
+		"/manage/rules":                          {`<b>manage</b>`, `href="/manage/rules" aria-current="page"`, `manage/rules</page-link></span>`},
 		"/repo?owner=aa&repo=notes&view=history": {`/history</a>`, `repos/notes/history`},
 	} {
 		recorder := httptest.NewRecorder()

@@ -14,7 +14,8 @@
     "test:approvals": "node --test scripts/approvals.test.mjs",
     "test:wiki": "node --test scripts/wiki-compose.test.mjs",
     "test:rooms": "node --test scripts/rooms.test.mjs",
-    "test:profile": "node --test scripts/profile-form.test.mjs"
+    "test:profile": "node --test scripts/profile-form.test.mjs",
+    "test:page-link": "node --test scripts/page-link.test.mjs"
   },
   "devDependencies": {
     "@noble/hashes": "2.4.0",

@@ -157,7 +157,7 @@ func TestRoomPageRendersMessagesOldestFirstWithMarkers(t *testing.T) {
 		`<ul id="members"><li><nostr-name pubkey="` + roomOwner + `"`, `<li data-agent><nostr-name pubkey="` + roomAgent + `"`, `<small>member | agent</small>`,
 		`<room-action room="general" kind="9000">`, `<room-action room="general" kind="9002">`, `<room-action room="general" kind="9022">`,
 		`<nav id="room-list"><a href="/rooms/general" aria-current="page">General`,
-		`&raquo; rooms/general</span>`,
+		`&raquo; <page-link url="http://relay.example/rooms/general" title="Copy the page address">rooms/general</page-link></span>`,
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("room page missing %q", want)
@@ -204,7 +204,7 @@ func TestThreadPageRendersRootRepliesAndReplyCompose(t *testing.T) {
 		`<div id="root"><room-message id="msg-` + roomThread + `"`, `<div id="messages">`, `id="msg-` + roomReply + `"`,
 		`<room-live room="general" root="` + roomThread + `"></room-live>`,
 		`<room-compose room="general" pubkey="` + roomOwner + `" kind="12" root="` + roomThread + `" root-pubkey="` + roomAgent + `">`,
-		`&raquo; rooms/general/thread/` + shortID(roomThread) + `</span>`,
+		`&raquo; <page-link url="http://relay.example/rooms/general/thread/` + roomThread + `" title="Copy the page address">rooms/general/thread/` + shortID(roomThread) + `</page-link></span>`,
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("thread page missing %q", want)

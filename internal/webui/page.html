@@ -20,7 +20,7 @@
 <script src="/webmcp.js"></script>
 </head>
 <body>
-<header id="topbar"><details id="nav-menu"><summary id="menu" aria-controls="rail">menu</summary></details> <span><b>{{.Slug}}</b> &raquo; {{prompt .Path .Query}}</span></header>
+<header id="topbar"><details id="nav-menu"><summary id="menu" aria-controls="rail">menu</summary></details> <span><b>{{.Slug}}</b> &raquo; <page-link url="{{pageAddress .URL .Path .Query}}" title="Copy the page address">{{prompt .Path .Query}}</page-link></span></header>
 <table id="layout" aria-label="{{.Slug}}"><tbody><tr>
 <td id="rail"><div id="railbox">{{template "rail" .}}</div></td>
 <td id="main"><div id="content" tabindex="-1">
@@ -67,7 +67,7 @@
 {{end}}</div></td>
 <td id="aside"><div id="panel">{{template "panel" .}}</div></td>
 </tr></tbody></table>
-<footer id="footer"><table><tr><td><span id="prompt"><b>{{.Slug}}</b> &raquo; {{prompt .Path .Query}}</span></td><td><span id="who">{{if .Private}}private relay{{else if .Actor}}signed in as {{template "nostrName" .Actor}} (<button id="session-logout" type="button">sign out</button>){{else}}browsing as guest (<a href="/signin">Sign in</a>){{end}}</span> <span id="session-status" role="status"></span><span id="navigation-status" role="status" aria-live="polite"></span></td></tr></table><button id="install" type="button" hidden>install app</button></footer>
+<footer id="footer"><table><tr><td><span id="prompt"><b>{{.Slug}}</b> &raquo; <page-link url="{{pageAddress .URL .Path .Query}}" title="Copy the page address">{{prompt .Path .Query}}</page-link></span></td><td><span id="who">{{if .Private}}private relay{{else if .Actor}}signed in as {{template "nostrName" .Actor}} (<button id="session-logout" type="button">sign out</button>){{else}}browsing as guest (<a href="/signin">Sign in</a>){{end}}</span> <span id="session-status" role="status"></span><span id="navigation-status" role="status" aria-live="polite"></span></td></tr></table><button id="install" type="button" hidden>install app</button></footer>
 <script src="{{scriptURL "tiny.js"}}"></script>
 <script src="{{scriptURL "bridge.js"}}"></script>
 {{if or (eq .Tab "files") (eq .Tab "file")}}<script src="{{scriptURL "blossom-encryption.js"}}"></script>

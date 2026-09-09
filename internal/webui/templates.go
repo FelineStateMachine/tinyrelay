@@ -158,7 +158,35 @@ func promptPath(path string, query url.Values) string {
 	if room := roomRoute("/" + path); room.tab == "thread" {
 		return "rooms/" + room.id + "/thread/" + shortID(room.event)
 	}
+	if strings.HasPrefix(path, "wiki/") {
+		return "wiki/" + wikiPageName("/"+path)
+	}
 	return path
+}
+
+// pageAddress is the address the crumb copies: the relay's public URL plus
+// the page's canonical path, so a link copied on a tailnet or LAN address
+// still opens for anyone. Wiki names are normalized the way the relay
+// resolves them; repositories and files keep the query that names them.
+func pageAddress(base, path string, query url.Values) string {
+	path = "/" + strings.Trim(path, "/")
+	if path == "/" {
+		path = ""
+	}
+	if strings.HasPrefix(path, "/wiki/") {
+		path = "/wiki/" + url.PathEscape(wikiPageName(path))
+	}
+	keep := url.Values{}
+	for _, key := range []string{"owner", "repo", "view", "path", "ref", "sha", "hash", "q", "id", "author", "version", "merge"} {
+		if value := query.Get(key); value != "" {
+			keep.Set(key, value)
+		}
+	}
+	address := strings.TrimSuffix(base, "/") + path
+	if len(keep) > 0 {
+		address += "?" + keep.Encode()
+	}
+	return address
 }
 
 // wsURL turns the relay's public http(s) URL into its websocket form.
@@ -238,6 +266,7 @@ func parseTemplates() (*template.Template, error) {
 		"wsURL":           wsURL,
 		"short":           short,
 		"prompt":          promptPath,
+		"pageAddress":     pageAddress,
 		"railKind":        railKind,
 		"repoView":        repoView,
 		"relayItems":      func() []navItem { return relayNav },

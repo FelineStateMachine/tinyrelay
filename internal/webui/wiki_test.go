@@ -151,7 +151,7 @@ func TestWikiListRendersPagesAndSearch(t *testing.T) {
 		`href="/wiki" aria-current="page"`, `id="wiki-search"`, `value="release"`,
 		`<a href="/wiki/release-notes-1-4">Release notes 1.4 &lt;b&gt;</a>`, `<nostr-name pubkey="`+wikiOwner+`"`,
 		`<td>2</td><td>1 open</td>`, `2026-09-08 14:00 UTC`, `href="/wiki?cursor=release-notes-1-4&amp;q=release"`,
-		`<b>demo</b> &raquo; wiki`, `<a href="/wiki?new=1">new page</a>`)
+		`<b>demo</b> &raquo; <page-link url="http://relay.example/wiki`, `<a href="/wiki?new=1">new page</a>`)
 	wantNone(t, "/wiki", body, "<wiki-compose")
 	body = wikiGet(t, app, "/wiki?new=1")
 	wantAll(t, "/wiki?new=1", body, `<h2>New page</h2>`, `<wiki-compose name="" author="" coordinate="" event="">`, `name="title"`, `name="name"`, `name="summary"`, `name="content"`, `value="publish"`, `<noscript>`)
@@ -176,7 +176,7 @@ func TestWikiPageRendersArticleMergeBarAndPanel(t *testing.T) {
 		`<h4>Other versions</h4>`, `href="/wiki/release-notes-1-4?version=`+wikiOtherV+`">222222222222</a> | fork`,
 		`<h4>Also known as</h4>`, `<code>changelog-1-4</code>`,
 		`href="/wiki/release-notes-1-4?edit=1">edit</a>`, `href="/wiki/release-notes-1-4?history=1">history</a>`,
-		`<b>demo</b> &raquo; wiki/Release Notes 1-4`)
+		`<b>demo</b> &raquo; <page-link url="http://relay.example/wiki/release-notes-1-4" title="Copy the page address">wiki/release-notes-1-4</page-link>`)
 	wantNone(t, path, body, "<script>alert", ">fork</a>")
 	// The other author sees the request but cannot answer it, and forks
 	// instead of editing.

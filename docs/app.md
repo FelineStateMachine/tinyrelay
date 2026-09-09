@@ -32,3 +32,9 @@ Rebuild the bundle after changing `scripts/nostr-name-setup.mjs` or updating the
 
 **Profile** in the home page's Actions, shown once you are signed in, edits the profile (kind 0) other people and apps see for your key: name, display name, about, picture, banner, website, NIP-05 address and lightning address. The form starts from the profile this relay holds, and fields it does not show are kept as they are. Saving signs the event with your connected signer, publishes it to this relay first, then to every relay in **Also publish to**, which starts out as the write relays from your relay list on this relay; each relay reports ok or failed under the form. The browser forgets your cached name at the same time, so pages show the new one on the next load.
 
+
+
+## Copying a page address
+
+The crumb that names the current page, next to the relay name at the top on phones and in the footer on larger screens, copies the page's address when tapped and says "copied" for a moment. The address is the relay's public URL with the page's canonical path, so a link copied while browsing over a tailnet or LAN address still opens for anyone: wiki names are normalized the way the relay resolves them, and repositories and files keep the query that names them.
+\n
