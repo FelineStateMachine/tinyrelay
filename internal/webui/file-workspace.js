@@ -276,6 +276,8 @@
       this.controller = new AbortController();
       this.controls(true, false);
       let completed = false;
+      // Keep the phone awake for the length of the upload.
+      const wakeLock = await navigator.wakeLock?.request?.("screen").catch(() => null);
       try {
         const {files, folder, encrypt} = this.selection;
         let link;
@@ -299,6 +301,7 @@
         );
         throw error;
       } finally {
+        wakeLock?.release?.().catch?.(() => {});
         this.busy = false;
         this.controls(false, completed);
         if (completed) this.selection = this.chosen = null;

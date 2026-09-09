@@ -26,6 +26,8 @@
 //   <nostr-compose kind="…" coordinate="30617:…" [root="…" root-pubkey="…" root-kind="…"] [parent="…" …]>
 //     Signs a NIP-34 issue, pull request, NIP-22 reply or status event and
 //     posts it to the relay.
+//   <share-link [url="…"] [title="…"]>
+//     The device share sheet for the page; empty without browser support.
 //   <push-toggle>
 //     Opts this browser into relay notifications; asks for permission only
 //     when pressed and registers the device with a signed request.
@@ -218,7 +220,7 @@
     connectedCallback() {
       if (this.bound) return;
       this.bound = true;
-      this.innerHTML = '<h3>Share</h3><p><button type="button" data-copy>Copy Blossom URI</button> <button type="button" data-link>Copy share link</button></p><form data-share><label>Send to <input name="recipient" inputmode="text" placeholder="npub or hex pubkey"></label><button>Send privately</button></form><output role="status"></output>';
+      this.innerHTML = '<h3>Share</h3><p><button type="button" data-copy>Copy Blossom URI</button> <button type="button" data-link>Copy share link</button> <share-link></share-link></p><form data-share><label>Send to <input name="recipient" inputmode="text" placeholder="npub or hex pubkey"></label><button>Send privately</button></form><output role="status"></output>';
       this.output = this.querySelector("output");
       this.querySelector("[data-copy]").addEventListener("click", () => this.copy(this.blossomURI()));
       this.querySelector("[data-link]").addEventListener("click", () => this.copy(this.shareLink()));
@@ -405,6 +407,24 @@
   // JsonView renders any JSON value. Arrays of objects become tables, objects
   // become definition lists, scalar arrays become lists, and deep nesting
   // falls back to compact JSON so a response never explodes the page.
+  // ShareLink offers the device's own share sheet for the current page, or
+  // the url and title attributes when set. It stays empty where the browser
+  // has no share support, so the page reads the same without it.
+  class ShareLink extends HTMLElement {
+    connectedCallback() {
+      if (this.bound) return;
+      this.bound = true;
+      if (!navigator.share) return;
+      const button = el("button", "Share…");
+      button.type = "button";
+      button.addEventListener("click", () => {
+        const data = {url: this.getAttribute("url") || location.href.split("#", 1)[0], title: this.getAttribute("title") || document.title};
+        navigator.share(data).catch(() => {});
+      });
+      this.replaceChildren(button);
+    }
+  }
+
   // PushToggle opts this browser into relay notifications. Nothing happens
   // until the button is pressed: permission is requested then, and the
   // device subscription is registered with a signed request.
@@ -810,6 +830,7 @@
   customElements.define("publish-list", PublishList);
   customElements.define("nostr-compose", NostrCompose);
   customElements.define("push-toggle", PushToggle);
+  customElements.define("share-link", ShareLink);
   customElements.define("nostr-key", NostrKey);
   customElements.define("json-view", JsonView);
 

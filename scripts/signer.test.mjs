@@ -24,7 +24,7 @@ async function page({signedIn = false, bunkerResult = null} = {}) {
     navigator: {clipboard: {writeText: async () => {} }},
     getComputedStyle: () => ({getPropertyValue: () => ""}),
     matchMedia: () => ({matches: false, addEventListener() {}}),
-    localStorage: {getItem: () => null, setItem() {}},
+    localStorage: {getItem: () => null, setItem() {}, removeItem() {}},
     sessionStorage: {getItem: key => saved.get(key), setItem: (key, value) => saved.set(key, value), removeItem: key => saved.delete(key)},
     NostrSigner: {
       generateSecretKey: () => new Uint8Array(32), getPublicKey: () => "b".repeat(64), createNostrConnectURI: () => "nostrconnect://test",

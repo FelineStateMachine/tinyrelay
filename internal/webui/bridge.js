@@ -105,6 +105,9 @@
     document.getElementById("menu")?.focus();
   });
   if ("serviceWorker" in navigator) navigator.serviceWorker.register(localPath("/sw.js")).catch(() => {});
+  // An installed app asks to keep its cached shell and parked shares. Browsers
+  // grant this silently for installed apps, so it never shows a prompt.
+  if (matchMedia("(display-mode: standalone)").matches) navigator.storage?.persist?.().catch(() => {});
   Object.assign(window.tiny, {root, localPath, sha256hex, authorization, signedFetch});
   window.tinySignedFetch = signedFetch;
 
@@ -115,16 +118,21 @@
     location.assign(localPath("/"));
   };
 
+  // A remote signer session lives in this tab unless the person chose to
+  // remember the device; then it survives the installed app being closed.
   const forgetRemote = () => {
-    Object.values(storage).forEach(name => sessionStorage.removeItem(name));
-    sessionStorage.removeItem("tiny.bunker");
+    for (const store of [sessionStorage, localStorage]) {
+      Object.values(storage).forEach(name => store.removeItem(name));
+      store.removeItem("tiny.bunker");
+    }
   };
 
   const rememberRemote = async (uri, key, signer) => {
-    sessionStorage.setItem(storage.uri, uri);
-    sessionStorage.setItem(storage.key, window.NostrSigner.bytesToHex(key));
-    sessionStorage.setItem(storage.pubkey, await signer.getPublicKey());
-    sessionStorage.setItem(storage.remote, JSON.stringify(signer.bp));
+    const store = document.getElementById("remember-signer")?.checked ? localStorage : sessionStorage;
+    store.setItem(storage.uri, uri);
+    store.setItem(storage.key, window.NostrSigner.bytesToHex(key));
+    store.setItem(storage.pubkey, await signer.getPublicKey());
+    store.setItem(storage.remote, JSON.stringify(signer.bp));
   };
 
   const setSigner = signer => {
@@ -229,10 +237,11 @@
 
   // Resume a remote signer stored for this tab so page loads keep working.
   (async () => {
-    const uri = sessionStorage.getItem(storage.uri);
-    const keyHex = sessionStorage.getItem(storage.key);
-    const expected = sessionStorage.getItem(storage.pubkey);
-    const remote = sessionStorage.getItem(storage.remote);
+    const store = sessionStorage.getItem(storage.key) ? sessionStorage : localStorage;
+    const uri = store.getItem(storage.uri);
+    const keyHex = store.getItem(storage.key);
+    const expected = store.getItem(storage.pubkey);
+    const remote = store.getItem(storage.remote);
     if (!uri || !keyHex) return;
     try {
       const key = window.NostrSigner.hexToBytes(keyHex);

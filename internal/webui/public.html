@@ -52,6 +52,7 @@
 {{define "signerControls"}}<p><button id="session-login" type="button">Sign in with connected signer</button></p>
 <h2>Phone signer</h2>
 <p>Scan the QR code with Amber and approve the connection and sign-in request. This page will open your relay when you finish.</p>
+<p><label><input type="checkbox" id="remember-signer"> Remember this device</label> <small>Keeps the phone signer connected after the app closes. Sign out to forget it.</small></p>
 <p><button id="nostrconnect" type="button">Generate QR code</button> <a id="nostrconnect-open" hidden>Open in signer</a></p>
 <img id="signer-qr" alt="Nostr Connect QR code" hidden width="240" height="240">
 <p id="signer-status" role="status"></p>
@@ -100,7 +101,7 @@
 
 {{define "event"}}<section>
 <h1>Event</h1>
-{{if .Feed}}{{template "eventList" .}}{{else}}{{template "nostrEvent" .Event}}{{end}}
+{{if .Feed}}{{template "eventList" .}}{{else}}{{template "nostrEvent" .Event}}<share-link></share-link>{{end}}
 <p><a href="/feed.xml">Atom feed</a> | <a href="/articles.json">JSON feed</a></p>
 </section>
 {{end}}
