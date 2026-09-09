@@ -1,6 +1,6 @@
 # Browser tools
 
-Every page registers tools for your browser agent; **Manage > Health** reports whether they are ready, and Chrome's Application panel lists them with their calls. The agent can browse repositories, files, issues and pull requests, read chat rooms and threads, list and read wiki pages and merge requests, list the requests that wait for your decision, follow long tasks, inspect service status, manage background jobs, create backups, update relay settings, open Nostr links, the Files page, rooms, wiki pages and the Approvals page, read this device's notification state and, as the owner, send a test notification. Turning notifications on stays a manual step, since the browser asks the person for permission.
+Every page registers tools for your browser agent; **Manage > Health** reports whether they are ready, and Chrome's Application panel lists them with their calls. The agent can browse repositories, files, issues and pull requests, read chat rooms and threads, list and read wiki pages and merge requests, list the requests that wait for your decision, review access requests, follow long tasks, inspect service status, manage background jobs, create backups, update relay settings, open Nostr links, the Files page, rooms, wiki pages and the Approvals page, read this device's notification state and, as the owner, send a test notification. Turning notifications on stays a manual step, since the browser asks the person for permission.
 
 ## Rooms
 
@@ -41,6 +41,18 @@ The owner and moderators can also manage [agent grants](agents.md) through the b
 | `tiny.revoke_agent` | Revokes an agent's grant. Only a new grant restores its access. |
 
 Each control takes the agent's public key and requests a signature. Signing a new grant stays on the **Manage > Agents** page, since the secret key of a generated agent is shown to the person once.
+
+## Access requests
+
+The owner and moderators review [access requests](membership.md#access-requests), the join requests from people who asked without an invite:
+
+| Tool | What it does |
+| --- | --- |
+| `tiny.list_join_requests` | Lists access requests, pending first, with each one's key, reason, time asked, state and decision. Read-only; uses the connected signer. |
+| `tiny.approve_join` | Approves a request by public key. The key becomes a member and the relay's member list follows. |
+| `tiny.deny_join` | Denies a request by public key. The key may ask again. |
+
+Each decision requests a signature and is recorded in the audit log.
 
 Four more tools manage [callbacks](agents.md#callbacks), the URLs an agent registers to be woken by new events:
 

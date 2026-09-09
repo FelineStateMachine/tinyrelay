@@ -50,6 +50,8 @@ See [Files and private repositories](docs/files-and-private-repositories.md) for
 
 See [Git collaboration](docs/git-collaboration.md) for issues, pull requests, conversation synchronization and participant outboxes.
 
+See [Membership](docs/membership.md) for invites, joining with NIP-43 and reviewing access requests.
+
 See [Rooms](docs/rooms.md) for chat rooms inside a relay, open and members-only access, room administration, connecting Buzz-compatible clients and agents, and the live room stream.
 
 See [Installed app](docs/app.md) for installing the relay as an app, sharing files to it, opening Nostr links and device notifications.

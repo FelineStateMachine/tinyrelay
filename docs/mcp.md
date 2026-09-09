@@ -70,6 +70,7 @@ Read tools, which need a key that may read the relay:
 | `list_jobs` | List long task requests visible to the key with each one's newest feedback status and result. `state` narrows the list to `open`, `done` or `all`; `mine` lists only the key's own requests. |
 | `read_job` | Read one long task request by `id` with its feedback timeline and results. |
 | `list_callbacks` | List event callbacks with their host, filter, state and last delivery. Members and agents see their own; the owner and moderators see all. |
+| `list_join_requests` | List access requests from people who asked to join without an invite, pending first, with each one's key, reason, time, state and decision, as an owner or moderator. See [Access requests](membership.md#access-requests). |
 
 Management tools, which follow the relay's roles:
 
@@ -88,6 +89,8 @@ Management tools, which follow the relay's roles:
 | `revoke_agent` | End an agent's grant and remove its role. |
 | `pause_all_agents` | Pause every active agent. |
 | `resume_all_agents` | Resume every paused agent. |
+| `approve_join` | Approve an access request by `pubkey`: the key becomes a member and the request is marked approved. |
+| `deny_join` | Deny an access request by `pubkey`. The key stays outside the relay and may ask again. |
 | `add_callback` | Register an https URL that receives each new event matching a filter, signed with a secret returned once. See [Callbacks](agents.md#callbacks). |
 | `remove_callback` | Delete a callback by id. |
 | `pause_callback` | Stop deliveries to a callback until it is resumed. |
