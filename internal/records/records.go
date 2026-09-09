@@ -197,6 +197,12 @@ func (s *Service) Generate(ctx context.Context, kind int, tags [][]string, conte
 	return s.signed(ctx, kind, tags, content, now)
 }
 
+// Sign signs a record without storing it, for records whose audience is
+// decided when they are served, such as members-only view artifacts.
+func (s *Service) Sign(ctx context.Context, kind int, tags [][]string, content string, now int64) (event.Event, error) {
+	return s.signedOnly(ctx, kind, tags, content, now)
+}
+
 func (s *Service) profile(ctx context.Context, now int64) (event.Event, error) {
 	p := s.policy()
 	b, _ := json.Marshal(map[string]string{"name": p.Name, "about": p.Description, "picture": p.Icon})

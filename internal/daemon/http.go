@@ -83,6 +83,10 @@ func (t *Tenant) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if t.tryBrowseHTTP(w, r) {
 		return
 	}
+	if isViewArtifactPath(r.URL.Path) {
+		t.viewArtifactHTTP(w, r)
+		return
+	}
 	if t.sites != nil && t.sites.MatchesHost(r.Host) {
 		t.sites.Handler().ServeHTTP(w, r)
 		return

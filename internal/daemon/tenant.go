@@ -76,6 +76,10 @@ type Tenant struct {
 	callbackIndex  map[int][]callbackRecord
 	callbackLocks  map[string]*sync.Mutex
 	callbackClient *http.Client
+	viewMu         sync.Mutex
+	viewIndex      map[int][]customView
+	viewLocks      map[string]*sync.Mutex
+	viewClient     *http.Client
 }
 
 func newTenant(ctx context.Context, cfg tenantConfig) (*Tenant, error) {
@@ -396,6 +400,8 @@ func (t *Tenant) Publish(ctx context.Context, e event.Event, s relay.Session) (s
 	}
 	t.notifyDevices(ctx, e)
 	t.notifyCallbacks(ctx, e)
+	t.queueCustomViews(ctx, e)
+	t.cascadeViewDeletion(ctx, e)
 	t.notifyWikiMerge(ctx, e)
 	t.notifyWikiProposal(ctx, e)
 	// Stage Git metadata before acknowledging the event. This closes the

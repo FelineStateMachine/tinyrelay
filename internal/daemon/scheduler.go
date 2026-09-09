@@ -44,6 +44,7 @@ func (t *Tenant) runScheduler() {
 		}
 		if !wake {
 			report("records", t.records.Tick(ctx, now.Unix()))
+			report("custom views", t.tickCustomViews(ctx, now.Unix()))
 			if !now.Before(nextMaintenance) {
 				if t.blobs != nil {
 					report("partial uploads", t.blobs.CleanupMultipart(ctx))

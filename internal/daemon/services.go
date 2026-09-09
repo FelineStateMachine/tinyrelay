@@ -28,6 +28,7 @@ import (
 	"github.com/FelineStateMachine/tinyrelay/internal/replication"
 	"github.com/FelineStateMachine/tinyrelay/internal/sites"
 	"github.com/FelineStateMachine/tinyrelay/internal/storage"
+	"github.com/FelineStateMachine/tinyrelay/internal/views"
 	"github.com/FelineStateMachine/tinyrelay/internal/webui"
 	"github.com/FelineStateMachine/tinyrelay/internal/work"
 )
@@ -44,6 +45,9 @@ func (t *Tenant) initServices(ctx context.Context) error {
 		return err
 	}
 	if err := t.initCallbacks(ctx); err != nil {
+		return err
+	}
+	if err := t.initCustomViews(ctx); err != nil {
 		return err
 	}
 	t.blobs, err = blob.New(ctx, blob.Config{
@@ -191,6 +195,10 @@ func (b backend) Policy() policy.Policy { return b.tenant.Policy() }
 func (b backend) URL() string           { return b.tenant.publicURL }
 func (b backend) Slug() string          { return b.tenant.meta.Name }
 func (b backend) Identity() string      { return b.tenant.records.PublicKey() }
+
+// CustomViews gives the page renderers the enabled custom views' names and
+// languages, never a transform or a secret.
+func (b backend) CustomViews() []views.View { return b.tenant.CustomViews() }
 
 // ReadAllowed is consumed by the web UI private boundary. It deliberately
 // delegates to the same uncached membership check used by private Git and
@@ -581,6 +589,7 @@ func (t *Tenant) workHandlers() map[string]work.Handler {
 	}
 	handlers[notificationPush] = t.handleNotificationPush
 	handlers[callbackDelivery] = t.handleCallbackDelivery
+	handlers[viewTransform] = t.handleViewTransform
 	return handlers
 }
 
@@ -616,6 +625,7 @@ func (t *Tenant) releaseGit(ctx context.Context, id string) error {
 		// A repository state is hidden until its objects arrive, so agents
 		// that wait for pushes are woken here rather than at publish time.
 		t.notifyCallbacks(ctx, released)
+		t.queueCustomViews(ctx, released)
 	}
 	return err
 }
@@ -657,8 +667,10 @@ func (t *Tenant) sweep(ctx context.Context, now int64) error {
 	if err != nil {
 		return err
 	}
-	_, err = t.store.SweepRetention(ctx, opts)
-	return err
+	if _, err := t.store.SweepRetention(ctx, opts); err != nil {
+		return err
+	}
+	return t.pruneAllViewArtifacts(ctx)
 }
 func (t *Tenant) replacePolicy(p policy.Policy) {
 	t.mu.Lock()
@@ -755,6 +767,8 @@ func (t *Tenant) commitImported(ctx context.Context, e event.Event, origin repli
 	if err == nil {
 		t.notifyDevices(ctx, e)
 		t.notifyCallbacks(ctx, e)
+		t.queueCustomViews(ctx, e)
+		t.cascadeViewDeletion(ctx, e)
 		t.notifyWikiMerge(ctx, e)
 		t.notifyWikiProposal(ctx, e)
 	}
