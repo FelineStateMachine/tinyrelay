@@ -257,6 +257,7 @@ func parseTemplates() (*template.Template, error) {
 		"collabItems":     collaborationItems,
 		"collabReplies":   collaborationReplies,
 		"collabLabels":    collaborationLabels,
+		"collabProposal":  collaborationProposal,
 		"reviewDiff":      reviewDiffView,
 		"reviewAnchor":    reviewAnchorQuery,
 		"reviewLabel":     reviewAnchorLabel,

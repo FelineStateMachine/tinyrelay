@@ -8,7 +8,7 @@
 </form>
 {{$items := collabItems .Event}}{{if $items}}<table id="rows">
 <thead><tr><th>status</th><th>title</th><th>author</th><th>opened</th></tr></thead>
-<tbody>{{range $item := $items}}{{$item := asMap $item}}<tr><td>{{index $item "status"}}</td><td><a href="{{if $issues}}{{repoURL $.Query "issue" (str (index $item "id"))}}{{else}}{{repoURL $.Query "pr" (str (index $item "id"))}}{{end}}">{{index $item "title"}}</a>{{with collabLabels $item}} <small>{{join . ", "}}</small>{{end}}</td><td>{{template "nostrName" (str (index $item "author"))}}</td><td><time datetime="{{datetime (index $item "created_at")}}">{{when (index $item "created_at")}}</time></td></tr>
+<tbody>{{range $item := $items}}{{$item := asMap $item}}{{$s := collabProposal $item $.Actor (index $data "can_approve")}}<tr{{if $s.Shown}} data-state="{{$s.State}}"{{end}}><td>{{index $item "status"}}</td><td><a href="{{if $issues}}{{repoURL $.Query "issue" (str (index $item "id"))}}{{else}}{{repoURL $.Query "pr" (str (index $item "id"))}}{{end}}">{{index $item "title"}}</a>{{if $s.Shown}} <small>proposed | {{$s.State}}</small>{{end}}{{with collabLabels $item}} <small>{{join . ", "}}</small>{{end}}</td><td>{{template "nostrName" (str (index $item "author"))}}</td><td><time datetime="{{datetime (index $item "created_at")}}">{{when (index $item "created_at")}}</time></td></tr>
 {{end}}</tbody></table>{{else}}<p>No matching {{if $issues}}issues{{else}}pull requests{{end}}.</p>{{end}}
 {{with index $data "next_cursor"}}<p id="pages"><a href="{{browsePageURL "/repo" $.Query "cursor" .}}">next page</a></p>{{end}}
 {{if .Actor}}<details id="collaboration-new"><summary>{{if $issues}}New issue{{else}}New pull request{{end}}</summary>
@@ -23,14 +23,14 @@
 <h1>{{index $item "title"}}</h1>
 <p>{{index $item "status"}} by {{template "nostrName" (str (index $item "author"))}} <time datetime="{{datetime (index $item "created_at")}}">{{when (index $item "created_at")}}</time></p>
 {{with collabLabels $item}}<p>Labels: {{join . ", "}}</p>{{end}}
-<article id="collaboration-body">{{markdown (str (index $item "content"))}}</article>
+{{$can := index $data "can_approve"}}{{template "collaborationProposal" (collabProposal $item .Actor $can)}}<article id="collaboration-body">{{markdown (str (index $item "content"))}}</article>
 {{if not $issues}}<h2>Changes</h2>{{if index $data "diff_unavailable"}}<p>{{index $data "diff_unavailable"}}. The diff will be available after the required commits have been synchronized.</p>{{else}}<diff-view><table><tbody>
 {{range $line := $diff.Lines}}<tr id="D{{$line.Number}}"><td><a href="#D{{$line.Number}}">{{$line.Number}}</a></td><td><code>{{$line.HTML}}</code>{{with $line.CommentURL}} <small><a href="{{.}}">comment</a></small>{{end}}</td></tr>
-{{range $c := $line.Comments}}{{$r := asMap $c}}<tr><td></td><td>{{template "nostrEvent" $c}}{{if $.Actor}}<details><summary>Reply to this comment</summary><nostr-compose kind="1111" coordinate="{{$coordinate}}" root="{{index $item "id"}}" root-pubkey="{{index $item "author"}}" root-kind="{{index $item "kind"}}" parent="{{index $r "id"}}" parent-pubkey="{{index $r "pubkey"}}" parent-kind="1111"><label>Reply <textarea name="content" required></textarea></label><button>Sign and reply</button></nostr-compose></details>{{end}}</td></tr>
+{{range $c := $line.Comments}}{{$r := asMap $c}}<tr><td></td><td>{{template "collaborationProposal" (collabProposal $r $.Actor $can)}}{{template "nostrEvent" $c}}{{if $.Actor}}<details><summary>Reply to this comment</summary><nostr-compose kind="1111" coordinate="{{$coordinate}}" root="{{index $item "id"}}" root-pubkey="{{index $item "author"}}" root-kind="{{index $item "kind"}}" parent="{{index $r "id"}}" parent-pubkey="{{index $r "pubkey"}}" parent-kind="1111"><label>Reply <textarea name="content" required></textarea></label><button>Sign and reply</button></nostr-compose></details>{{end}}</td></tr>
 {{end}}{{end}}</tbody>{{if $diff.Truncated}}<tfoot><tr><td colspan="2">Diff preview truncated (256 KiB or 10,000 lines).</td></tr></tfoot>{{end}}</table></diff-view>{{if index $data "diff_truncated"}}<p>This diff is truncated. Clone the repository to review the complete change.</p>{{end}}{{end}}{{end}}
 <h2>Conversation</h2>
 {{$replies := $diff.Thread}}{{if $replies}}<ol id="events">
-{{range $reply := $replies}}{{$r := asMap $reply}}<li>{{template "nostrEvent" $reply}}{{with reviewLabel $reply}}<p><small>on {{.}}</small></p>{{end}}
+{{range $reply := $replies}}{{$r := asMap $reply}}<li>{{template "collaborationProposal" (collabProposal $r $.Actor $can)}}{{template "nostrEvent" $reply}}{{with reviewLabel $reply}}<p><small>on {{.}}</small></p>{{end}}
 {{if $.Actor}}<details><summary>Reply to this comment</summary><nostr-compose kind="1111" coordinate="{{$coordinate}}" root="{{index $item "id"}}" root-pubkey="{{index $item "author"}}" root-kind="{{index $item "kind"}}" parent="{{index $r "id"}}" parent-pubkey="{{index $r "pubkey"}}" parent-kind="1111"><label>Reply <textarea name="content" required></textarea></label><button>Sign and reply</button></nostr-compose></details>{{end}}</li>
 {{end}}</ol>{{else}}<p>No replies yet.</p>{{end}}
 {{with index $data "reply_cursor"}}<p id="pages"><a href="{{browsePageURL "/repo" $.Query "cursor" .}}">older replies</a></p>{{end}}
@@ -38,3 +38,7 @@
 {{if index $data "can_status"}}<details id="status-controls"><summary>Change status</summary><nostr-compose kind="status" coordinate="{{$coordinate}}" root="{{index $item "id"}}" root-pubkey="{{index $item "author"}}" root-kind="{{index $item "kind"}}"><label>Status <select name="status"><option value="1630">Reopen</option><option value="1631">{{if $issues}}Resolve{{else}}Mark merged{{end}}</option><option value="1632">Close</option><option value="1633">Draft</option></select></label><label>Comment <textarea name="content"></textarea></label><button>Sign and update</button></nostr-compose></details>{{end}}
 <noscript><p>JavaScript and a connected signer are required to publish.</p></noscript>{{else}}<p><a href="/signin">Sign in</a> to reply.</p>{{end}}
 </section>{{end}}{{end}}
+
+{{/* collaborationProposal is the bar above a proposed issue, pull request or comment: its state for the people who may see it, with the decision for those who may make it. */}}
+{{define "collaborationProposal"}}{{if .Shown}}<collaboration-proposal data-state="{{.State}}">Proposed by {{template "nostrName" .Author}} | {{.State}}{{if .By}} {{when .At}} by {{template "nostrName" .By}}{{end}}{{if .Decide}}<nostr-react event="{{.ID}}" pubkey="{{.Author}}" kind="{{.Kind}}"><button name="reaction" value="+">Accept</button><button name="reaction" value="-">Reject</button></nostr-react>{{end}}</collaboration-proposal>
+{{end}}{{end}}

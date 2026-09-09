@@ -85,3 +85,130 @@ func TestCollaborationPagesUseTypedResultsAndWorkingDetailLinks(t *testing.T) {
 		t.Fatalf("wrong detail request: %s %v", backend.call, request)
 	}
 }
+
+const (
+	proposalAgent   = "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+	proposalMember  = "6666666666666666666666666666666666666666666666666666666666666666"
+	proposalIssue   = "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+	proposalComment = "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+	proposalPull    = "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+	proposalReview  = "1111111111111111111111111111111111111111111111111111111111111111"
+)
+
+// proposalBackend serves one repository with an issue and a pull request
+// proposed by an agent, each with a proposed comment. state is the
+// proposals' approval and approver marks the caller as allowed to decide.
+type proposalBackend struct {
+	fakeBackend
+	state    string
+	approver bool
+}
+
+func (b *proposalBackend) Query(_ context.Context, method string, params []json.RawMessage, actor string) (any, error) {
+	b.call = method
+	b.params = params
+	proposal := func(m map[string]any) map[string]any {
+		m["proposal"] = true
+		m["approval"] = b.state
+		if b.state != "pending" {
+			m["approval_event"], m["approval_at"], m["approval_by"] = strings.Repeat("9", 64), float64(1788882000), b.policy.Owner
+		}
+		return m
+	}
+	ownerIssue := map[string]any{"id": strings.Repeat("b", 64), "title": "Owner issue", "kind": float64(1621), "author": b.policy.Owner, "content": "Owner body", "status": "open", "created_at": float64(1788800000)}
+	agentIssue := proposal(map[string]any{"id": proposalIssue, "title": "Agent issue", "kind": float64(1621), "author": proposalAgent, "content": "Agent body", "status": "open", "created_at": float64(1788800100), "labels": []any{"bug"}})
+	agentPull := proposal(map[string]any{"id": proposalPull, "title": "Agent pull", "kind": float64(1618), "author": proposalAgent, "content": "Pull body", "status": "open", "created_at": float64(1788800200)})
+	comment := proposal(map[string]any{"id": proposalComment, "kind": float64(1111), "pubkey": proposalAgent, "content": "Agent comment", "created_at": float64(1788800300), "tags": []any{}})
+	plain := map[string]any{"id": strings.Repeat("2", 64), "kind": float64(1111), "pubkey": proposalMember, "content": "Member comment", "created_at": float64(1788800400), "tags": []any{}}
+	review := proposal(map[string]any{"id": proposalReview, "kind": float64(1111), "pubkey": proposalAgent, "content": "Agent review", "created_at": float64(1788800500), "tags": []any{}, "file": "f.txt", "line": float64(1), "side": "new"})
+	repository := map[string]any{"owner": b.policy.Owner, "clone": []any{}, "maintainers": []any{}}
+	var request struct {
+		Event string `json:"event"`
+	}
+	if len(params) > 0 {
+		_ = json.Unmarshal(params[0], &request)
+	}
+	switch method {
+	case "browseissues":
+		return map[string]any{"repository": repository, "items": []any{agentIssue, ownerIssue}, "can_approve": b.approver}, nil
+	case "browsepulls":
+		return map[string]any{"repository": repository, "items": []any{agentPull}, "can_approve": b.approver}, nil
+	case "browseissue":
+		item := ownerIssue
+		if request.Event == proposalIssue {
+			item = agentIssue
+		}
+		return map[string]any{"repository": repository, "item": item, "replies": []any{comment, plain}, "can_approve": b.approver, "can_status": false}, nil
+	case "browsepull":
+		return map[string]any{"repository": repository, "item": agentPull, "replies": []any{review, plain}, "diff": "diff --git a/f.txt b/f.txt\n--- a/f.txt\n+++ b/f.txt\n@@ -1 +1 @@\n-old\n+new\n", "can_approve": b.approver, "can_status": false}, nil
+	}
+	return map[string]any{}, nil
+}
+
+func proposalPage(t *testing.T, b *proposalBackend, actor, view, id string) string {
+	t.Helper()
+	app, err := New(b, Options{Actor: func(*http.Request) (string, error) { return actor, nil }})
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := repoURL(url.Values{"owner": {b.policy.Owner}, "repo": {"test"}}, view, id)
+	return wikiGet(t, app, path)
+}
+
+func TestCollaborationProposalBarOffersTheDecisionToApprovers(t *testing.T) {
+	b := &proposalBackend{fakeBackend: fakeBackend{policy: policy.Defaults(strings.Repeat("a", 64))}, state: "pending", approver: true}
+	owner := b.policy.Owner
+	body := proposalPage(t, b, owner, "issue", proposalIssue)
+	wantAll(t, "issue", body,
+		`<collaboration-proposal data-state="pending">Proposed by <nostr-name pubkey="`+proposalAgent+`"`,
+		`| pending<nostr-react event="`+proposalIssue+`" pubkey="`+proposalAgent+`" kind="1621"><button name="reaction" value="+">Accept</button><button name="reaction" value="-">Reject</button></nostr-react></collaboration-proposal>
+<article id="collaboration-body">`,
+		`<li><collaboration-proposal data-state="pending">Proposed by <nostr-name pubkey="`+proposalAgent+`"`,
+		`<nostr-react event="`+proposalComment+`" pubkey="`+proposalAgent+`" kind="1111">`,
+		`<li><nostr-event id="event-`+strings.Repeat("2", 64)+`">`)
+	if strings.Count(body, "<collaboration-proposal") != 2 {
+		t.Fatalf("issue page bars: %s", body)
+	}
+	// A comment placed on a diff line carries its bar inside the diff.
+	body = proposalPage(t, b, owner, "pr", proposalPull)
+	wantAll(t, "pr", body,
+		`<nostr-react event="`+proposalPull+`" pubkey="`+proposalAgent+`" kind="1618">`,
+		`<td></td><td><collaboration-proposal data-state="pending">Proposed by <nostr-name pubkey="`+proposalAgent+`"`,
+		`<nostr-react event="`+proposalReview+`" pubkey="`+proposalAgent+`" kind="1111">`)
+	// The lists mark the rows for those who may see them.
+	body = proposalPage(t, b, owner, "issues", "")
+	wantAll(t, "issues", body, `<tr data-state="pending"><td>open</td><td><a href="`, `">Agent issue</a> <small>proposed | pending</small> <small>bug</small></td>`, `<tr><td>open</td><td><a href="`)
+	body = proposalPage(t, b, owner, "prs", "")
+	wantAll(t, "prs", body, `<tr data-state="pending"><td>open</td><td><a href="`, `">Agent pull</a> <small>proposed | pending</small></td>`)
+	// A decided proposal names the decision, its time and the deciding key,
+	// and offers no buttons.
+	for _, state := range []string{"approved", "rejected"} {
+		b.state = state
+		body = proposalPage(t, b, owner, "issue", proposalIssue)
+		wantAll(t, state, body, `<collaboration-proposal data-state="`+state+`">Proposed by <nostr-name pubkey="`+proposalAgent+`"`, `| `+state+` 2026-09-08 15:40 UTC by <nostr-name pubkey="`+owner+`"`)
+		wantNone(t, state, body, "<nostr-react", ">Accept<")
+		body = proposalPage(t, b, owner, "issues", "")
+		wantAll(t, state, body, `<tr data-state="`+state+`">`, `<small>proposed | `+state+`</small>`)
+	}
+}
+
+func TestCollaborationProposalAuthorSeesTheStateWithoutButtons(t *testing.T) {
+	b := &proposalBackend{fakeBackend: fakeBackend{policy: policy.Defaults(strings.Repeat("a", 64))}, state: "pending"}
+	body := proposalPage(t, b, proposalAgent, "issue", proposalIssue)
+	wantAll(t, "issue", body, `<collaboration-proposal data-state="pending">Proposed by <nostr-name pubkey="`+proposalAgent+`"`, `| pending</collaboration-proposal>`)
+	wantNone(t, "issue", body, "<nostr-react", ">Accept<", ">Reject<")
+	if strings.Count(body, "<collaboration-proposal") != 2 {
+		t.Fatalf("author bars: %s", body)
+	}
+	body = proposalPage(t, b, proposalAgent, "issues", "")
+	wantAll(t, "issues", body, `<tr data-state="pending">`, `">Agent issue</a> <small>proposed | pending</small>`)
+}
+
+func TestCollaborationProposalStateIsHiddenFromMembers(t *testing.T) {
+	b := &proposalBackend{fakeBackend: fakeBackend{policy: policy.Defaults(strings.Repeat("a", 64))}, state: "approved"}
+	for _, page := range [][2]string{{"issue", proposalIssue}, {"pr", proposalPull}, {"issues", ""}, {"prs", ""}} {
+		body := proposalPage(t, b, proposalMember, page[0], page[1])
+		wantAll(t, page[0], body, "Agent ")
+		wantNone(t, page[0], body, "<collaboration-proposal", "<tr data-state=", "proposed | ", "<nostr-react")
+	}
+}
