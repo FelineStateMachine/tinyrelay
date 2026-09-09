@@ -129,10 +129,25 @@
   register("tiny.open_file", "Open a stored file by its SHA-256 hash in this tab. For repository source, use tiny.open_repository with view=file.",
     object({hash}, ["hash"]), {}, input => open("/file?hash=" + encodeURIComponent(input.hash)));
   register("tiny.open_status", "Open the relay status page in this tab.", object(), {}, () => open("/manage/status"));
+  register("tiny.open_files", "Open the Files page in this tab, where files and folders upload and shared items wait.", object(), {}, () => open("/files"));
+  register("tiny.open_link", "Open a nostr link in this tab: an npub, nprofile, note, nevent, naddr or 64-character event id, with or without a nostr: or web+nostr: prefix.",
+    object({target: {type: "string", minLength: 1, maxLength: 512}}, ["target"]), {}, input => open("/open?target=" + encodeURIComponent(input.target)));
+  register("tiny.read_notifications", "Read whether this device receives relay notifications, which categories it chose and the browser permission state.",
+    object(), {readOnlyHint: true}, () => {
+      const categories = (localStorage.getItem("tiny.push.categories") || "").split(",").filter(Boolean);
+      return {
+        supported: "PushManager" in window && "Notification" in window,
+        permission: typeof Notification === "function" ? Notification.permission : "unsupported",
+        enabled: Boolean(localStorage.getItem("tiny.push")),
+        categories: categories.length ? categories : ["messages", "replies", "mentions", "relay"],
+        note: "Enabling notifications needs a person to press Enable on this device under Inbox."
+      };
+    });
 
   function control(name, description, schema, method, params) {
     register(name, description, schema, changes, (input, signal) => manage(method, params(input), signal));
   }
+  control("tiny.send_test_notification", "Send the relay's test notice to the owner's inbox and enabled devices. Owner only.", object(), "notifytest", () => []);
   control("tiny.run_job", "Queue an existing job to run now. Inspect job status to check its completion.",
     object({id}, ["id"]), "runjob", input => [input.id]);
   control("tiny.add_job", "Add a background job. every is the interval in hours; 0 runs once. Pull and push jobs need ws:// or wss:// relay URLs; pull may instead discover relays for a public key. Dump and backup jobs may omit relays.",

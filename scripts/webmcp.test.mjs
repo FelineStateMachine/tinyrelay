@@ -130,3 +130,25 @@ test("collaboration tools preserve repository, event and filter scope", async ()
     assert.deepEqual(JSON.parse(url.searchParams.get("params")), [{...repo, ...extra}]);
   }
 });
+
+test("link, files and notification tools reach the new surfaces", async () => {
+  const calls = [];
+  const {tools, sandbox} = await browser({path: "/r/work/tools", signedFetch: async (url, method, body) => {
+    calls.push({url, method, body: JSON.parse(body)});
+    return new Response(JSON.stringify({result: true}), {status: 200});
+  }});
+  sandbox.localStorage = {getItem: key => ({"tiny.push": "https://push.example/x", "tiny.push.categories": "replies,relay"})[key] ?? null};
+  await tools.get("tiny.open_link").execute({target: "web+nostr:npub1ttrypewl3au52wqux86r22yt506c077k3maj02a0jste97wrvd5sjfutc2"});
+  const opened = new URL(sandbox.opened);
+  assert.equal(opened.pathname, "/r/work/open");
+  assert.equal(opened.searchParams.get("target"), "web+nostr:npub1ttrypewl3au52wqux86r22yt506c077k3maj02a0jste97wrvd5sjfutc2");
+  await tools.get("tiny.open_files").execute({});
+  assert.equal(new URL(sandbox.opened).pathname, "/r/work/files");
+  const status = await tools.get("tiny.read_notifications").execute({});
+  assert.equal(status.structuredContent.result.enabled, true);
+  assert.equal(status.structuredContent.result.categories.join(","), "replies,relay");
+  assert.equal(status.structuredContent.result.permission, "unsupported");
+  await tools.get("tiny.send_test_notification").execute({});
+  assert.equal(calls[0].url, "/r/work/manage/rpc");
+  assert.equal(calls[0].body.method, "notifytest");
+});

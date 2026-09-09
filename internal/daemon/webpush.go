@@ -109,15 +109,27 @@ func (t *Tenant) pushSubject() string {
 	return t.publicURL
 }
 
+// pushHTTP serves the device notification endpoints under one named
+// operation so the diagnostics registry and traces see them as a unit.
 func (t *Tenant) pushHTTP(w http.ResponseWriter, r *http.Request) {
+	ctx, finish := t.app.telemetry.Start(r.Context(), "push")
+	r = r.WithContext(ctx)
+	outcome := "error"
+	defer func() { finish(outcome) }()
+	outcome = t.servePush(w, r)
+}
+
+// servePush returns the telemetry outcome for the request it answered.
+func (t *Tenant) servePush(w http.ResponseWriter, r *http.Request) string {
 	switch {
 	case r.URL.Path == "/push/key" && r.Method == http.MethodGet:
 		keys, err := t.pushVAPIDKeys(r.Context())
 		if err != nil {
 			writeJSON(w, 500, map[string]string{"error": "push keys unavailable"})
-			return
+			return "error"
 		}
 		writeJSON(w, 200, map[string]string{"key": keys.PublicKey()})
+		return "ok"
 	case r.URL.Path == "/inbox/seen" && r.Method == http.MethodPost:
 		// Opening the inbox clears the badge. This is the person's own
 		// read marker, so the browser session may set it from this origin.
@@ -129,51 +141,57 @@ func (t *Tenant) pushHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		if actor == "" {
 			writeJSON(w, 401, map[string]string{"error": "auth-required: sign this request"})
-			return
+			return "unauthorized"
 		}
 		if err := t.markInboxSeen(r.Context(), actor); err != nil {
 			writeJSON(w, 500, map[string]string{"error": "could not record inbox visit"})
-			return
+			return "error"
 		}
 		writeJSON(w, 200, map[string]any{"ok": true})
+		return "ok"
 	case (r.URL.Path == "/push/subscribe" || r.URL.Path == "/push/unsubscribe") && r.Method == http.MethodPost:
 		// Registration is a signed mutation like every other change made
 		// from the browser; the session cookie alone is not enough.
 		actor, err := t.resolveUIActor(r)
 		if err != nil || actor == "" {
 			writeJSON(w, 401, map[string]string{"error": "auth-required: sign this request"})
-			return
+			return "unauthorized"
 		}
 		body, err := t.requestBody(w, r)
 		if err != nil {
 			writeJSON(w, 400, map[string]string{"error": err.Error()})
-			return
+			return "invalid"
 		}
 		registration, err := parsePushRegistration(body)
 		if err != nil {
 			writeJSON(w, 400, map[string]string{"error": "invalid: push subscription"})
-			return
+			return "invalid"
 		}
 		subscription := registration.Subscription
 		if r.URL.Path == "/push/unsubscribe" {
 			if _, err := t.store.DB().ExecContext(r.Context(), "DELETE FROM web_push WHERE endpoint=? AND pubkey=?", subscription.Endpoint, actor); err != nil {
 				writeJSON(w, 500, map[string]string{"error": "unsubscribe failed"})
-				return
+				return "error"
 			}
 			writeJSON(w, 200, map[string]any{"ok": true})
-			return
+			return "ok"
 		}
 		if role, err := t.community.Role(r.Context(), actor); err != nil || (role == "" && actor != t.Policy().Owner) {
 			writeJSON(w, 403, map[string]string{"error": "restricted: notifications are limited to relay members"})
-			return
+			return "unauthorized"
 		}
 		if err := t.savePushSubscription(r.Context(), actor, registration); err != nil {
 			writeJSON(w, statusForPush(err), map[string]string{"error": err.Error()})
-			return
+			if statusForPush(err) == 400 {
+				return "invalid"
+			}
+			return "error"
 		}
 		writeJSON(w, 200, map[string]any{"ok": true})
+		return "ok"
 	default:
 		http.NotFound(w, r)
+		return "invalid"
 	}
 }
 
@@ -311,18 +329,24 @@ func (t *Tenant) handleNotificationPush(ctx context.Context, intent work.Intent)
 		client = replication.NewPinnedClient(10 * time.Second)
 	}
 	var result error
+	delivered, removed, failed := 0, 0, 0
 	for _, item := range devices {
 		sent, sendErr := webpush.Send(ctx, client, keys, t.pushSubject(), item.subscription, message, pushTTL)
 		switch {
 		case sendErr == nil:
+			delivered++
 			_, _ = t.store.DB().ExecContext(ctx, "UPDATE web_push SET failures=0 WHERE endpoint=?", item.endpoint)
 		case sent.Gone || item.failures+1 >= pushMaxFailures:
+			removed++
 			_, _ = t.store.DB().ExecContext(ctx, "DELETE FROM web_push WHERE endpoint=?", item.endpoint)
 		default:
+			failed++
 			_, _ = t.store.DB().ExecContext(ctx, "UPDATE web_push SET failures=failures+1 WHERE endpoint=?", item.endpoint)
 			result = errors.Join(result, sendErr)
 		}
 	}
+	// Counts only: endpoints and keys stay out of logs, as they do for metrics.
+	t.app.telemetry.Logger().Info("device notifications sent", "tenant", t.meta.Name, "category", category, "delivered", delivered, "failed", failed, "removed", removed)
 	return result
 }
 
