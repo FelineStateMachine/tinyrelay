@@ -225,6 +225,26 @@ func (t *Tenant) session(r *http.Request, body []byte) (relay.Session, error) {
 	return s, nil
 }
 
+// cookieReadSession lets a signed-in browser read through the query bridge
+// without a signature, so pages do not prompt the signer just to show data.
+// The Origin check keeps another site from reading with a visitor's cookie;
+// publishing still needs a signed event.
+func (t *Tenant) cookieReadSession(r *http.Request, s relay.Session) (relay.Session, error) {
+	base, err := url.Parse(t.requestURL(r))
+	if err != nil || r.Header.Get("Origin") != base.Scheme+"://"+base.Host {
+		return s, errors.New("auth-required: sign this request")
+	}
+	actor, err := t.cookieActor(r)
+	if err != nil {
+		return s, err
+	}
+	if actor == "" {
+		return s, errors.New("auth-required: sign this request")
+	}
+	s.PubKeys = []string{actor}
+	return s, nil
+}
+
 func (t *Tenant) bridge(w http.ResponseWriter, r *http.Request) {
 	body, err := t.requestBody(w, r)
 	if err != nil {
@@ -232,6 +252,9 @@ func (t *Tenant) bridge(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s, err := t.session(r, body)
+	if err != nil && r.URL.Path != "/events" && r.Header.Get("Authorization") == "" {
+		s, err = t.cookieReadSession(r, s)
+	}
 	if err != nil {
 		writeJSON(w, 401, map[string]string{"error": err.Error()})
 		return

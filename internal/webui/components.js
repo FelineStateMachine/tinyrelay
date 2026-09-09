@@ -607,7 +607,7 @@
         const select = event.target.closest("select[name=visibility]");
         if (select) this.change("visibility", select.closest("tr"), select.value).catch(err => this.say("error: " + err.message, true));
       });
-      this.whenSigned(() => this.load().catch(err => this.say("error: " + err.message, true)));
+      this.load().catch(err => this.say("error: " + err.message, true));
     }
 
     // whenSigned runs once a signer is available; the bridge announces a
@@ -624,8 +624,23 @@
       else delete this.output.dataset.error;
     }
 
+    // load reads with the browser session first so showing the page never
+    // asks the signer; a signed call is the fallback without a session.
     async load() {
       this.say("loading…");
+      const response = await fetch(tiny.localPath("/connect.json?catalog=1"), {credentials: "same-origin", headers: {Accept: "application/json"}});
+      if (response.status === 401) {
+        this.whenSigned(() => this.loadSigned().catch(err => this.say("error: " + err.message, true)));
+        return;
+      }
+      if (!response.ok) throw Error("Request failed (" + response.status + ")");
+      const data = await response.json();
+      this.rows = data.connections;
+      this.catalog = data.catalog;
+      this.render();
+      this.say("");
+    }
+    async loadSigned() {
       [this.rows, this.catalog] = await Promise.all([rpc("listconnections"), rpc("listconnectiontemplates")]);
       this.render();
       this.say("");

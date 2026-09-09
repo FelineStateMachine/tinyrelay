@@ -12,7 +12,7 @@ b70458c212d0409f8a6319c286351865d92587292ad4f9bc0dfd1c46ffcad855
 
 The signer bridge handles NIP-07, NIP-46, Nostr Connect, Amber links, session login and management actions. Encrypted uploads, NIP-34 publishing and NIP-17 file messages sign through the same bridge and never retry a signed request on their own. Fixi updates page links and GET forms within the current tenant without a full reload. Filters, repository refs, browser history and page titles remain available. Downloads, external links and modified clicks retain normal browser behavior. A failed request displays an error in the footer and leaves the current page usable. Navigation and content also work without JavaScript, including on phones.
 
-Signed actions require JavaScript and submit once while their controls are disabled. Connect previews update in place. Job status uses an authenticated stream that sends updates when the results change.
+Signed-in browsers read the connection list and the query bridge with their session, so opening a page never asks the signer; signatures are requested only when publishing or decrypting. Signed actions require JavaScript and submit once while their controls are disabled. Connect previews update in place. Job status uses an authenticated stream that sends updates when the results change.
 
 On phones, navigation starts closed and opens from the menu control, with or without JavaScript. Opening the menu leaves content in place. Desktop pages retain the sidebar.
 

@@ -58,6 +58,31 @@ func TestSignedSessionSurvivesNavigationAndRevokes(t *testing.T) {
 	if err != nil || actor != tenant.Policy().Owner {
 		t.Fatalf("session actor %s %v", actor, err)
 	}
+	// Reads through the query bridge use the session when the request comes
+	// from this origin; foreign origins and publishing still need a signature.
+	query := func(path, origin string) int {
+		req := httptest.NewRequest("POST", "http://relay.test"+path, strings.NewReader(`[{"kinds":[10318],"limit":1}]`))
+		req.Header.Set("Content-Type", "application/json")
+		if origin != "" {
+			req.Header.Set("Origin", origin)
+		}
+		req.AddCookie(cookies[0])
+		res := httptest.NewRecorder()
+		a.ServeHTTP(res, req)
+		return res.Code
+	}
+	if code := query("/query", "http://relay.test"); code != 200 {
+		t.Fatalf("session query %d", code)
+	}
+	if code := query("/query", "https://foreign.test"); code != 401 {
+		t.Fatalf("foreign origin query %d", code)
+	}
+	if code := query("/query", ""); code != 401 {
+		t.Fatalf("query without origin %d", code)
+	}
+	if code := query("/events", "http://relay.test"); code != 401 {
+		t.Fatalf("cookie publish %d", code)
+	}
 	logout := httptest.NewRequest("POST", "http://relay.test/session/logout", nil)
 	logout.AddCookie(cookies[0])
 	logout.Header.Set("Origin", "https://foreign.test")

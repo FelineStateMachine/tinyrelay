@@ -9,17 +9,33 @@
   const relay = value => relayURL(value, {strict: true});
   const mergeRows = (rows, urls) =>
     rows.filter(row => !(Array.isArray(row) && row[0] === "g")).concat(urls.map(value => ["g", value]));
-  const publicKey = async () => {
+  const publicKey = async element => {
+    const known = element?.getAttribute("pubkey");
+    if (/^[0-9a-f]{64}$/.test(known || "")) return known;
     const active = signer();
     if (active?.getPublicKey) return active.getPublicKey();
     if (window.tiny?.getPublicKey) return window.tiny.getPublicKey();
     throw Error("Connect a signer first.");
   };
+  // readList uses the browser session when the page has one, so showing
+  // the list never asks the signer; a signed query is the fallback.
   const readList = async pubkey => {
     const body = JSON.stringify([{kinds: [10318], authors: [pubkey], limit: 1}]);
-    const response = await window.tiny.signedFetch("/query", "POST", body, {
-      contentType: "application/json"
-    });
+    let response = null;
+    if (typeof fetch === "function" && window.tiny?.localPath) {
+      response = await fetch(window.tiny.localPath("/query"), {
+        method: "POST",
+        credentials: "same-origin",
+        headers: {"content-type": "application/json"},
+        body
+      });
+      if (response.status === 401) response = null;
+    }
+    if (!response) {
+      response = await window.tiny.signedFetch("/query", "POST", body, {
+        contentType: "application/json"
+      });
+    }
     if (!response || response.ok === false) throw Error("Could not read the private relay list.");
     const rows = await response.json();
     if (!Array.isArray(rows) || rows.length > 1) throw Error("The private relay list response is malformed.");
@@ -83,13 +99,14 @@
             this.form.querySelector("button").disabled = false;
           });
       });
-      this.whenSigned(() =>
-        this.load()
-          .then(() => {
-            this.form.querySelector("button").disabled = false;
-          })
-          .catch(error => this.say("Error: " + error.message, true))
-      );
+      this.querySelector("[data-decrypt]")?.addEventListener("click", () => {
+        this.whenSigned(() => this.reveal().catch(error => this.say("Error: " + error.message, true)));
+      });
+      this.load()
+        .then(() => {
+          this.form.querySelector("button").disabled = false;
+        })
+        .catch(error => this.say("Error: " + error.message, true));
     }
 
     // whenSigned runs once a signer is available. The bridge announces a
@@ -106,10 +123,24 @@
       else delete this.output.dataset.error;
     }
 
+    // load reads the published event without decrypting it. Decryption
+    // asks the signer, so it waits for the Decrypt to edit control.
     async load() {
       this.say("Reading encrypted list…");
-      const pubkey = await publicKey();
-      const event = await readList(pubkey);
+      const pubkey = await publicKey(this);
+      this.event = await readList(pubkey);
+      if (!this.event) {
+        this.say("No private relay list published yet.");
+        return;
+      }
+      const control = this.querySelector("[data-decrypt]");
+      if (control) control.hidden = false;
+      this.say("An encrypted list is published. Decrypt to edit it, or publish new URLs to merge them.");
+    }
+
+    async reveal() {
+      const pubkey = await publicKey(this);
+      const event = this.event || (await readList(pubkey));
       if (!event) {
         this.say("No private relay list published yet.");
         return;
@@ -132,7 +163,7 @@
         throw Error("Use ws:// or wss:// URLs without credentials, queries or fragments.");
       const urls = rawURLs.map(relay);
       const unique = [...new Set(urls)];
-      const pubkey = await publicKey();
+      const pubkey = await publicKey(this);
       const existing = await readList(pubkey);
       let rows = [];
       if (existing) {

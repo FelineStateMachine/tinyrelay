@@ -397,7 +397,18 @@ func (a *App) connectJSON(writer http.ResponseWriter, request *http.Request) {
 		writeJSON(writer, http.StatusNotFound, map[string]string{"error": err.Error()})
 		return
 	}
-	writeJSON(writer, http.StatusOK, result)
+	if request.URL.Query().Get("catalog") == "" {
+		writeJSON(writer, http.StatusOK, result)
+		return
+	}
+	// The Connect page reads the list and the card catalog with its session
+	// so showing the page never asks the signer for a signature.
+	catalog, err := a.backend.Query(request.Context(), "listconnectiontemplates", nil, actor)
+	if err != nil {
+		writeJSON(writer, http.StatusNotFound, map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(writer, http.StatusOK, map[string]any{"connections": result, "catalog": catalog})
 }
 
 func (a *App) eventPage(writer http.ResponseWriter, request *http.Request) {
