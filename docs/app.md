@@ -12,6 +12,6 @@ The app registers for `web+nostr:` links. A link to an `npub`, `nprofile`, `note
 
 ## Notifications
 
-Notifications are off until you turn them on, and each device is enabled separately. Open **Inbox** and choose **Enable on this device**. The browser asks for permission at that moment, and the device is registered with a signed request. Choose **Disable on this device** to stop.
+Notifications are off until you turn them on, and each device is enabled separately. Open **Inbox** and choose **Enable on this device**. The browser asks for permission at that moment, and the device is registered with a signed request. Choose **Disable on this device** to stop. The owner can choose **Send a test** to check delivery.
 
 A notification carries the relay's short notice: a report awaiting moderation, a finished job, a succession change or a digest, following the settings under **Manage > Identity**. The text is encrypted to the device, so the push service never reads it. Devices that stop accepting messages are removed.
