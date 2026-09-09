@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
 
 	"github.com/FelineStateMachine/tinyrelay/internal/community"
 	"github.com/FelineStateMachine/tinyrelay/internal/event"
@@ -22,7 +23,88 @@ type Config struct {
 	Slug      string
 }
 
-type Gate struct{ cfg Config }
+type Gate struct {
+	cfg    Config
+	agents agentLimiter
+}
+
+// agentLimiter is the per-agent sliding one-minute counter. It lives in
+// memory: a restart forgives the last minute, which is the cheap and honest
+// trade for a limit that never touches the database on the hot path.
+type agentLimiter struct {
+	mu     sync.Mutex
+	recent map[string][]int64
+}
+
+func (l *agentLimiter) allow(agent string, limit int, now int64) bool {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if l.recent == nil {
+		l.recent = map[string][]int64{}
+	}
+	kept := l.recent[agent][:0]
+	for _, at := range l.recent[agent] {
+		if at > now-60 {
+			kept = append(kept, at)
+		}
+	}
+	if len(kept) >= limit {
+		l.recent[agent] = kept
+		return false
+	}
+	l.recent[agent] = append(kept, now)
+	return true
+}
+
+// agentAdmission applies an agent grant to an event from a key whose only
+// standing here is that grant. Keys with a human role keep that role's
+// permissions. Events from agents are never stamped or rewritten; they are
+// kept as signed or refused with a restricted reason.
+func (g *Gate) agentAdmission(ctx context.Context, e event.Event, now int64) error {
+	if g.cfg.Community == nil {
+		return nil
+	}
+	grant, ok, err := g.cfg.Community.AgentGrant(ctx, e.PubKey)
+	if err != nil {
+		return fmt.Errorf("check agent grant: %w", err)
+	}
+	if !ok {
+		return nil
+	}
+	role, err := g.cfg.Community.Role(ctx, e.PubKey)
+	if err != nil {
+		return fmt.Errorf("check agent role: %w", err)
+	}
+	if role != "" && role != "agent" {
+		return nil
+	}
+	if err := grant.Check(e, now); err != nil {
+		return err
+	}
+	if !g.agents.allow(e.PubKey, grant.Scope.Rate, now) {
+		return fmt.Errorf("restricted: agent grant does not allow more than %d events per minute", grant.Scope.Rate)
+	}
+	return nil
+}
+
+// agentGrantShape checks a grant event's signer and tags before it is stored.
+func (g *Gate) agentGrantShape(ctx context.Context, e event.Event, now int64) error {
+	if e.Kind != event.KIND_AGENT_GRANT {
+		return nil
+	}
+	if g.cfg.Community == nil {
+		return errors.New("restricted: agent grants need the membership service")
+	}
+	role, err := g.cfg.Community.Role(ctx, e.PubKey)
+	if err != nil {
+		return fmt.Errorf("check grant signer: %w", err)
+	}
+	if !community.CanGrantAgents(role) {
+		return errors.New("restricted: only the owner or a moderator can grant an agent")
+	}
+	_, err = community.ParseAgentGrant(e, now)
+	return err
+}
 
 func New(cfg Config) (*Gate, error) {
 	if cfg.Policy == nil {
@@ -67,7 +149,7 @@ func (g *Gate) Write(ctx context.Context, e event.Event, s relay.Session, now in
 	if p.MaxFuture > 0 && e.CreatedAt > now+p.MaxFuture {
 		return errors.New("invalid: event creation date is too far off from the current time")
 	}
-	if exp := event.Expiration(e); exp > 0 && exp <= now {
+	if exp := event.Expiration(e); exp > 0 && exp <= now && e.Kind != event.KIND_AGENT_GRANT {
 		return errors.New("invalid: event has already expired")
 	}
 	if g.cfg.Community != nil {
@@ -94,6 +176,12 @@ func (g *Gate) Write(ctx context.Context, e event.Event, s relay.Session, now in
 		if banned {
 			return errors.New("blocked: this event is banned")
 		}
+	}
+	if err := g.agentGrantShape(ctx, e, now); err != nil {
+		return err
+	}
+	if err := g.agentAdmission(ctx, e, now); err != nil {
+		return err
 	}
 	if where := blockedWord(p, e); where != "" && !g.isModerator(ctx, e.PubKey) {
 		return errors.New("blocked: " + where)
@@ -197,7 +285,7 @@ func (g *Gate) Import(ctx context.Context, e event.Event, now int64) error {
 	if p.MaxFuture > 0 && e.CreatedAt > now+p.MaxFuture {
 		return errors.New("invalid: event creation date is too far off from the current time")
 	}
-	if exp := event.Expiration(e); exp > 0 && exp <= now {
+	if exp := event.Expiration(e); exp > 0 && exp <= now && e.Kind != event.KIND_AGENT_GRANT {
 		return errors.New("invalid: event has already expired")
 	}
 	if g.cfg.Community != nil {
@@ -215,6 +303,12 @@ func (g *Gate) Import(ctx context.Context, e event.Event, now int64) error {
 		if banned {
 			return errors.New("blocked: this event is banned")
 		}
+	}
+	if err := g.agentGrantShape(ctx, e, now); err != nil {
+		return err
+	}
+	if err := g.agentAdmission(ctx, e, now); err != nil {
+		return err
 	}
 	if where := blockedWord(p, e); where != "" && !g.isModerator(ctx, e.PubKey) {
 		return errors.New("blocked: " + where)
