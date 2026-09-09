@@ -146,11 +146,11 @@ agent-callback{display:block;margin:0 0 4px}agent-callback code{color:inherit}
 agent-callback rpc-form{display:inline-block;border:0;padding:0;margin:0 0 0 6px;vertical-align:middle}agent-callback rpc-form output:empty{display:none}agent-callback button{font-size:12px;padding:1px 6px}
 #rows:has(td[data-state]){table-layout:fixed}#rows:has(td[data-state]) td:nth-child(3){width:110px}#rows:has(td[data-state]) td:last-child{width:150px}
 [data-state=active],#rows td[data-state=active]{color:var(--accent)}[data-state=paused],#rows td[data-state=paused]{color:var(--bark)}[data-state=revoked],#rows td[data-state=revoked]{color:var(--alert)}
-agent-grant{display:block;border-bottom:1px solid var(--line);padding:10px 0;max-width:720px}
-agent-grant label{display:inline-block;margin:0 10px 6px 0;vertical-align:top;font:13px var(--sans);color:var(--muted)}
-agent-grant label input,agent-grant label select{display:block;margin-top:2px;font:13px var(--mono);min-width:200px}
+agent-grant,profile-form{display:block;border-bottom:1px solid var(--line);padding:10px 0;max-width:720px}
+agent-grant label,profile-form label{display:inline-block;margin:0 10px 6px 0;vertical-align:top;font:13px var(--sans);color:var(--muted)}
+agent-grant label input,agent-grant label select,profile-form label input{display:block;margin-top:2px;font:13px var(--mono);min-width:200px}profile-form label:has(textarea){display:block}profile-form textarea{display:block;width:100%;max-width:520px;min-height:3em;font:13px var(--mono)}profile-form output{white-space:pre-wrap}
 agent-grant label:has(textarea),agent-grant label[data-secret]{display:block}agent-grant label[data-secret] input{width:100%}agent-grant label[hidden]{display:none}
-agent-grant output{display:block;font:12px var(--mono);color:var(--muted);margin-top:4px;overflow-wrap:anywhere}agent-grant output[data-error]{color:var(--alert)}
+agent-grant output,profile-form output{display:block;font:12px var(--mono);color:var(--muted);margin-top:4px;overflow-wrap:anywhere}agent-grant output[data-error],profile-form output[data-error]{color:var(--alert)}
 #panel rpc-form{border:0;padding:4px 0}#panel rpc-form output:empty{display:none}
 connect-card{display:block;border-bottom:1px solid var(--line);padding:10px 0;max-width:720px}connect-card h3{margin:0 0 4px;border:0;font-size:15px}connect-card h3 small{font:12px var(--mono);color:var(--muted)}connect-card p{margin:0 0 6px;color:var(--muted)}connect-card label{display:inline-block;font:13px var(--sans);color:var(--muted);margin:0 10px 6px 0}connect-card label input{display:block;font:13px var(--mono);min-width:200px}connect-card a,connect-card button{margin-right:10px;font-size:13px}connect-card output{display:block;font:12px var(--mono);color:var(--muted);overflow-wrap:anywhere}connect-card details img{display:block;margin:6px 0;background:#fff;padding:6px;border:1px solid var(--line)}
 

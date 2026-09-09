@@ -56,6 +56,7 @@
 {{else if eq .Tab "wikipage"}}{{template "wikipage" .}}
 {{else if eq .Tab "file"}}{{template "file" .}}
 {{else if eq .Tab "approvals"}}{{template "approvals" .}}
+{{else if eq .Tab "profile"}}{{template "profile" .}}
 {{else if eq .Tab "rooms"}}{{template "rooms" .}}
 {{else if eq .Tab "room"}}{{template "room" .}}
 {{else if eq .Tab "thread"}}{{template "thread" .}}
@@ -113,7 +114,7 @@
 {{end}}{{end}}
 
 {{define "panel-relay"}}<section><h4>About</h4><table><tr><th>identity</th><td>{{template "nostrKey" .Identity}}</td></tr><tr><th>reads</th><td>{{.Policy.Reads}}</td></tr><tr><th>writes</th><td>{{.Policy.Writes}}</td></tr><tr><th>search</th><td>{{.Policy.Features.Search}}</td></tr>{{if .Policy.Features.Grasp}}<tr><th>git</th><td>GRASP-01</td></tr>{{end}}{{if .Policy.Features.Files}}<tr><th>files</th><td>Blossom</td></tr>{{end}}</table></section>
-<section><h4>Actions</h4><ul>{{if not .Actor}}<li><a href="/signin">sign in</a></li>{{end}}<li><a href="/manage/people">manage</a></li><li><a href="/.well-known/nostr.json">NIP-05 names</a></li>{{if .Policy.Features.Pages}}<li><a href="/feed.xml">Atom feed</a></li>{{end}}<li><a href="/terms">terms</a></li></ul></section>
+<section><h4>Actions</h4><ul>{{if .Actor}}<li><a href="/profile">profile</a></li>{{else}}<li><a href="/signin">sign in</a></li>{{end}}<li><a href="/.well-known/nostr.json">NIP-05 names</a></li>{{if .Policy.Features.Pages}}<li><a href="/feed.xml">Atom feed</a></li>{{end}}<li><a href="/terms">terms</a></li></ul></section>
 <section><h4>Relay</h4><table><tr><th>url</th><td><code>{{.URL}}</code></td></tr></table></section>{{end}}
 
 {{define "panel-signin"}}<section><h4>Session</h4><table><tr><th>status</th><td>{{if .Actor}}signed in{{else}}guest{{end}}</td></tr><tr><th>method</th><td>NIP-98</td></tr></table></section>

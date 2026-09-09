@@ -164,7 +164,7 @@ func (a *App) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
 		http.Redirect(writer, request, requestPrefix(request)+"/manage/health", http.StatusMovedPermanently)
 		return
 	}
-	if request.Method == http.MethodGet && (request.URL.Path == "/repos" || request.URL.Path == "/repo" || request.URL.Path == "/files" || request.URL.Path == "/file" || request.URL.Path == "/approvals" || request.URL.Path == "/wiki" || strings.HasPrefix(request.URL.Path, "/wiki/") || request.URL.Path == "/manage/health" || roomRoute(request.URL.Path).tab != "") {
+	if request.Method == http.MethodGet && (request.URL.Path == "/repos" || request.URL.Path == "/repo" || request.URL.Path == "/files" || request.URL.Path == "/file" || request.URL.Path == "/approvals" || request.URL.Path == "/profile" || request.URL.Path == "/wiki" || strings.HasPrefix(request.URL.Path, "/wiki/") || request.URL.Path == "/manage/health" || roomRoute(request.URL.Path).tab != "") {
 		a.browse(writer, request)
 		return
 	}
@@ -530,6 +530,8 @@ func (a *App) browse(writer http.ResponseWriter, request *http.Request) {
 		method = "browsefile"
 	case "/approvals":
 		method = "browseapprovals"
+	case "/profile":
+		method = "browseprofile"
 	case "/wiki":
 		method = "browsewiki"
 	case "/manage/health":
@@ -592,6 +594,8 @@ func (a *App) browse(writer http.ResponseWriter, request *http.Request) {
 		if query["hash"] == "" {
 			query["hash"] = request.URL.Query().Get("sha")
 		}
+	case "browseprofile":
+		query = map[string]any{"pubkey": actor}
 	case "browseapprovals":
 		state := request.URL.Query().Get("state")
 		if state == "" {
@@ -659,7 +663,7 @@ func (a *App) browse(writer http.ResponseWriter, request *http.Request) {
 }
 
 func browseTitle(path string, query url.Values, result any, slug string) string {
-	label := map[string]string{"/repos": "Repositories", "/files": "Files", "/file": "File", "/approvals": "Approvals", "/wiki": "Wiki", "/rooms": "Rooms"}[path]
+	label := map[string]string{"/repos": "Repositories", "/files": "Files", "/file": "File", "/approvals": "Approvals", "/profile": "Profile", "/wiki": "Wiki", "/rooms": "Rooms"}[path]
 	if strings.HasPrefix(path, "/wiki/") {
 		label = plainString(valueMap(result)["title"])
 		if label == "" {
@@ -744,6 +748,8 @@ func browseTab(path string) string {
 		return "file"
 	case "/approvals":
 		return "approvals"
+	case "/profile":
+		return "profile"
 	default:
 		return "health"
 	}
@@ -787,10 +793,14 @@ func (a *App) render(writer http.ResponseWriter, request *http.Request, data Pag
 	}
 	data.Path = strings.TrimPrefix(request.URL.Path, data.Base)
 	a.privatePageData(&data, request, actor)
-	if !data.Private && data.Actor == "" && railKind(data.Tab) == "manage" {
-		// Management pages are for signed-in people only. Guests see the
-		// sign-in page at the same address and come back after signing in.
+	if !data.Private && data.Actor == "" && (railKind(data.Tab) == "manage" || data.Tab == "profile") {
+		// Management pages and the profile editor are for signed-in people
+		// only. Guests see the sign-in page at the same address and come back
+		// after signing in.
 		data.Tab, data.Notice = "signin", "Sign in to manage this relay."
+		if data.Path == "/profile" {
+			data.Notice = "Sign in to edit your profile."
+		}
 		data.Event, data.Feed, data.Error = nil, nil, ""
 	}
 	writer.Header().Set("Cache-Control", "private, no-store")
@@ -1235,6 +1245,8 @@ func tabForPath(path string) string {
 		return "file"
 	case "approvals":
 		return "approvals"
+	case "profile":
+		return "profile"
 	case "signin", "sites":
 		return path
 	case "people", "agents", "moderation", "rules", "identity", "connect", "data", "sync", "views", "health", "owner":

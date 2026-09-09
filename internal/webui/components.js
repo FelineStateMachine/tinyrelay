@@ -426,6 +426,77 @@
     }
   }
 
+  // ProfileForm publishes the signer's kind 0 profile: the fields shown here
+  // are merged over the profile the relay already holds, so a field another
+  // client set is kept. The event goes to this relay first, then to every
+  // relay listed, and the browser's name cache forgets the old name.
+  class ProfileForm extends FormElement {
+    static content(values, existing) {
+      let merged = {};
+      try { merged = typeof existing === "string" ? JSON.parse(existing || "{}") : {...(existing || {})}; } catch { merged = {}; }
+      if (!merged || typeof merged !== "object" || Array.isArray(merged)) merged = {};
+      for (const key of ["name", "display_name", "about", "picture", "banner", "website", "nip05", "lud16"]) {
+        if (!(key in values)) continue;
+        const value = String(values[key] ?? "").trim();
+        if (value) merged[key] = value; else delete merged[key];
+      }
+      for (const key of ["picture", "banner", "website"]) {
+        if (merged[key] && !/^https?:\/\//.test(merged[key])) throw Error("Use an http or https link for " + key.replace("_", " ") + ".");
+      }
+      return merged;
+    }
+
+    static relays(text) {
+      const seen = new Set();
+      for (const raw of String(text || "").split(/[\s,]+/)) {
+        const url = tiny.util.relayURL(raw);
+        if (url) seen.add(url);
+      }
+      if (seen.size > 12) throw Error("List at most 12 relays.");
+      return [...seen];
+    }
+
+    async submit(form) {
+      if (!window.nostr?.signEvent) throw Error("Connect a signer first.");
+      const value = name => form.elements[name]?.value ?? "";
+      const values = Object.fromEntries(["name", "display_name", "about", "picture", "banner", "website", "nip05", "lud16"].map(key => [key, value(key)]));
+      const content = ProfileForm.content(values, this.getAttribute("existing") || "{}");
+      const relays = ProfileForm.relays(value("relays"));
+      const unsigned = {kind: 0, created_at: Math.floor(Date.now() / 1000), tags: [], content: JSON.stringify(content)};
+      const expected = JSON.stringify(unsigned);
+      this.report("Signing…");
+      const event = await window.nostr.signEvent(JSON.parse(expected));
+      const actual = event && JSON.stringify({kind: event.kind, created_at: event.created_at, tags: event.tags, content: event.content});
+      if (actual !== expected || !window.NostrSigner?.verifyEvent(event)) throw Error("The signer returned an invalid or changed event.");
+      const pubkey = this.getAttribute("pubkey");
+      if (pubkey && event.pubkey !== pubkey) throw Error("The signer holds a different key than the one signed in.");
+      const response = await tiny.signedFetch("/events", "POST", JSON.stringify(event), {contentType: "application/json"});
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok || result.accepted !== true) throw Error(result.error || result.message || "The relay rejected the profile.");
+      this.forget(event.pubkey);
+      const lines = ["Published here."];
+      if (relays.length) {
+        if (!window.NostrSigner?.SimplePool) throw Error("Published here; the signer bundle is still loading, so other relays were skipped.");
+        const pool = new window.NostrSigner.SimplePool();
+        const outcomes = await Promise.allSettled(pool.publish(relays, event).map(p => Promise.race([p, new Promise((_, reject) => setTimeout(() => reject(Error("timed out")), 8000))])));
+        outcomes.forEach((outcome, index) => { lines.push(relays[index] + ": " + (outcome.status === "fulfilled" ? "ok" : "failed, " + (outcome.reason?.message || outcome.reason || "no answer"))); });
+        try { pool.close(relays); } catch {}
+      }
+      this.report(lines.join("\n"));
+    }
+
+    // forget drops the cached name so nostr-name shows the new one on the
+    // next page.
+    forget(pubkey) {
+      try {
+        const key = window.tinyNames?.cacheKey || "tiny:names:v1";
+        const cache = JSON.parse(localStorage.getItem(key) || "{}") || {};
+        delete cache[pubkey];
+        localStorage.setItem(key, JSON.stringify(cache));
+      } catch {}
+    }
+  }
+
   // AgentGrant signs a kind 30392 agent grant: the agent's key, name, scope
   // and expiry, signed by the owner or a moderator. The agent key is made
   // here and its nsec shown once, or pasted as a public key. The secret never
@@ -1576,6 +1647,7 @@
   customElements.define("publish-list", PublishList);
   customElements.define("nostr-compose", NostrCompose);
   customElements.define("agent-grant", AgentGrant);
+  customElements.define("profile-form", ProfileForm);
   customElements.define("nostr-react", NostrReact);
   customElements.define("approval-item", ApprovalItem);
   customElements.define("wiki-compose", WikiCompose);
@@ -1613,7 +1685,7 @@
       if (root && !(url.pathname === root || url.pathname.startsWith(root + "/"))) return null;
       return root ? url.pathname.slice(root.length) || "/" : url.pathname;
     };
-    const allowedRoute = path => /^(?:\/(?:inbox|approvals|outbox|search|articles|private|chat|media|sites|marmot|grasp|terms|signin|connect|tools|repo|repos|file|files|wiki|rooms)?\/?|\/manage(?:\/(?:people|agents|moderation|rules|identity|connect|data|sync|views|health|owner|status))?\/?|\/(?:invite|e|a|wiki)\/.+|\/rooms\/[a-z0-9_-]{1,64}(?:\/thread\/[0-9a-f]{64})?\/?)$/.test(path || "");
+    const allowedRoute = path => /^(?:\/(?:inbox|approvals|profile|outbox|search|articles|private|chat|media|sites|marmot|grasp|terms|signin|connect|tools|repo|repos|file|files|wiki|rooms)?\/?|\/manage(?:\/(?:people|agents|moderation|rules|identity|connect|data|sync|views|health|owner|status))?\/?|\/(?:invite|e|a|wiki)\/.+|\/rooms\/[a-z0-9_-]{1,64}(?:\/thread\/[0-9a-f]{64})?\/?)$/.test(path || "");
     let navigationSerial = 0, activeAbort;
     const streams = new Set();
     const closeStreams = () => {
@@ -1628,7 +1700,7 @@
     document.addEventListener("fx:sse:close", event => streams.delete(event.detail.cfg));
     window.addEventListener("pagehide", closeStreams);
     const repairComponents = () => {
-      document.querySelectorAll("rpc-form,signed-form,publish-list,agent-grant,nostr-react,wiki-compose,room-compose,room-create,room-action").forEach(node => {
+      document.querySelectorAll("rpc-form,signed-form,publish-list,agent-grant,profile-form,nostr-react,wiki-compose,room-compose,room-create,room-action").forEach(node => {
         if (node.form?.isConnected) return;
         node.form = null;
         node.output = null;

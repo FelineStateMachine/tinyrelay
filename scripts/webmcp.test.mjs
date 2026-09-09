@@ -338,3 +338,17 @@ test("room tools read rooms and threads, open rooms and post signed messages", a
   await assert.rejects(post.execute({room: "build", text: "again"}), /members only/);
   await assert.rejects(post.execute({room: "build", text: "  "}), /Enter a message/);
 });
+
+test("the profile tool reads through the session and defaults to the signed-in key", async () => {
+  const requests = [];
+  const {tools} = await browser({path: "/r/work/profile", fetch: async url => { requests.push(new URL(url, "https://tiny.example")); return new Response(JSON.stringify({pubkey: "a".repeat(64), profile: {name: "dami"}, relays: []})); }});
+  const tool = tools.get("tiny.read_profile");
+  assert.equal(tool.annotations.readOnlyHint, true);
+  const own = await tool.execute({});
+  assert.equal(requests[0].searchParams.get("method"), "browseprofile");
+  assert.deepEqual(JSON.parse(requests[0].searchParams.get("params")), [{}]);
+  assert.equal(own.structuredContent.result.profile.name, "dami");
+  await tool.execute({pubkey: "b".repeat(64)});
+  assert.deepEqual(JSON.parse(requests[1].searchParams.get("params")), [{pubkey: "b".repeat(64)}]);
+});
+

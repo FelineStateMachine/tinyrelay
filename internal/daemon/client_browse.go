@@ -31,10 +31,11 @@ type clientBrowseRequest struct {
 	State  string `json:"state"`
 	Label  string `json:"label"`
 	Agent  string `json:"agent"`
+	Pubkey string `json:"pubkey"`
 }
 
 func clientBrowseMethod(method string) bool {
-	return wikiBrowseMethod(method) || approvalBrowseMethod(method) || jobBrowseMethod(method) || containsString([]string{"browserepos", "browserepo", "browsefiles", "browsefile", "browsestatus", "browseissues", "browsepulls", "browseissue", "browsepull", "browseagent"}, method)
+	return wikiBrowseMethod(method) || approvalBrowseMethod(method) || jobBrowseMethod(method) || containsString([]string{"browserepos", "browserepo", "browsefiles", "browsefile", "browsestatus", "browseissues", "browsepulls", "browseissue", "browsepull", "browseagent", "browseprofile"}, method)
 }
 
 func (t *Tenant) browseRead(ctx context.Context, actor string) error {
@@ -89,6 +90,8 @@ func (t *Tenant) executeBrowse(ctx context.Context, actor, method string, params
 		return t.browseStatus(ctx, actor)
 	case "browseagent":
 		return t.browseAgent(ctx, actor, q.Agent)
+	case "browseprofile":
+		return t.browseProfile(ctx, actor, q.Pubkey)
 	case "browseissues":
 		return t.browseCollaboration(ctx, actor, q, event.KIND_GIT_ISSUE)
 	case "browsepulls":
@@ -430,5 +433,35 @@ func (t *Tenant) browseStatus(ctx context.Context, actor string) (any, error) {
 		result["peers"] = peers.Snapshot()
 	}
 	result["errors"] = failures
+	return result, nil
+}
+
+// browseProfile returns one key's profile as this relay holds it: the newest
+// kind 0 with its content parsed, and the write relays from the key's relay
+// list, so a profile editor can publish there too. The key defaults to the
+// caller's own.
+func (t *Tenant) browseProfile(ctx context.Context, actor, pubkey string) (any, error) {
+	if pubkey == "" {
+		pubkey = actor
+	}
+	if len(pubkey) != 64 || strings.Trim(pubkey, "0123456789abcdef") != "" {
+		return nil, errors.New("invalid: public key required")
+	}
+	if err := t.browseRead(ctx, actor); err != nil {
+		return nil, err
+	}
+	rows, err := t.store.Query(ctx, event.Filter{Authors: []string{pubkey}, Kinds: []int{event.KIND_PROFILE}, Tags: map[string][]string{}}, storage.QueryOptions{Now: time.Now().Unix(), Access: storage.Access{PubKeys: browseSession(t, actor).PubKeys}, Limit: 1})
+	if err != nil {
+		return nil, err
+	}
+	result := map[string]any{"pubkey": pubkey, "event": nil, "profile": map[string]any{}, "relays": localDirectory{store: t.store}.WriteRelays(pubkey)}
+	if len(rows.Events) > 0 {
+		profile := map[string]any{}
+		if json.Unmarshal([]byte(rows.Events[0].Content), &profile) != nil {
+			profile = map[string]any{}
+		}
+		result["event"] = rows.Events[0]
+		result["profile"] = profile
+	}
 	return result, nil
 }

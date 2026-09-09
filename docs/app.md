@@ -28,3 +28,7 @@ People show by name wherever the relay knows one: room authors and members, ment
 
 Rebuild the bundle after changing `scripts/nostr-name-setup.mjs` or updating the package with `npm run build:nostr-name`. The package pulls its dependencies from the JSR registry, which `.npmrc` maps for the `@jsr` scope.
 
+## Profile
+
+**Profile** in the home page's Actions, shown once you are signed in, edits the profile (kind 0) other people and apps see for your key: name, display name, about, picture, banner, website, NIP-05 address and lightning address. The form starts from the profile this relay holds, and fields it does not show are kept as they are. Saving signs the event with your connected signer, publishes it to this relay first, then to every relay in **Also publish to**, which starts out as the write relays from your relay list on this relay; each relay reports ok or failed under the form. The browser forgets your cached name at the same time, so pages show the new one on the next load.
+

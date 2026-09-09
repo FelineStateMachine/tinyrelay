@@ -102,6 +102,8 @@
   register("tiny.list_approvals", "List requests for a decision addressed to the signed-in person, with each request's asker, subject, expiry, state and answer, plus counts of open, answered and expired requests. Answering is the person's own signed action.",
     object({cursor: text, limit, state: {type: "string", enum: ["open", "answered", "expired", "all"]}}), reads,
     (input, signal) => query("browseapprovals", input, signal));
+  register("tiny.read_profile", "Read a profile (kind 0) as this relay holds it, with the write relays from that key's relay list. Omit pubkey for the signed-in person's own profile.",
+    object({pubkey}), reads, (input, signal) => query("browseprofile", input, signal));
   register("tiny.read_approval", "Read one request for a decision by event id with every reaction and reply from the people asked.",
     object({id: hash}, ["id"]), reads, (input, signal) => query("browseapproval", input, signal));
   register("tiny.list_jobs", "List long task requests (NIP-90 job requests) visible to your account, each with its newest feedback status and its result when one exists. state narrows the list to open, done or all; mine lists only your own requests.",

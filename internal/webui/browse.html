@@ -85,3 +85,25 @@
 {{else}}<p>No sites are published.</p>
 {{end}}</section>
 {{end}}
+
+{{define "profile"}}{{$data := asMap .Event}}{{$p := asMap (index $data "profile")}}<section>
+<h1>Profile</h1>
+<p>Your profile is a kind 0 event signed by your key. Saving publishes it to this relay first, then to the relays you list, so apps and people everywhere see the same name.</p>
+{{template "alert" .Error}}
+<profile-form pubkey="{{.Actor}}" existing="{{json (index $data "profile")}}">
+<label>Name <input name="name" maxlength="64" value="{{str (index $p "name")}}" placeholder="dami"></label>
+<label>Display name <input name="display_name" maxlength="64" value="{{str (index $p "display_name")}}"></label>
+<label>About <textarea name="about" maxlength="2000">{{str (index $p "about")}}</textarea></label>
+<label>Picture <input name="picture" type="url" value="{{str (index $p "picture")}}" placeholder="https://"></label>
+<label>Banner <input name="banner" type="url" value="{{str (index $p "banner")}}" placeholder="https://"></label>
+<label>Website <input name="website" type="url" value="{{str (index $p "website")}}" placeholder="https://"></label>
+<label>NIP-05 <input name="nip05" value="{{str (index $p "nip05")}}" placeholder="you@example.com"></label>
+<label>Lightning address <input name="lud16" value="{{str (index $p "lud16")}}" placeholder="you@wallet.example"></label>
+<label>Also publish to <textarea name="relays" placeholder="wss://relay.example">{{range index $data "relays"}}{{.}}
+{{end}}</textarea></label>
+<button>Sign and publish</button>
+<noscript><p>Saving needs JavaScript and a connected signer. You can also publish a kind 0 event from any client with this relay in its list.</p></noscript>
+</profile-form>
+{{with index $data "event"}}{{$e := asMap .}}<p><small>Current profile published <time datetime="{{datetime (index $e "created_at")}}">{{when (index $e "created_at")}}</time>; fields this form does not show are kept as they are.</small></p>{{else}}<p><small>This relay holds no profile for your key yet.</small></p>{{end}}
+</section>
+{{end}}

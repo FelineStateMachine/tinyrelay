@@ -10,6 +10,10 @@ Rooms have their own tools. `tiny.list_rooms` lists the rooms you can see, `tiny
 
 Four tools cover the wiki. `tiny.list_wiki` lists pages with their shown version, version count and open merge requests; `q` searches titles and summaries and `author` prefers that key's versions. `tiny.read_wiki_page` returns one page with its content, links, every version, merge requests and redirects; `author` or `version` picks the version shown. `tiny.read_merge_request` returns one merge request with its answer, the proposed version and the destination author's current version. `tiny.open_wiki_page` opens the page list, one page, one version, the editor or the compare view for a merge request. The tools take a page name or title and normalize it the way the relay does. Publishing a version and answering a merge request stay signed actions on the page.
 
+## Profile
+
+`tiny.read_profile` returns a profile as this relay holds it, with the write relays from that key's relay list; without `pubkey` it reads the signed-in person's own. Publishing a profile stays a signed action on the Profile page.
+
 ## Approvals
 
 Three tools cover requests for a decision. `tiny.list_approvals` lists the requests addressed to the signed-in person with each one's asker, subject, expiry, state and answer, plus counts of open, answered and expired requests; `state` narrows the list to `open`, `answered`, `expired` or `all`. `tiny.read_approval` returns one request by event id with every reaction and reply from the people asked. `tiny.open_approvals` opens the Approvals page, focused on one request when `id` is given. Answering stays a manual step: the person approves, denies or replies with their own signer. To make a request, publish an event as described in [Asking a person](agents.md#asking-a-person).
