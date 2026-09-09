@@ -150,6 +150,19 @@ agent-card p>a{display:inline-block;font:12px var(--mono);line-height:29px;verti
 #decided{list-style:none;margin:8px 0 0;padding:0;max-width:720px}#decided li{padding:3px 0;font:13px var(--mono)}#decided li small{color:var(--muted)}
 #decided li[data-state=approved] small{color:var(--accent)}#decided li[data-state=denied] small{color:var(--alert)}
 
+/* #custom-views: the owner's custom views with their controls. view-form adds one and shows its secret once. */
+#custom-views{border-collapse:collapse;width:100%;max-width:960px;font:13px var(--mono)}
+#custom-views th{text-align:left;font:12px var(--mono);color:var(--muted);font-weight:normal;padding:0 6px;height:28px;border-bottom:1px solid var(--line)}
+#custom-views td{padding:8px 6px;border-bottom:1px solid var(--line);vertical-align:top;overflow-wrap:anywhere;line-height:1.35}
+#custom-views td:nth-child(7){white-space:nowrap;color:var(--muted);font-size:12px}#custom-views td:last-child{white-space:nowrap;width:210px}
+#custom-views rpc-form{display:inline-block;border:0;padding:0;margin:0 6px 0 0;vertical-align:middle}#custom-views rpc-form output:empty{display:none}#custom-views button{font-size:12px;padding:1px 6px}
+#custom-views-empty{color:var(--muted);font:13px var(--sans)}
+view-form{display:block;border-bottom:1px solid var(--line);padding:10px 0;max-width:720px}
+view-form label{display:inline-block;margin:0 10px 6px 0;vertical-align:top;font:13px var(--sans);color:var(--muted)}
+view-form label input,view-form label select{display:block;margin-top:2px;font:13px var(--mono);min-width:200px}
+view-form [role=alert]{color:var(--alert);font:13px var(--sans);margin:8px 0 4px}view-form label[data-secret] input{min-width:320px}
+/* figure[data-view]: an artifact a custom view rendered; the code inside the object shows when the artifact is missing. */
+figure[data-view]{margin:12px 0}figure[data-view] object{display:block;max-width:100%}figure[data-view] pre{margin:0}
 /* agent-callback: one registered callback on an agent card, with its controls. */
 agent-callback{display:block;margin:0 0 4px}agent-callback code{color:inherit}
 agent-callback rpc-form{display:inline-block;border:0;padding:0;margin:0 0 0 6px;vertical-align:middle}agent-callback rpc-form output:empty{display:none}agent-callback button{font-size:12px;padding:1px 6px}

@@ -7,7 +7,14 @@ import (
 	"path"
 	"regexp"
 	"strings"
+
+	"github.com/FelineStateMachine/tinyrelay/internal/views"
 )
+
+// blockRenderer decides how a fenced code block is shown. It returns the
+// markup for blocks a custom view renders and false for the rest, which
+// stay code blocks.
+type blockRenderer func(lang, source string) (string, bool)
 
 // renderMarkdown turns a small, common subset of Markdown into HTML: ATX
 // headings, paragraphs, fenced code, unordered and ordered lists, inline
@@ -15,17 +22,27 @@ import (
 // the tags this function emits reach the page, so untrusted README files and
 // relay descriptions cannot inject markup. Anything else stays plain text.
 func renderMarkdown(source string) template.HTML {
-	return markdownHTML(source, false)
+	return markdownHTML(source, false, nil)
+}
+
+// renderMarkdownWith is renderMarkdown with fenced blocks offered to a
+// custom view renderer first.
+func renderMarkdownWith(source string, blocks blockRenderer) template.HTML {
+	return markdownHTML(source, false, blocks)
 }
 
 // renderChatMarkdown is the same subset for chat messages, where a single
 // newline is a line break and bare http(s) and nostr: references become
 // links, as people and agents type them.
 func renderChatMarkdown(source string) template.HTML {
-	return template.HTML(autolinkOutsideTags(string(markdownHTML(source, true))))
+	return renderChatMarkdownWith(source, nil)
 }
 
-func markdownHTML(source string, breaks bool) template.HTML {
+func renderChatMarkdownWith(source string, blocks blockRenderer) template.HTML {
+	return template.HTML(autolinkOutsideTags(string(markdownHTML(source, true, blocks))))
+}
+
+func markdownHTML(source string, breaks bool, blocks blockRenderer) template.HTML {
 	lines := strings.Split(strings.ReplaceAll(source, "\r\n", "\n"), "\n")
 	var out strings.Builder
 	var paragraph []string
@@ -46,14 +63,26 @@ func markdownHTML(source string, breaks bool) template.HTML {
 	}
 	for i := 0; i < len(lines); i++ {
 		line := lines[i]
+		marker, lang, fenced := views.OpenFence(line)
 		switch {
-		case strings.HasPrefix(line, "```"):
+		case fenced:
 			flush()
 			var code []string
-			for i++; i < len(lines) && !strings.HasPrefix(lines[i], "```"); i++ {
+			for i++; i < len(lines) && !views.ClosesFence(lines[i], marker); i++ {
 				code = append(code, lines[i])
 			}
-			out.WriteString("<pre><code>" + html.EscapeString(strings.Join(code, "\n")) + "</code></pre>\n")
+			body := strings.Join(code, "\n")
+			if blocks != nil {
+				if figure, ok := blocks(lang, body); ok {
+					out.WriteString(figure)
+					continue
+				}
+			}
+			out.WriteString("<pre><code")
+			if lang != "" {
+				out.WriteString(` data-lang="` + html.EscapeString(lang) + `"`)
+			}
+			out.WriteString(">" + html.EscapeString(body) + "</code></pre>\n")
 		case strings.HasPrefix(line, "#"):
 			flush()
 			level := len(line) - len(strings.TrimLeft(line, "#"))
@@ -137,7 +166,11 @@ var markdownAnchor = regexp.MustCompile(`<a href="([^"]+)">`)
 // renderRepositoryMarkdown resolves relative README links to relay file
 // viewers while retaining external links and fragment-only links.
 func renderRepositoryMarkdown(source string, query url.Values) template.HTML {
-	rendered := string(renderMarkdown(source))
+	return renderRepositoryMarkdownWith(source, query, nil)
+}
+
+func renderRepositoryMarkdownWith(source string, query url.Values, blocks blockRenderer) template.HTML {
+	rendered := string(renderMarkdownWith(source, blocks))
 	return template.HTML(markdownAnchor.ReplaceAllStringFunc(rendered, func(anchor string) string {
 		match := markdownAnchor.FindStringSubmatch(anchor)
 		target, err := url.Parse(html.UnescapeString(match[1]))
@@ -183,9 +216,9 @@ func autolinkOutsideTags(rendered string) string {
 		if strings.HasPrefix(part, "<") {
 			lower := strings.ToLower(part)
 			switch {
-			case strings.HasPrefix(lower, "<a ") || strings.HasPrefix(lower, "<code") || strings.HasPrefix(lower, "<pre"):
+			case strings.HasPrefix(lower, "<a ") || strings.HasPrefix(lower, "<code") || strings.HasPrefix(lower, "<pre") || strings.HasPrefix(lower, "<object"):
 				skip++
-			case strings.HasPrefix(lower, "</a") || strings.HasPrefix(lower, "</code") || strings.HasPrefix(lower, "</pre"):
+			case strings.HasPrefix(lower, "</a") || strings.HasPrefix(lower, "</code") || strings.HasPrefix(lower, "</pre") || strings.HasPrefix(lower, "</object"):
 				if skip > 0 {
 					skip--
 				}

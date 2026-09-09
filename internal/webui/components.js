@@ -181,6 +181,47 @@
     }
   }
 
+  // ViewForm adds a custom view: it composes the addcustomview object from
+  // its fields and shows the returned secret once, since the relay never
+  // shows it again.
+  class ViewForm extends RpcForm {
+    params(form) {
+      const value = name => (form.elements[name]?.value || "").trim();
+      const options = {
+        name: value("view-name"),
+        kinds: list(value("view-kinds")).map(Number),
+        languages: list(value("view-languages")),
+        transform: value("view-transform"),
+        trigger: value("view-trigger") || "write",
+        audience: value("view-audience") || "public"
+      };
+      if (value("view-max-bytes")) options.max_bytes = Number(value("view-max-bytes"));
+      if (value("view-secret")) options.secret = value("view-secret");
+      return [options];
+    }
+
+    show(result) {
+      const secret = result && typeof result === "object" ? result.secret : "";
+      if (!secret) return super.show(result);
+      const warning = el("p", "Copy the view's secret now. The relay signs each transform request with it and will not show it again.");
+      warning.setAttribute("role", "alert");
+      const label = el("label", "View secret ");
+      label.setAttribute("data-secret", "");
+      const input = el("input");
+      input.readOnly = true;
+      input.name = "secret";
+      input.value = secret;
+      input.addEventListener("focus", () => input.select());
+      label.append(input);
+      const link = el("a", "Show the new view");
+      link.href = globalThis.location?.pathname || "";
+      const note = el("p");
+      note.append(link);
+      this.form.reset();
+      this.append(warning, label, note);
+    }
+  }
+
   class SignedForm extends FormElement {
     async submit(form) {
       const action = this.getAttribute("action");
@@ -1674,6 +1715,7 @@
   ensureModules();
 
   customElements.define("rpc-form", RpcForm);
+  customElements.define("view-form", ViewForm);
   customElements.define("connect-card", ConnectCard);
   customElements.define("connect-list", ConnectList);
   customElements.define("relay-lists", RelayLists);
@@ -1737,7 +1779,7 @@
     document.addEventListener("fx:sse:close", event => streams.delete(event.detail.cfg));
     window.addEventListener("pagehide", closeStreams);
     const repairComponents = () => {
-      document.querySelectorAll("rpc-form,signed-form,publish-list,agent-grant,profile-form,nostr-react,wiki-compose,room-compose,room-create,room-action").forEach(node => {
+      document.querySelectorAll("rpc-form,view-form,signed-form,publish-list,agent-grant,profile-form,nostr-react,wiki-compose,room-compose,room-create,room-action").forEach(node => {
         if (node.form?.isConnected) return;
         node.form = null;
         node.output = null;

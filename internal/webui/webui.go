@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/FelineStateMachine/tinyrelay/internal/policy"
+	"github.com/FelineStateMachine/tinyrelay/internal/views"
 	"github.com/skip2/go-qrcode"
 )
 
@@ -40,6 +41,12 @@ type Backend interface {
 	URL() string
 	Slug() string
 	Identity() string
+}
+
+// CustomViewSource is the optional backend summary of the custom views the
+// renderers show in place of fenced code blocks: names and languages only.
+type CustomViewSource interface {
+	CustomViews() []views.View
 }
 
 type ActorResolver func(*http.Request) (string, error)
@@ -94,6 +101,8 @@ type PageData struct {
 	Rooms []any
 	// Callbacks lists the event callbacks shown beside each agent.
 	Callbacks []any
+	// CustomViews lists the owner's custom views on the Views page.
+	CustomViews []any
 	// Requests lists the access requests on the People page, pending first;
 	// Review is true when the viewer may decide them.
 	Requests []any
@@ -104,15 +113,39 @@ func New(backend Backend, options Options) (*App, error) {
 	if backend == nil {
 		return nil, fmt.Errorf("webui backend is required")
 	}
-	tmpl, err := parseTemplates()
-	if err != nil {
-		return nil, err
-	}
 	qr := options.QR
 	if qr == nil {
 		qr = defaultQR
 	}
-	return &App{backend: backend, actor: options.Actor, qr: qr, tmpl: tmpl, version: options.Version, revision: options.Revision}, nil
+	a := &App{backend: backend, actor: options.Actor, qr: qr, version: options.Version, revision: options.Revision}
+	tmpl, err := parseTemplates(a)
+	if err != nil {
+		return nil, err
+	}
+	a.tmpl = tmpl
+	return a, nil
+}
+
+// blocks is the block renderer for the custom views the backend reports,
+// or nil when there are none so fenced blocks stay code.
+func (a *App) blocks() blockRenderer {
+	source, ok := a.backend.(CustomViewSource)
+	if !ok {
+		return nil
+	}
+	renderer := views.NewRenderer(source.CustomViews())
+	if len(renderer.Languages) == 0 {
+		return nil
+	}
+	return renderer.Block
+}
+
+func (a *App) markdown(source string) template.HTML {
+	return renderMarkdownWith(source, a.blocks())
+}
+
+func (a *App) chatMarkdown(source string) template.HTML {
+	return renderChatMarkdownWith(source, a.blocks())
 }
 
 func defaultQR(text string) ([]byte, error) {
@@ -711,7 +744,7 @@ func (a *App) readme(ctx context.Context, actor string, query url.Values) templa
 		if binary, _ := page["binary"].(bool); binary || content == "" {
 			continue
 		}
-		return renderRepositoryMarkdown(content, query)
+		return renderRepositoryMarkdownWith(content, query, a.blocks())
 	}
 	return ""
 }
@@ -924,6 +957,12 @@ func (a *App) page(writer http.ResponseWriter, request *http.Request) {
 	}
 	if tab == "people" && actor != "" {
 		a.peoplePage(request, actor, &data)
+	}
+	if tab == "views" && actor != "" {
+		// The listing is owner-only; anyone else keeps the built-in controls.
+		if result, err := a.backend.Query(request.Context(), "listcustomviews", nil, actor); err == nil {
+			data.CustomViews = browseRows(result)
+		}
 	}
 	if tab != "" {
 		data.Title = tab + " | " + a.backend.Slug()

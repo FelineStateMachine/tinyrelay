@@ -236,7 +236,7 @@ var scriptsVersion = func() string {
 	return hex.EncodeToString(digest.Sum(nil))[:12]
 }()
 
-func parseTemplates() (*template.Template, error) {
+func parseTemplates(a *App) (*template.Template, error) {
 	funcs := template.FuncMap{
 		"stylesheet": func() template.CSS { return template.CSS(styleCSS) },
 		"scriptURL": func(name string) (string, error) {
@@ -259,8 +259,8 @@ func parseTemplates() (*template.Template, error) {
 		"str":             plainString,
 		"datetime":        datetime,
 		"when":            when,
-		"markdown":        renderMarkdown,
-		"chatMarkdown":    renderChatMarkdown,
+		"markdown":        a.markdown,
+		"chatMarkdown":    a.chatMarkdown,
 		"hasPrefix":       strings.HasPrefix,
 		"npub":            identityNpub,
 		"wsURL":           wsURL,
@@ -310,7 +310,10 @@ func parseTemplates() (*template.Template, error) {
 		"approvalViews":   approvalViews,
 		"approvalCounts":  approvalCounts,
 		"approvalDevices": approvalDevices,
-		"wikiHTML":        wikiHTML,
+		"wikiHTML":        a.wikiHTML,
+		"viewState":       customViewState,
+		"viewKinds":       customViewKinds,
+		"viewLanguages":   customViewLanguages,
 		"wikiView":        wikiPageView,
 		"wikiProposal":    wikiProposal,
 		"wikiURL":         wikiURL,

@@ -89,6 +89,20 @@ func Links(content string) []string {
 // escaped text. Link targets are limited to http, https, mailto, nostr and
 // site-relative paths.
 func RenderHTML(content string) template.HTML {
+	return RenderHTMLWith(content, Options{})
+}
+
+// Options adjusts rendering. Block, when set, is offered every fenced code
+// block with its language and source and returns markup to show in its
+// place, or false to keep the code block. The relay uses it for custom
+// views without this package knowing about them.
+type Options struct {
+	Block func(lang, source string) (html string, ok bool)
+}
+
+// RenderHTMLWith renders Djot the way RenderHTML does, with the options
+// applied.
+func RenderHTMLWith(content string, options Options) template.HTML {
 	refs := definitions(content)
 	var b strings.Builder
 	for _, block := range blocks(content) {
@@ -96,6 +110,12 @@ func RenderHTML(content string) template.HTML {
 		case "def":
 			continue
 		case "pre":
+			if options.Block != nil {
+				if html, ok := options.Block(block.lang, strings.TrimSuffix(block.text, "\n")); ok {
+					b.WriteString(html)
+					continue
+				}
+			}
 			b.WriteString("<pre><code")
 			if block.lang != "" {
 				b.WriteString(` data-lang="` + template.HTMLEscapeString(block.lang) + `"`)
@@ -184,10 +204,11 @@ func blocks(content string) []block {
 		}
 		if fence := trimmed[:min(3, len(trimmed))]; fence == "```" || fence == "~~~" {
 			flush()
-			lang := append(strings.Fields(trimmed[3:]), "")[0]
+			run := len(trimmed) - len(strings.TrimLeft(trimmed, fence[:1]))
+			lang := strings.ToLower(append(strings.Fields(trimmed[run:]), "")[0])
 			var body []string
 			for i++; i < len(lines); i++ {
-				if t := strings.TrimSpace(lines[i]); len(t) >= 3 && strings.Trim(t, fence[:1]) == "" {
+				if t := strings.TrimSpace(lines[i]); len(t) >= run && strings.Trim(t, fence[:1]) == "" {
 					break
 				}
 				body = append(body, lines[i])

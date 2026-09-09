@@ -153,8 +153,8 @@ func wikiURL(d string, pairs ...string) string {
 	return path + "?" + values.Encode()
 }
 
-func wikiHTML(content any) template.HTML {
-	return wiki.RenderHTML(plainString(content))
+func (a *App) wikiHTML(content any) template.HTML {
+	return wiki.RenderHTMLWith(plainString(content), wiki.Options{Block: a.blocks()})
 }
 
 // wikiPageName is the name in a /wiki/<d> path, normalized.

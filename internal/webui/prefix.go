@@ -7,7 +7,7 @@ import (
 	"golang.org/x/net/html"
 )
 
-var rootURLAttribute = regexp.MustCompile(`\s(?:href|src|fx-action|action)="(/[^\"]*)"`)
+var rootURLAttribute = regexp.MustCompile(`\s(?:href|src|fx-action|action|data)="(/[^\"]*)"`)
 
 // injectBase scopes root-relative template URLs without changing scripts or
 // literal content. The signer bridge scopes its requests with localPath.
