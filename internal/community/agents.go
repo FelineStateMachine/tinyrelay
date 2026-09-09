@@ -80,6 +80,12 @@ func (g AgentGrant) Active(now int64) bool {
 	return !g.Paused && g.RevokedAt == 0 && g.ExpiresAt > now
 }
 
+// Maintains reports whether the grant currently makes the agent a maintainer
+// of one repository: it is active and holds maintain on that exact repository.
+func (g AgentGrant) Maintains(owner, identifier string, now int64) bool {
+	return g.Active(now) && g.RepoLevel(owner, identifier) == "maintain"
+}
+
 // AllowsKind reports whether the agent may publish this kind. Profiles, relay
 // lists and auth are always allowed so an agent can identify itself.
 func (g AgentGrant) AllowsKind(kind int) bool {
@@ -440,6 +446,34 @@ func (s *Service) Agents(ctx context.Context) ([]AgentSummary, error) {
 			return nil, fmt.Errorf("agent grant scope: %w", err)
 		}
 		out = append(out, item)
+	}
+	return out, rows.Err()
+}
+
+// RepositoryAgents lists the active grants that hold maintain on one
+// repository, in name order. Paused, revoked and expired grants are left out.
+func (s *Service) RepositoryAgents(ctx context.Context, owner, identifier string, now int64) ([]AgentGrant, error) {
+	rows, err := s.store.DB().QueryContext(ctx, `SELECT agent,owner,event_id,name,expires_at,scope FROM agent_grants WHERE paused=0 AND revoked_at=0 AND expires_at>? ORDER BY name,agent`, now)
+	if err != nil {
+		if strings.Contains(err.Error(), "no such table") {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("list repository agents: %w", err)
+	}
+	defer rows.Close()
+	var out []AgentGrant
+	for rows.Next() {
+		var grant AgentGrant
+		var scope string
+		if err := rows.Scan(&grant.Agent, &grant.Owner, &grant.EventID, &grant.Name, &grant.ExpiresAt, &scope); err != nil {
+			return nil, err
+		}
+		if err := json.Unmarshal([]byte(scope), &grant.Scope); err != nil {
+			return nil, fmt.Errorf("agent grant scope: %w", err)
+		}
+		if grant.Maintains(owner, identifier, now) {
+			out = append(out, grant)
+		}
 	}
 	return out, rows.Err()
 }

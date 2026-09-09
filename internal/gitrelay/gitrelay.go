@@ -47,11 +47,32 @@ type Repository struct {
 	Alternative bool
 }
 
+// Maintainer is one key that may sign repository state, push refs and change
+// status. Role is "owner", "maintainer" for a key in the announcement's
+// maintainers tag, or "agent" for a key the host vouches for under an agent
+// grant; Name carries the grant's label when it has one.
+type Maintainer struct {
+	PubKey string `json:"pubkey"`
+	Role   string `json:"role"`
+	Name   string `json:"name,omitempty"`
+}
+
+// MaintainerSource answers whether a key maintains a repository beyond the
+// owner and the announcement's maintainers tag. The host relay supplies it so
+// authority it records elsewhere, such as an agent grant, counts in every
+// place this package checks maintainers.
+type MaintainerSource interface {
+	IsMaintainer(ctx context.Context, r Repository, pubkey string) bool
+}
+
 type Config struct {
 	Store     *storage.Store
 	Root      string
 	Policy    func() policy.Policy
 	Authorize func(context.Context, event.Event, Repository) error
+	// Maintainers extends maintainer checks with host-side authority. It is
+	// consulted only after the owner and the maintainers tag.
+	Maintainers MaintainerSource
 	// AuthorizeHTTP is called for private repositories and for operators that
 	// want signed/NIP-98 authorization at the Git HTTP boundary.
 	AuthorizeHTTP func(context.Context, *http.Request, Repository) error
@@ -94,6 +115,7 @@ type GitRelay struct {
 	policy        func() policy.Policy
 	authorize     func(context.Context, event.Event, Repository) error
 	authorizeHTTP func(context.Context, *http.Request, Repository) error
+	maintainers   MaintainerSource
 	serviceURL    string
 	gitSync       func(context.Context, Repository) error
 	eventSync     func(context.Context, Repository) error
@@ -385,7 +407,7 @@ func New(cfg Config) (*GitRelay, error) {
 	if serviceURL == "" {
 		serviceURL = cfg.ServiceURL
 	}
-	g := &GitRelay{store: cfg.Store, root: cfg.Root, policy: p, authorize: cfg.Authorize, authorizeHTTP: cfg.AuthorizeHTTP, serviceURL: strings.TrimRight(serviceURL, "/"), grasp06: cfg.EnableGRASP06, allowMissing: cfg.AllowMissingObjects, allowPrivate: cfg.AllowPrivateRelays, privatePeers: append([]string(nil), cfg.PrivatePeers...), httpAuth: cfg.HTTPAuth, gitSync: cfg.GitSync, eventSync: cfg.EventSync, onPromote: cfg.OnPromote, repos: make(map[string]Repository), pending: make(map[string]struct{})}
+	g := &GitRelay{store: cfg.Store, root: cfg.Root, policy: p, authorize: cfg.Authorize, authorizeHTTP: cfg.AuthorizeHTTP, maintainers: cfg.Maintainers, serviceURL: strings.TrimRight(serviceURL, "/"), grasp06: cfg.EnableGRASP06, allowMissing: cfg.AllowMissingObjects, allowPrivate: cfg.AllowPrivateRelays, privatePeers: append([]string(nil), cfg.PrivatePeers...), httpAuth: cfg.HTTPAuth, gitSync: cfg.GitSync, eventSync: cfg.EventSync, onPromote: cfg.OnPromote, repos: make(map[string]Repository), pending: make(map[string]struct{})}
 	if err := g.recoverJournals(); err != nil {
 		return nil, err
 	}
@@ -396,6 +418,20 @@ func New(cfg Config) (*GitRelay, error) {
 }
 
 func key(owner, identifier string) string { return owner + "\x00" + identifier }
+
+// IsMaintainer reports whether pubkey may sign state and push refs for a
+// repository: the owner, a key in the announcement's maintainers tag, or a key
+// the configured MaintainerSource vouches for. Every maintainer check in this
+// package goes through here so the host's answer applies uniformly.
+func (g *GitRelay) IsMaintainer(ctx context.Context, r Repository, pubkey string) bool {
+	if pubkey == "" {
+		return false
+	}
+	if pubkey == r.Owner || contains(r.Maintainers, pubkey) {
+		return true
+	}
+	return g.maintainers != nil && g.maintainers.IsMaintainer(ctx, r, pubkey)
+}
 
 func (g *GitRelay) journalDir() string { return filepath.Join(g.root, ".tinyrelay", "journal") }
 
@@ -542,7 +578,7 @@ func (g *GitRelay) Validate(ctx context.Context, e event.Event) (Repository, err
 		if err := g.authorize(ctx, e, r); err != nil {
 			return Repository{}, err
 		}
-	} else if e.PubKey != r.Owner && !contains(r.Maintainers, e.PubKey) {
+	} else if !g.IsMaintainer(ctx, r, e.PubKey) {
 		return Repository{}, errors.New("blocked: repository metadata must be signed by owner")
 	}
 	if e.Kind == 30618 {
@@ -881,7 +917,7 @@ func (g *GitRelay) parseRepository(e event.Event) (Repository, error) {
 		}
 		for _, candidate := range q.Events {
 			ann, err = g.parseRepository(candidate)
-			if err == nil && ann.Owner == e.PubKey || err == nil && contains(ann.Maintainers, e.PubKey) {
+			if err == nil && g.IsMaintainer(context.Background(), ann, e.PubKey) {
 				break
 			}
 			ann = Repository{}
@@ -890,7 +926,7 @@ func (g *GitRelay) parseRepository(e event.Event) (Repository, error) {
 			return Repository{}, errors.New("blocked: state author is not an accepted repository maintainer")
 		}
 	}
-	if e.PubKey != ann.Owner && !contains(ann.Maintainers, e.PubKey) {
+	if !g.IsMaintainer(context.Background(), ann, e.PubKey) {
 		return Repository{}, errors.New("blocked: state author is not an accepted repository maintainer")
 	}
 	state.Owner, state.Private = ann.Owner, ann.Private
@@ -1836,11 +1872,18 @@ func (g *GitRelay) lookup(owner, id string) (Repository, error) {
 	// The event store may acknowledge a state before the asynchronous Git
 	// work intent has run. Load the latest signed state here so an immediate
 	// receive-pack request can stage its authorization hook synchronously.
-	states, stateErr := g.store.Query(context.Background(), event.Filter{Authors: []string{owner}, Kinds: []int{30618}, Tags: map[string][]string{"d": {id}}}, storage.QueryOptions{Now: time.Now().Unix(), Access: storage.Access{All: true}, Limit: 1})
-	if stateErr == nil && len(states.Events) > 0 {
-		if state, parseErr := g.parseRepository(states.Events[0]); parseErr == nil {
+	// A maintainer, including an agent the host vouches for, may have signed
+	// it; parseRepository rejects any author who is not one.
+	states, stateErr := g.store.Query(context.Background(), event.Filter{Kinds: []int{30618}, Tags: map[string][]string{"d": {id}}}, storage.QueryOptions{Now: time.Now().Unix(), Access: storage.Access{All: true}, Limit: 8})
+	if stateErr == nil {
+		for _, candidate := range states.Events {
+			state, parseErr := g.parseRepository(candidate)
+			if parseErr != nil || state.Owner != owner {
+				continue
+			}
 			state.Clone, state.Relays, state.Maintainers = r.Clone, r.Relays, r.Maintainers
 			r = state
+			break
 		}
 	}
 	g.mu.Lock()

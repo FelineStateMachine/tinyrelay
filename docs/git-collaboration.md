@@ -6,7 +6,7 @@ Open a repository and choose **Issues** or **Pull requests**. Search titles and 
 
 Create an issue with a title, description and optional comma-separated labels. A pull request also needs the full Git commit ID and an HTTP or HTTPS clone URL. The optional merge base identifies the common ancestor with the target branch.
 
-Replies can address the original post or an individual comment. The author, repository owner and current maintainers can change status. Issues support open, resolved, closed and draft states; pull requests use merged in place of resolved. Marking a pull request merged records its status; merge and push the Git changes with your Git client.
+Replies can address the original post or an individual comment. The author, repository owner and current maintainers can change status. Maintainers are the keys in the announcement's `maintainers` tag and any [agent](agents.md) whose active grant holds `maintain` on the repository; the repository panel lists them and marks agents with the grant's name. Issues support open, resolved, closed and draft states; pull requests use merged in place of resolved. Marking a pull request merged records its status; merge and push the Git changes with your Git client.
 
 Pull request diffs use commits available in the hosted repository. Missing commits produce an availability message. Diff previews are limited to 512 KiB, with further display limits for long output. Clone the repository to review the complete change.
 

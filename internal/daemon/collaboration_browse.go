@@ -40,8 +40,8 @@ type collaborationDetail struct {
 	ReplyCursor     string            `json:"reply_cursor,omitempty"`
 }
 
-func collaborationRepository(repo gitrelay.Repository) map[string]any {
-	return map[string]any{"owner": repo.Owner, "private": repo.Private, "clone": repo.Clone, "refs": repo.Refs, "head": repo.Head}
+func (t *Tenant) collaborationRepository(ctx context.Context, repo gitrelay.Repository) map[string]any {
+	return map[string]any{"owner": repo.Owner, "private": repo.Private, "clone": repo.Clone, "refs": repo.Refs, "head": repo.Head, "maintainers": t.repositoryMaintainers(ctx, repo)}
 }
 
 func (t *Tenant) collaborationRepo(ctx context.Context, actor string, q clientBrowseRequest) (gitrelay.Repository, error) {
@@ -116,7 +116,7 @@ func (t *Tenant) browseCollaboration(ctx context.Context, actor string, q client
 				continue
 			}
 			if len(items) == q.Limit {
-				return map[string]any{"repository": collaborationRepository(r), "items": items, "next_cursor": next}, nil
+				return map[string]any{"repository": t.collaborationRepository(ctx, r), "items": items, "next_cursor": next}, nil
 			}
 			item := collaborationItemFrom(root)
 			item.Status = status
@@ -124,13 +124,13 @@ func (t *Tenant) browseCollaboration(ctx context.Context, actor string, q client
 			next = collaborationCursor(item)
 		}
 		if !more {
-			return map[string]any{"repository": collaborationRepository(r), "items": items, "next_cursor": ""}, nil
+			return map[string]any{"repository": t.collaborationRepository(ctx, r), "items": items, "next_cursor": ""}, nil
 		}
 	}
 	if cursor != nil {
 		next = strconv.FormatInt(cursor.CreatedAt, 10) + ":" + cursor.ID
 	}
-	return map[string]any{"repository": collaborationRepository(r), "items": items, "next_cursor": next}, nil
+	return map[string]any{"repository": t.collaborationRepository(ctx, r), "items": items, "next_cursor": next}, nil
 }
 
 func parseCollaborationCursor(raw string) (*storage.EventCursor, error) {
@@ -173,7 +173,7 @@ func (t *Tenant) browseCollaborationDetail(ctx context.Context, actor string, q 
 		return nil, errors.New("not found: collaboration event")
 	}
 	root := rows[0]
-	detail := collaborationDetail{Repository: collaborationRepository(r), Root: root, Item: collaborationItemFrom(root), CanStatus: actor == root.PubKey || actor == r.Owner || contains(r.Maintainers, actor)}
+	detail := collaborationDetail{Repository: t.collaborationRepository(ctx, r), Root: root, Item: collaborationItemFrom(root), CanStatus: actor != "" && (actor == root.PubKey || t.IsMaintainer(ctx, r, actor))}
 	replyCursor, err := parseCollaborationCursor(q.Cursor)
 	if err != nil {
 		return nil, err
@@ -182,7 +182,7 @@ func (t *Tenant) browseCollaborationDetail(ctx context.Context, actor string, q 
 	if replyLimit <= 0 || replyLimit > 200 {
 		replyLimit = 200
 	}
-	authors := append([]string{root.PubKey, r.Owner}, r.Maintainers...)
+	authors := append([]string{root.PubKey}, t.maintainerKeys(ctx, r)...)
 	statuses, err := t.Query(ctx, []event.Filter{{Authors: authors, Kinds: []int{1630, 1631, 1632, 1633}, Tags: map[string][]string{"e": {root.ID}}, Limit: intPtr(100)}}, browseSession(t, actor))
 	if err != nil {
 		return nil, err
@@ -281,7 +281,8 @@ func (t *Tenant) collaborationStatuses(ctx context.Context, actor string, roots 
 		return statuses, nil
 	}
 	ids := make([]string, 0, len(roots))
-	authors := append([]string{r.Owner}, r.Maintainers...)
+	maintainers := t.maintainerKeys(ctx, r)
+	authors := append([]string(nil), maintainers...)
 	for _, root := range roots {
 		ids = append(ids, root.ID)
 		authors = append(authors, root.PubKey)
@@ -300,7 +301,7 @@ func (t *Tenant) collaborationStatuses(ctx context.Context, actor string, roots 
 	for _, root := range roots {
 		allowed := []event.Event{}
 		for _, row := range byRoot[root.ID] {
-			if row.PubKey == root.PubKey || row.PubKey == r.Owner || contains(r.Maintainers, row.PubKey) {
+			if row.PubKey == root.PubKey || contains(maintainers, row.PubKey) {
 				allowed = append(allowed, row)
 			}
 		}

@@ -59,6 +59,8 @@ Every event from an agent key passes these checks before it is stored, whether i
 - Repository events name a repository the grant covers. Issues, patches, pull requests and comments need `read` or `maintain`. Status changes (kinds 1630 to 1633) need `maintain`.
 - The agent has not exceeded its per-minute rate.
 
+A `maintain` grant makes the agent a maintainer of that repository, the same as a key in the announcement's `maintainers` tag. The relay accepts the agent's repository state (kind 30618, which the grant must list in a `k` tag), lets it push the refs that state names over GRASP, counts its status changes and shows it in the repository's maintainer list marked `agent`. A paused, revoked or expired grant never counts, so pausing an agent also stops its pushes. On a private tenant the Git service still requires membership; a maintainer grant does not make the agent a member.
+
 Rejected events return a `restricted: agent grant ...` reason to the client. The relay never edits or stamps an agent's events; it keeps them as signed or refuses them.
 
 The rest of the relay's policy still applies. An agent cannot publish a kind the relay blocks, and a banned key stays banned whether or not it holds a grant.
@@ -85,7 +87,7 @@ Either way the agent loses its role at once. A fresh grant restores access.
 
 ## Manage > Agents
 
-The **Manage > Agents** page is where the owner and moderators see and control agents. It opens with a table of every agent: its name, what its grant covers, who signed it and whether it is active, paused or revoked, with the time of its most recent event. Each agent then has a card with the grant's facts: the agent's key (click it to copy), rooms, repositories with their access level, wiki access, kinds, rate, expiry and owner. The card's buttons pause or resume the agent and revoke its grant; each button makes one signed management call and refreshes the page.
+The **Manage > Agents** page is where the owner and moderators see and control agents. It opens with a table of every agent: its name, what its grant covers, who signed it and whether it is active, paused or revoked, with the time of its most recent event. Each agent then has a card with the grant's facts: the agent's key (click it to copy), rooms, repositories with their access level (`read` or `maintain`), wiki access, kinds, rate, expiry and owner. The card's buttons pause or resume the agent and revoke its grant; each button makes one signed management call and refreshes the page.
 
 Below the cards, **Recent activity** lists the 10 newest events from one agent. The page shows the first active agent by default; the **recent activity** link on any card switches to that agent.
 

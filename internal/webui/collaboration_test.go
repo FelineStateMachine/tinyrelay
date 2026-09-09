@@ -48,7 +48,7 @@ func (b *collaborationBackend) Query(ctx context.Context, method string, params 
 		return map[string]any{"items": []item{root}}, nil
 	}
 	if method == "browseissue" {
-		return map[string]any{"item": root, "replies": []any{}, "can_status": true, "repository": map[string]any{"owner": b.policy.Owner, "clone": []string{"https://git.example/test.git"}, "private": true}}, nil
+		return map[string]any{"item": root, "replies": []any{}, "can_status": true, "repository": map[string]any{"owner": b.policy.Owner, "clone": []string{"https://git.example/test.git"}, "private": true, "maintainers": []map[string]any{{"pubkey": b.policy.Owner, "role": "owner"}, {"pubkey": strings.Repeat("c", 64), "role": "maintainer"}, {"pubkey": strings.Repeat("d", 64), "role": "agent", "name": "release-notes"}}}}, nil
 	}
 	return map[string]any{}, nil
 }
@@ -73,6 +73,9 @@ func TestCollaborationPagesUseTypedResultsAndWorkingDetailLinks(t *testing.T) {
 	app.ServeHTTP(w, httptest.NewRequest(http.MethodGet, link, nil))
 	if w.Code != http.StatusOK || !strings.Contains(w.Body.String(), "Issue body") || !strings.Contains(w.Body.String(), `kind="status"`) || !strings.Contains(w.Body.String(), "https://git.example/test.git") || !strings.Contains(w.Body.String(), "<td>private</td>") {
 		t.Fatalf("detail failed: %d %s", w.Code, w.Body.String())
+	}
+	if body := w.Body.String(); !strings.Contains(body, `<ul id="maintainers">`) || !strings.Contains(body, `hex="`+strings.Repeat("d", 64)+`"`) || !strings.Contains(body, "<small>agent release-notes</small>") || strings.Count(body, "<small>owner</small>") != 1 || strings.Contains(body, "<small>maintainer</small>") {
+		t.Fatalf("maintainer panel: %s", body)
 	}
 	var request map[string]any
 	if err := json.Unmarshal(backend.params[0], &request); err != nil {

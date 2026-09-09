@@ -46,23 +46,25 @@ type BrowseCommit struct {
 }
 
 type BrowsePage struct {
-	Owner      string            `json:"owner"`
-	Identifier string            `json:"identifier"`
-	Head       string            `json:"head"`
-	Private    bool              `json:"private"`
-	Clone      []string          `json:"clone"`
-	Relays     []string          `json:"relays"`
-	Refs       map[string]string `json:"refs"`
-	Commit     string            `json:"commit"`
-	Path       string            `json:"path"`
-	View       string            `json:"view"`
-	Entries    []BrowseEntry     `json:"entries"`
-	Content    string            `json:"content"`
-	Binary     bool              `json:"binary"`
-	Truncated  bool              `json:"truncated"`
-	Commits    []BrowseCommit    `json:"commits"`
-	Diff       string            `json:"diff"`
-	NextOffset int               `json:"next_offset"`
+	Owner      string   `json:"owner"`
+	Identifier string   `json:"identifier"`
+	Head       string   `json:"head"`
+	Private    bool     `json:"private"`
+	Clone      []string `json:"clone"`
+	Relays     []string `json:"relays"`
+	// Maintainers is filled by the host, which knows about agent grants.
+	Maintainers []Maintainer      `json:"maintainers,omitempty"`
+	Refs        map[string]string `json:"refs"`
+	Commit      string            `json:"commit"`
+	Path        string            `json:"path"`
+	View        string            `json:"view"`
+	Entries     []BrowseEntry     `json:"entries"`
+	Content     string            `json:"content"`
+	Binary      bool              `json:"binary"`
+	Truncated   bool              `json:"truncated"`
+	Commits     []BrowseCommit    `json:"commits"`
+	Diff        string            `json:"diff"`
+	NextOffset  int               `json:"next_offset"`
 }
 
 // Repositories returns detached snapshots. Callers must enforce tenant and

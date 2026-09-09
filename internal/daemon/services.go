@@ -118,7 +118,7 @@ func (t *Tenant) initServices(ctx context.Context) error {
 	if err := t.reconcileAutomaticInbox(ctx, currentPolicy, currentPolicy); err != nil {
 		return err
 	}
-	t.git, err = gitrelay.New(gitrelay.Config{Store: t.store, Root: t.meta.Paths.Git, Policy: t.Policy, PublicURL: t.publicURL, AllowPrivateRelays: t.app.cfg.AllowPrivateRelays, PrivatePeers: t.Policy().PrivatePeers, HTTPAuth: t.privateHTTPAuth, GitSync: t.gitSync, EventSync: t.gitEventSync, AuthorizeHTTP: t.authorizeGit, OnPromote: func(ctx context.Context, id string, _ gitrelay.Repository) error {
+	t.git, err = gitrelay.New(gitrelay.Config{Store: t.store, Root: t.meta.Paths.Git, Policy: t.Policy, PublicURL: t.publicURL, AllowPrivateRelays: t.app.cfg.AllowPrivateRelays, PrivatePeers: t.Policy().PrivatePeers, HTTPAuth: t.privateHTTPAuth, GitSync: t.gitSync, EventSync: t.gitEventSync, AuthorizeHTTP: t.authorizeGit, Maintainers: t, OnPromote: func(ctx context.Context, id string, _ gitrelay.Repository) error {
 		return t.releaseGit(ctx, id)
 	}})
 	if err != nil {
@@ -383,7 +383,7 @@ func (t *Tenant) authorizeGit(ctx context.Context, r *http.Request, repo gitrela
 		if err := t.requirePrivateAccess(ctx, e.PubKey); err != nil {
 			return err
 		}
-	} else if e.PubKey != repo.Owner {
+	} else if !t.IsMaintainer(ctx, repo, e.PubKey) {
 		role, roleErr := t.community.Role(ctx, e.PubKey)
 		if roleErr != nil || (role != "owner" && role != "moderator" && role != "member") {
 			return errors.New("restricted: repository authorization required")

@@ -122,7 +122,7 @@ func (t *Tenant) browseRepoAccess(ctx context.Context, actor string, r gitrelay.
 	if err != nil {
 		return err
 	}
-	if actor == r.Owner || role == "owner" || role == "moderator" || role == "member" {
+	if role == "owner" || role == "moderator" || role == "member" || t.IsMaintainer(ctx, r, actor) {
 		return nil
 	}
 	return errors.New("restricted: private repository membership required")
@@ -168,6 +168,7 @@ func (t *Tenant) browseRepo(ctx context.Context, actor string, q clientBrowseReq
 		return nil, err
 	}
 	page.Private = page.Private || t.PrivateServiceEnabled()
+	page.Maintainers = t.repositoryMaintainers(ctx, r)
 	if q.View != "activity" {
 		return page, nil
 	}
