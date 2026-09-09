@@ -323,9 +323,11 @@ func (t *Tenant) retryViewTransform(ctx context.Context, intent work.Intent, pay
 		return err
 	}
 	now := time.Now().Unix()
-	key := sha256.Sum256([]byte(viewTransform + "\x00" + intent.EventID + "\x00" + intent.Target + "\x00" + fmt.Sprint(payload.Attempt)))
+	// The intent id names the source and run; earlier attempts add "#n".
+	source, _, _ := strings.Cut(intent.EventID, "#")
+	key := sha256.Sum256([]byte(viewTransform + "\x00" + source + "\x00" + intent.Target + "\x00" + fmt.Sprint(payload.Attempt)))
 	return t.store.WithTx(ctx, func(tx *sql.Tx) error {
-		_, err := tx.ExecContext(ctx, `INSERT OR IGNORE INTO work_intents(id,kind,event_id,target,payload,next_at,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?)`, hex.EncodeToString(key[:]), viewTransform, intent.EventID+"#"+fmt.Sprint(payload.Attempt), intent.Target, string(encoded), now+int64(delay/time.Second), now, now)
+		_, err := tx.ExecContext(ctx, `INSERT OR IGNORE INTO work_intents(id,kind,event_id,target,payload,next_at,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?)`, hex.EncodeToString(key[:]), viewTransform, source+"#"+fmt.Sprint(payload.Attempt), intent.Target, string(encoded), now+int64(delay/time.Second), now, now)
 		return err
 	})
 }
@@ -686,12 +688,13 @@ func (t *Tenant) dropOrphanArtifacts(ctx context.Context, name string) error {
 	if err != nil {
 		return nil
 	}
-	rows, err := t.store.DB().QueryContext(ctx, `SELECT a.hash, a.raw FROM custom_view_artifacts a WHERE a.view=?`, name)
+	rows, err := t.store.DB().QueryContext(ctx, `SELECT hash, raw FROM custom_view_artifacts WHERE view=?`, name)
 	if err != nil {
 		return err
 	}
-	type stale struct{ hash string }
-	var refresh []stale
+	// Read the rows out before asking about sources: the store lends one
+	// connection at a time.
+	tagged := map[string][]string{}
 	for rows.Next() {
 		var hash, raw string
 		if err := rows.Scan(&hash, &raw); err != nil {
@@ -702,28 +705,28 @@ func (t *Tenant) dropOrphanArtifacts(ctx context.Context, name string) error {
 		if json.Unmarshal([]byte(raw), &signed) != nil {
 			continue
 		}
-		var tagged []string
+		sources := []string{}
 		for _, tag := range signed.Tags {
 			if len(tag) == 2 && (tag[0] == "e" || tag[0] == "a") {
-				tagged = append(tagged, tag[1])
+				sources = append(sources, tag[1])
 			}
 		}
-		current, err := t.artifactSources(ctx, name, hash)
-		if err != nil {
-			rows.Close()
-			return err
-		}
-		sort.Strings(tagged)
-		sort.Strings(current)
-		if strings.Join(tagged, "\n") != strings.Join(current, "\n") {
-			refresh = append(refresh, stale{hash})
-		}
+		tagged[hash] = sources
 	}
 	if err := errors.Join(rows.Err(), rows.Close()); err != nil {
 		return err
 	}
-	for _, item := range refresh {
-		if err := t.signArtifact(ctx, view, item.hash, time.Now().Unix()); err != nil {
+	for hash, sources := range tagged {
+		current, err := t.artifactSources(ctx, name, hash)
+		if err != nil {
+			return err
+		}
+		sort.Strings(sources)
+		sort.Strings(current)
+		if strings.Join(sources, "\n") == strings.Join(current, "\n") {
+			continue
+		}
+		if err := t.signArtifact(ctx, view, hash, time.Now().Unix()); err != nil {
 			return err
 		}
 	}

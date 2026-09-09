@@ -422,7 +422,7 @@ func (t *Tenant) customViewRows(ctx context.Context, names ...string) ([]customV
 		query += ` WHERE name=?`
 		args = append(args, names[0])
 	}
-	query += ` ORDER BY created_at,name`
+	query += ` ORDER BY created_at,rowid`
 	rows, err := t.store.DB().QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("list custom views: %w", err)
@@ -505,7 +505,7 @@ func (t *Tenant) queueCustomViews(ctx context.Context, e event.Event) {
 	if len(candidates) == 0 {
 		return
 	}
-	if e.Kind == event.KIND_REPO_STATE && (t.git == nil || t.git.IsPending(e.ID)) {
+	if e.Kind == event.KIND_REPO_STATE && (t.git == nil || t.statePending(ctx, e.ID)) {
 		// The README is read from the objects, which have not arrived yet;
 		// releaseGit queues the state once they have.
 		return
@@ -545,6 +545,14 @@ func (t *Tenant) viewIntent(view customView, e event.Event, run string) storage.
 	return storage.Intent{Kind: viewTransform, EventID: id, Target: view.Name, Payload: string(payload)}
 }
 
+// statePending reports whether a repository state still waits for its
+// objects.
+func (t *Tenant) statePending(ctx context.Context, id string) bool {
+	var one int
+	err := t.store.DB().QueryRowContext(ctx, `SELECT 1 FROM pending_events WHERE id=?`, id).Scan(&one)
+	return err == nil || t.git.IsPending(id)
+}
+
 // queueCustomViewBackfill queues the newest sources of a view's kinds, at
 // most 500, written since the given time. Repository states are queued
 // whether or not their README has blocks; the handler reads it.
@@ -559,7 +567,7 @@ func (t *Tenant) queueCustomViewBackfill(ctx context.Context, view customView, s
 			continue
 		}
 		if e.Kind == event.KIND_REPO_STATE {
-			if t.git == nil || t.git.IsPending(e.ID) {
+			if t.git == nil || t.statePending(ctx, e.ID) {
 				continue
 			}
 		} else if len(views.Matching(views.Blocks(e.Content), view.Languages)) == 0 {

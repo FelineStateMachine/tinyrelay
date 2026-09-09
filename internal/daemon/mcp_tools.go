@@ -133,6 +133,9 @@ func (t *Tenant) mcpTools() (*mcp.Registry, error) {
 	add("list_callbacks", "List event callbacks: id, owner, host, filter, paused state, failures and last delivery. Members and agents see their own; the owner and moderators see every callback. The secret is never listed.", mcp.Object(nil), mcpReads, func(ctx context.Context, call mcp.Call) (mcp.Result, error) {
 		return t.mcpManage(ctx, call, "listcallbacks")
 	})
+	add("list_custom_views", "List the owner's custom views: name, kinds, languages, transform host, trigger, audience, state, failures and last run. The secret is never listed. Owner only.", mcp.Object(nil), mcpReads, func(ctx context.Context, call mcp.Call) (mcp.Result, error) {
+		return t.mcpManage(ctx, call, "listcustomviews")
+	})
 	add("list_join_requests", "List access requests from people who asked to join without an invite: pubkey, reason, requested_at, status (pending, approved or denied), decided_by and decided_at. Pending requests come first. Requires an owner or moderator key.", mcp.Object(nil), mcpReads, func(ctx context.Context, call mcp.Call) (mcp.Result, error) {
 		return t.mcpManage(ctx, call, "listjoinrequests")
 	})
@@ -163,6 +166,21 @@ func (t *Tenant) mcpTools() (*mcp.Registry, error) {
 	})
 	add("add_callback", "Register an https URL that receives a POST with each new event matching filter that your key may see. The filter takes kinds (required), authors, #a, #e, #p and #h with at most 8 values each. The answer carries the callback id and, once, the secret used for the X-Tiny-Signature header; keep it. Members and agents may hold up to the relay's callback allowance, 4 by default.", mcp.Object(map[string]any{"url": map[string]any{"type": "string", "description": "An https URL on a public host."}, "filter": map[string]any{"type": "object", "description": "NIP-01 filter subset: kinds, authors, #a, #e, #p, #h.", "minProperties": 1}, "secret": map[string]any{"type": "string", "minLength": callbackSecretMin, "maxLength": callbackSecretMax, "description": "Optional shared secret, 16 to 128 printable ASCII characters. Generated when omitted."}}, "url", "filter"), mcpChanges, func(ctx context.Context, call mcp.Call) (mcp.Result, error) {
 		return t.mcpManage(ctx, call, "addcallback", call.Arguments)
+	})
+	add("add_custom_view", "Define a custom view: the relay POSTs the fenced code blocks of matching events, in the listed languages, to an https transform and keeps the SVG or PNG artifacts it returns as relay-signed events shown in place of the blocks. The answer carries the secret once, used for the X-Tiny-Signature header; keep it. Owner only.", mcp.Object(map[string]any{"name": map[string]any{"type": "string", "pattern": "^[a-z0-9-]{1,32}$", "description": "View name: 1 to 32 lowercase letters, digits or hyphens."}, "kinds": map[string]any{"type": "array", "items": map[string]any{"type": "integer", "minimum": 0, "maximum": 65535}, "minItems": 1, "maxItems": viewKindMax, "description": "Event kinds the view watches; 30618 sends the repository README at its head."}, "transform": map[string]any{"type": "string", "description": "An https URL on a public host that renders the blocks."}, "trigger": map[string]any{"type": "string", "enum": []string{"write", "hourly"}, "description": "write sends each matching event as it arrives; hourly sends the newest ones every hour."}, "audience": map[string]any{"type": "string", "enum": []string{"public", "members"}, "description": "Who may see the artifacts."}, "languages": map[string]any{"type": "array", "items": map[string]any{"type": "string", "minLength": 1, "maxLength": viewLanguageLength}, "minItems": 1, "maxItems": viewLanguageMax, "description": "Fenced block languages the view renders, lowercase."}, "max_bytes": map[string]any{"type": "integer", "minimum": 1, "maximum": viewMaxBytesCap, "description": "Largest artifact accepted, in bytes. 1 MiB when omitted, 4 MiB at most."}, "secret": map[string]any{"type": "string", "minLength": callbackSecretMin, "maxLength": callbackSecretMax, "description": "Optional shared secret, 16 to 128 printable ASCII characters. Generated when omitted."}}, "name", "kinds", "transform", "languages"), mcpChanges, func(ctx context.Context, call mcp.Call) (mcp.Result, error) {
+		return t.mcpManage(ctx, call, "addcustomview", call.Arguments)
+	})
+	add("remove_custom_view", "Delete a custom view and every artifact it produced. Owner only.", mcp.Object(map[string]any{"name": mcpID}, "name"), mcpSettings, func(ctx context.Context, call mcp.Call) (mcp.Result, error) {
+		return t.mcpManage(ctx, call, "removecustomview", call.String("name"))
+	})
+	add("pause_custom_view", "Stop a custom view: no transform requests until it is resumed. Its artifacts stay. Owner only.", mcp.Object(map[string]any{"name": mcpID}, "name"), mcpControls, func(ctx context.Context, call mcp.Call) (mcp.Result, error) {
+		return t.mcpManage(ctx, call, "pausecustomview", call.String("name"))
+	})
+	add("resume_custom_view", "Resume a paused custom view and clear its failure count. Owner only.", mcp.Object(map[string]any{"name": mcpID}, "name"), mcpControls, func(ctx context.Context, call mcp.Call) (mcp.Result, error) {
+		return t.mcpManage(ctx, call, "resumecustomview", call.String("name"))
+	})
+	add("run_custom_view", "Queue a backfill of a custom view over the newest 500 events of its kinds. Blocks that already have an artifact are reused. Owner only.", mcp.Object(map[string]any{"name": mcpID}, "name"), mcpChanges, func(ctx context.Context, call mcp.Call) (mcp.Result, error) {
+		return t.mcpManage(ctx, call, "runcustomview", call.String("name"))
 	})
 	add("remove_callback", "Delete a callback by id. The callback's owner, the relay owner and moderators may do this.", mcp.Object(map[string]any{"id": mcpID}, "id"), mcpSettings, func(ctx context.Context, call mcp.Call) (mcp.Result, error) {
 		return t.mcpManage(ctx, call, "removecallback", call.String("id"))
