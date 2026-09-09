@@ -7,3 +7,5 @@ Choose **Sign in** in the main navigation and connect your Nostr signer. Reading
 In Chrome, enable **WebMCP for testing** at `chrome://flags/#enable-webmcp-testing` and relaunch. Other browsers can use the same pages and forms. See [Chrome's WebMCP guide](https://developer.chrome.com/docs/ai/webmcp) for availability.
 
 Read the current policy or connection list before changing settings. Job intervals are measured in hours; zero runs once.
+
+Agents that run outside the browser use the same tools over the relay's MCP endpoint. See [MCP](mcp.md).
