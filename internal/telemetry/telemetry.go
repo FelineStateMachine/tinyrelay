@@ -239,7 +239,7 @@ func latencyBuckets() []float64 {
 var operationNames = map[string]struct{}{"http": {}, "websocket": {}, "publish": {}, "subscribe": {}, "query": {}, "count": {}, "fanout": {}, "delivery": {}, "commit": {}, "save": {}, "parse": {}, "authorize": {}, "upgrade": {}, "callback": {}, "delivery-discovery": {}, "notification-broadcast": {}, "browserepos": {}, "browserepo": {}, "browsefiles": {}, "browsefile": {}, "browsestatus": {}, "browseissues": {}, "browsepulls": {}, "browseissue": {}, "browsepull": {}, "browse-download": {}}
 var outcomeNames = map[string]struct{}{"success": {}, "ok": {}, "invalid": {}, "unauthorized": {}, "timeout": {}, "busy": {}, "closed": {}, "error": {}}
 var queueNames = map[string]struct{}{"inbox": {}, "outbox": {}, "write": {}, "delivery": {}}
-var workNames = map[string]struct{}{"delivery": {}, "push": {}, "replication": {}, "webhook": {}, "job": {}, "records-projection": {}, "site-mirror": {}, "git-metadata": {}, "catalog-owner": {}, "callback": {}, "delivery-discovery": {}, "notification-delivery": {}, "notification-broadcast": {}, "notification": {}}
+var workNames = map[string]struct{}{"delivery": {}, "push": {}, "replication": {}, "webhook": {}, "job": {}, "records-projection": {}, "site-mirror": {}, "git-metadata": {}, "catalog-owner": {}, "callback": {}, "delivery-discovery": {}, "notification-delivery": {}, "notification-broadcast": {}, "notification-push": {}, "notification": {}}
 
 func bounded(value string, allowed map[string]struct{}) string {
 	if _, ok := allowed[value]; ok {

@@ -22,6 +22,7 @@ import (
 const (
 	notificationBroadcast = "notification-broadcast"
 	notificationDelivery  = "notification-delivery"
+	notificationPush      = "notification-push"
 )
 
 type notificationPayload struct {

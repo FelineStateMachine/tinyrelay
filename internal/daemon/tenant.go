@@ -27,6 +27,7 @@ import (
 	"github.com/FelineStateMachine/tinyrelay/internal/sites"
 	"github.com/FelineStateMachine/tinyrelay/internal/storage"
 	"github.com/FelineStateMachine/tinyrelay/internal/syncprotocol"
+	"github.com/FelineStateMachine/tinyrelay/internal/webpush"
 	"github.com/FelineStateMachine/tinyrelay/internal/webui"
 )
 
@@ -65,6 +66,9 @@ type Tenant struct {
 	policy        policy.Policy
 	maintenance   maintenanceGate
 	gitLegacy     *replication.LegacyCache
+	pushMu        sync.Mutex
+	pushVAPID     *webpush.Keys
+	pushClient    *http.Client
 }
 
 func newTenant(ctx context.Context, cfg tenantConfig) (*Tenant, error) {

@@ -32,7 +32,10 @@ type Config struct {
 	GroupID             string
 	OnGenerated         func(context.Context, event.Event) error
 	DeliverNotification func(context.Context, event.Event, string) error
-	OnTransfer          func(context.Context, string, string) error
+	// PushNotification receives a plaintext summary of each notification for
+	// device delivery. The gift wrap itself is opaque to the relay once sealed.
+	PushNotification func(context.Context, string, string, string, string) error
+	OnTransfer       func(context.Context, string, string) error
 }
 
 type Service struct {
@@ -44,6 +47,7 @@ type Service struct {
 	secret              string
 	onGenerated         func(context.Context, event.Event) error
 	deliverNotification func(context.Context, event.Event, string) error
+	pushNotification    func(context.Context, string, string, string, string) error
 	onTransfer          func(context.Context, string, string) error
 	mu                  sync.Mutex
 }
@@ -86,7 +90,7 @@ func New(ctx context.Context, cfg Config) (*Service, error) {
 	if groupID == "" {
 		groupID = cfg.RelayURL
 	}
-	return &Service{store: cfg.Store, policy: cfg.Policy, setPolicy: cfg.SetPolicy, relayURL: cfg.RelayURL, groupID: groupID, secret: secret, onGenerated: cfg.OnGenerated, deliverNotification: cfg.DeliverNotification, onTransfer: cfg.OnTransfer}, nil
+	return &Service{store: cfg.Store, policy: cfg.Policy, setPolicy: cfg.SetPolicy, relayURL: cfg.RelayURL, groupID: groupID, secret: secret, onGenerated: cfg.OnGenerated, deliverNotification: cfg.DeliverNotification, pushNotification: cfg.PushNotification, onTransfer: cfg.OnTransfer}, nil
 }
 
 func (s *Service) group() string { return s.groupID }
@@ -1386,12 +1390,22 @@ func (s *Service) notify(ctx context.Context, typ, owner, target string, now int
 		return err
 	}
 	if s.deliverNotification != nil {
-		return s.deliverNotification(ctx, wrapped, target)
+		if err := s.deliverNotification(ctx, wrapped, target); err != nil {
+			return err
+		}
+		return s.push(ctx, target, typ, "relay", "")
 	}
 	if s.onGenerated != nil {
 		return s.onGenerated(ctx, wrapped)
 	}
 	return err
+}
+
+func (s *Service) push(ctx context.Context, recipient, kind, subject, text string) error {
+	if s.pushNotification == nil {
+		return nil
+	}
+	return s.pushNotification(ctx, recipient, kind, subject, text)
 }
 
 // Notify applies the source notification preferences and emits a durable
@@ -1423,7 +1437,10 @@ func (s *Service) notifyText(ctx context.Context, kind, text, subject, target st
 		return err
 	}
 	if s.deliverNotification != nil {
-		return s.deliverNotification(ctx, wrapped, target)
+		if err := s.deliverNotification(ctx, wrapped, target); err != nil {
+			return err
+		}
+		return s.push(ctx, target, kind, subject, text)
 	}
 	if s.onGenerated != nil {
 		return s.onGenerated(ctx, wrapped)

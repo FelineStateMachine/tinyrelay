@@ -133,6 +133,10 @@ func (c CallbackClient) Post(ctx context.Context, registration PushRegistration,
 	return nil
 }
 
+// NewPinnedClient returns an HTTPS client that refuses private addresses and
+// redirects, for calls to third-party services such as push endpoints.
+func NewPinnedClient(timeout time.Duration) *http.Client { return pinnedClient(nil, timeout) }
+
 func pinnedClient(resolver Resolver, timeout time.Duration) *http.Client {
 	if timeout <= 0 {
 		timeout = 5 * time.Second

@@ -64,6 +64,10 @@ func (t *Tenant) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		t.sessionHTTP(w, r)
 		return
 	}
+	if strings.HasPrefix(r.URL.Path, "/push/") {
+		t.pushHTTP(w, r)
+		return
+	}
 	if t.tryBrowseHTTP(w, r) {
 		return
 	}

@@ -39,6 +39,9 @@ func (t *Tenant) initServices(ctx context.Context) error {
 	if err := t.initSessions(ctx); err != nil {
 		return err
 	}
+	if err := t.initPush(ctx); err != nil {
+		return err
+	}
 	t.blobs, err = blob.New(ctx, blob.Config{
 		Root: t.meta.Paths.Root, PublicURL: t.publicURL, Store: t.store, Authorize: t.authorizeBlob,
 		Limits: func() blob.Limits {
@@ -96,7 +99,7 @@ func (t *Tenant) initServices(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	t.records, err = records.New(ctx, records.Config{Store: t.store, Policy: t.Policy, RelayURL: t.RelayURL(), GroupID: t.meta.Name, OnGenerated: t.generatedRecord, DeliverNotification: t.deliverNotification, SetPolicy: func(next policy.Policy) error { return t.applyPolicy(context.Background(), next) }})
+	t.records, err = records.New(ctx, records.Config{Store: t.store, Policy: t.Policy, RelayURL: t.RelayURL(), GroupID: t.meta.Name, OnGenerated: t.generatedRecord, DeliverNotification: t.deliverNotification, PushNotification: t.enqueuePush, SetPolicy: func(next policy.Policy) error { return t.applyPolicy(context.Background(), next) }})
 	if err != nil {
 		return err
 	}
@@ -492,6 +495,7 @@ func (t *Tenant) workHandlers() map[string]work.Handler {
 	for kind, handler := range t.notificationHandlers() {
 		handlers[kind] = handler
 	}
+	handlers[notificationPush] = t.handleNotificationPush
 	return handlers
 }
 
