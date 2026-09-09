@@ -26,6 +26,10 @@
     {"src": "BASE/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any"},
     {"src": "BASE/icon-mono.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "monochrome"}
   ],
+  "screenshots": [
+    {"src": "BASE/screenshot-narrow.png", "sizes": "390x844", "type": "image/png", "form_factor": "narrow", "label": "Files on a phone"},
+    {"src": "BASE/screenshot-wide.png", "sizes": "1280x800", "type": "image/png", "form_factor": "wide", "label": "Repositories on a desktop"}
+  ],
   "shortcuts": [
     {"name": "Files", "url": "BASE/files", "icons": [{"src": "BASE/icon-192.png", "sizes": "192x192"}]},
     {"name": "Repositories", "url": "BASE/repos", "icons": [{"src": "BASE/icon-192.png", "sizes": "192x192"}]},

@@ -77,6 +77,12 @@ var appleTouchIconPNG []byte
 //go:embed badge-96.png
 var badgePNG []byte
 
+//go:embed screenshot-narrow.png
+var screenshotNarrowPNG []byte
+
+//go:embed screenshot-wide.png
+var screenshotWidePNG []byte
+
 //go:embed sw.js
 var serviceWorkerJS []byte
 

@@ -220,7 +220,7 @@ func (a *App) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
 		_, _ = writer.Write(serviceWorkerJS)
 		return
 	}
-	if png, ok := map[string][]byte{"/icon-192.png": icon192PNG, "/icon-512.png": icon512PNG, "/icon-maskable-512.png": iconMaskablePNG, "/apple-touch-icon.png": appleTouchIconPNG, "/badge-96.png": badgePNG}[request.URL.Path]; ok {
+	if png, ok := map[string][]byte{"/icon-192.png": icon192PNG, "/icon-512.png": icon512PNG, "/icon-maskable-512.png": iconMaskablePNG, "/apple-touch-icon.png": appleTouchIconPNG, "/badge-96.png": badgePNG, "/screenshot-narrow.png": screenshotNarrowPNG, "/screenshot-wide.png": screenshotWidePNG}[request.URL.Path]; ok {
 		writer.Header().Set("content-type", "image/png")
 		writer.Header().Set("cache-control", "public, max-age=86400")
 		_, _ = writer.Write(png)
