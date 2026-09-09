@@ -285,3 +285,48 @@ test("retry keeps the original ciphertext and key after interrupted encrypted up
   assert.equal(new URL(link).hash.slice(1), originalFragment);
   assert.equal(upload.pending, null);
 });
+
+test("large uploads hand signed requests to Background Fetch and read the parked descriptor", async () => {
+  const {window, FileUpload} = load(true);
+  window.tiny.localPath = path => path;
+  window.tiny.sha256hex = async bytes => Buffer.from(await webcrypto.subtle.digest("SHA-256", bytes)).toString("hex");
+  window.tiny.authorization = async (url, method, body) => "Nostr " + method + ":" + new URL(url).pathname + ":" + body.byteLength;
+  window.tiny.navigate = async () => {};
+  const bytes = new Uint8Array(9 * 1024 * 1024);
+  bytes[0] = 7;
+  const hash = await window.tiny.sha256hex(bytes);
+  const descriptor = {sha256: hash, size: bytes.byteLength};
+  let started;
+  const task = {result: "", uploaded: 0, uploadTotal: bytes.byteLength, listeners: [], addEventListener(name, fn) { this.listeners.push(fn); }, removeEventListener() {}};
+  const parked = new Map();
+  globalThis.caches = {open: async () => ({match: async key => parked.get(key), delete: async key => parked.delete(key), put: async (key, value) => parked.set(key, value)})};
+  globalThis.BackgroundFetchManager = class {};
+  const store = new Map();
+  globalThis.localStorage = {getItem: key => store.get(key) ?? null, setItem: (key, value) => store.set(key, value), removeItem: key => store.delete(key), get length() { return store.size; }};
+  Object.defineProperty(globalThis, "localStorage", {configurable: true, value: globalThis.localStorage});
+  Object.keys = ((original => target => target === globalThis.localStorage ? [...store.keys()] : original(target)))(Object.keys);
+  Object.defineProperty(globalThis, "navigator", {configurable: true, value: {clipboard: {writeText: async () => { throw Error("unavailable"); }}, serviceWorker: {controller: {}, ready: Promise.resolve({backgroundFetch: {fetch: async (id, requests, options) => { started = {id, requests, options}; return task; }, get: async () => null}})}}});
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (_url, init = {}) => new Response(null, {status: 204, headers: {Allow: "PATCH, PUT"}});
+  try {
+    const upload = new FileUpload(); window.document.append(upload); upload.connectedCallback();
+    const form = upload.querySelector("form");
+    form.elements.namedItem("file").files = [new File([bytes], "big.bin", {type: "application/octet-stream"})];
+    const run = upload.run(form);
+    await new Promise(resolve => setTimeout(resolve, 50));
+    assert.ok(started, "background fetch was not started");
+    assert.equal(started.requests.length, 2);
+    assert.equal(started.requests[0].method, "PATCH");
+    assert.equal(started.requests[1].headers.get("upload-offset"), String(5 * 1024 * 1024));
+    assert.match(started.requests[0].headers.get("authorization"), /^Nostr PATCH:/);
+    assert.equal(started.options.uploadTotal, bytes.byteLength);
+    assert.equal(store.get("tiny.bg." + started.id) !== undefined, true);
+    parked.set("https://relay.test/uploads/" + started.id, Response.json(descriptor));
+    task.result = "success"; task.uploaded = bytes.byteLength;
+    for (const fn of task.listeners) await fn();
+    await run;
+    assert.equal(store.has("tiny.bg." + started.id), false);
+    assert.equal(parked.size, 0);
+    assert.equal(upload.out.textContent, "Stored 1 file.");
+  } finally { globalThis.fetch = originalFetch; }
+});

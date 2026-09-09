@@ -6,6 +6,10 @@ The relay installs as an app from the browser menu on Android, iOS and desktop. 
 
 Share a photo, file or link from another app and choose the relay. Shared files wait in the Upload panel on the Files page until you press **Upload**, so nothing is stored without your signature. A shared link opens the **Import from URL** control with the address filled in.
 
+## Large uploads
+
+On browsers that offer it, a file of 8 MiB or more uploads through the browser's background transfer, so the upload continues after the app closes. Every request is signed before the transfer starts, and the browser shows its own progress notice. Open the Files page later to see the result; for an encrypted file the share link appears there. On other browsers the upload runs while the page stays open.
+
 ## Nostr links
 
 The app registers for `web+nostr:` links. A link to an `npub`, `nprofile`, `note`, `nevent` or `naddr` opens the matching page: the author's events, the event page or the article. Plain `nostr:` links open the same way through `/open?target=`.

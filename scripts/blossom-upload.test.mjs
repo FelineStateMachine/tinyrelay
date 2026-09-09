@@ -125,3 +125,17 @@ test("keeps the response body readable after headers arrive", async () => {
     assert.equal(result.descriptor.sha256, hash);
   } finally { await new Promise(resolve => server.close(resolve)); }
 });
+
+test("plan lists signed chunk requests without sending them", async () => {
+  const bytes = new Uint8Array(12);
+  const calls = [];
+  const planned = await sandbox.tiny.blossom.upload.plan(bytes, {url: "https://blossom.example/", chunkSize: 5, authorize: async (url, method, body) => { calls.push([method, body.byteLength]); return "Nostr " + url; }});
+  assert.equal(planned.size, 12);
+  assert.equal(planned.requests.length, 3);
+  assert.equal(planned.requests.map(request => request.headers["upload-offset"]).join(","), "0,5,10");
+  assert.equal(planned.requests.map(request => request.body.byteLength).join(","), "5,5,2");
+  assert.equal(planned.requests[0].headers["upload-length"], "12");
+  assert.equal(planned.requests[0].url, "https://blossom.example/" + planned.hash);
+  assert.equal(JSON.stringify(calls), JSON.stringify([["PATCH", 5], ["PATCH", 5], ["PATCH", 2]]));
+  assert.equal(planned.requests[2].headers.authorization, "Nostr https://blossom.example/" + planned.hash);
+});

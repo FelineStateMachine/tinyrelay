@@ -145,6 +145,11 @@
   // file gets a fresh random key, a folder or a large file becomes encrypted
   // manifests, and the share link carries the key only in its fragment.
   const LARGE_FILE_BYTES = 64 * 1024 * 1024;
+  // Transfers at least this large go through Background Fetch where the
+  // browser offers it, so closing the app does not stop them.
+  const BACKGROUND_BYTES = 8 * 1024 * 1024;
+  const backgroundAvailable = () =>
+    "BackgroundFetchManager" in globalThis && Boolean(navigator.serviceWorker?.controller);
   const {b64url} = globalThis.tiny.util;
   class FileUpload extends HTMLElement {
     connectedCallback() {
@@ -176,6 +181,116 @@
       this.querySelector("[data-cancel]").addEventListener("click", () => this.controller?.abort());
       this.querySelector("[data-retry]").addEventListener("click", () => this.run().catch(() => {}));
       this.intake().catch(error => this.say(error.message, true));
+      this.resumeBackground().catch(() => {});
+    }
+    // storeBackground hands one blob to the browser's Background Fetch with
+    // every request signed up front, then waits for the parked descriptor.
+    async storeBackground(bytes, {hash, type, name, fragment}) {
+      const registration = await navigator.serviceWorker.ready;
+      const base = new URL(tiny.localPath("/"), location.href).href;
+      const authorize = (target, method, body) => tiny.authorization(target, method, body);
+      let requests;
+      const probe = await fetch(base, {method: "OPTIONS"}).catch(() => null);
+      if (probe && /(?:^|,|\s)PATCH(?:,|\s|$)/i.test(probe.headers.get("allow") || "")) {
+        const planned = await upload().plan(bytes, {url: base, hash, type, authorize});
+        requests = planned.requests.map(
+          item => new Request(item.url, {method: item.method, headers: item.headers, body: item.body})
+        );
+      } else {
+        const target = base.replace(/\/$/, "") + "/upload";
+        requests = [
+          new Request(target, {
+            method: "PUT",
+            headers: {"content-type": type, authorization: await authorize(target, "PUT", bytes)},
+            body: bytes
+          })
+        ];
+      }
+      const id = "tiny-upload-" + crypto.randomUUID();
+      localStorage.setItem("tiny.bg." + id, JSON.stringify({hash, fragment: fragment || "", name, at: Date.now()}));
+      const task = await registration.backgroundFetch.fetch(id, requests, {
+        title: "Uploading " + name,
+        icons: [
+          {src: new URL(tiny.localPath("/icon-192.png"), location.href).href, sizes: "192x192", type: "image/png"}
+        ],
+        uploadTotal: bytes.byteLength
+      });
+      this.say("Uploading in the background. You can close this page.");
+      return this.awaitBackground(task, hash, id);
+    }
+    awaitBackground(task, hash, id) {
+      return new Promise((resolve, reject) => {
+        const settle = async () => {
+          if (task.result === "") {
+            if (task.uploadTotal)
+              this.say("Uploading in the background " + Math.round((task.uploaded / task.uploadTotal) * 100) + "%…");
+            return false;
+          }
+          task.removeEventListener?.("progress", settle);
+          try {
+            resolve(
+              await this.backgroundDescriptor(id, hash, task.result === "success" ? "" : task.failureReason || "failed")
+            );
+          } catch (error) {
+            reject(error);
+          }
+          return true;
+        };
+        task.addEventListener("progress", settle);
+        settle();
+      });
+    }
+    // backgroundDescriptor reads the parked result, verifies the hash and
+    // forgets the transfer.
+    async backgroundDescriptor(id, hash, failure) {
+      const cache = await caches.open("tiny-uploads");
+      const key = new URL(tiny.localPath("/uploads/" + id), location.href).href;
+      const response = await cache.match(key);
+      await cache.delete(key);
+      localStorage.removeItem("tiny.bg." + id);
+      if (failure) throw Error("Background upload " + failure + ".");
+      const descriptor = response ? await response.json().catch(() => null) : null;
+      if (!descriptor || descriptor.sha256 !== hash) throw Error("Relay returned an unexpected hash.");
+      return descriptor;
+    }
+    // resumeBackground picks up transfers started on an earlier visit.
+    async resumeBackground() {
+      if (!backgroundAvailable()) return;
+      const pending = Object.keys(localStorage).filter(key => key.startsWith("tiny.bg."));
+      if (!pending.length) return;
+      const registration = await navigator.serviceWorker.ready;
+      for (const key of pending) {
+        const id = key.slice("tiny.bg.".length);
+        let info;
+        try {
+          info = JSON.parse(localStorage.getItem(key));
+        } catch {
+          localStorage.removeItem(key);
+          continue;
+        }
+        const task = await registration.backgroundFetch.get(id).catch(() => null);
+        const finish = descriptor => {
+          if (!info.fragment) {
+            this.say("Background upload of " + info.name + " finished.");
+            return tiny.navigate?.(location.href);
+          }
+          const link = new URL(tiny.localPath("/file"), location.href);
+          link.search = "?hash=" + descriptor.sha256;
+          link.hash = info.fragment;
+          return this.showLink(link.href);
+        };
+        try {
+          if (task && task.result === "") await this.awaitBackground(task, info.hash, id).then(finish);
+          else
+            await this.backgroundDescriptor(
+              id,
+              info.hash,
+              task && task.result !== "success" ? task.failureReason || "failed" : ""
+            ).then(finish);
+        } catch (error) {
+          this.say(error.message, true);
+        }
+      }
     }
     // intake collects files parked by the service worker for a share from
     // another app. They wait here until the person presses Upload.
@@ -190,9 +305,14 @@
         const response = await cache.match("/share/" + id + "/" + index);
         if (!response) continue;
         const blob = await response.blob();
-        files.push(new File([blob], decodeURIComponent(response.headers.get("x-name") || "shared"), {type: response.headers.get("content-type") || blob.type}));
+        files.push(
+          new File([blob], decodeURIComponent(response.headers.get("x-name") || "shared"), {
+            type: response.headers.get("content-type") || blob.type
+          })
+        );
       }
-      for (const key of await cache.keys()) if (new URL(key.url).pathname.startsWith("/share/" + id + "/")) await cache.delete(key);
+      for (const key of await cache.keys())
+        if (new URL(key.url).pathname.startsWith("/share/" + id + "/")) await cache.delete(key);
       history.replaceState?.(null, "", location.pathname + location.search);
       if (files.length) {
         this.choose(files);
@@ -311,10 +431,13 @@
       for (const [index, file] of files.entries()) {
         checkAbort(this.controller.signal);
         this.say("Uploading " + file.name + " (" + (index + 1) + " of " + files.length + ")…");
-        await tiny.signedFetch("/upload", "PUT", await file.arrayBuffer(), {
-          contentType: file.type || "application/octet-stream",
-          signal: this.controller.signal
-        });
+        const bytes = new Uint8Array(await file.arrayBuffer());
+        const type = file.type || "application/octet-stream";
+        if (files.length === 1 && bytes.byteLength >= BACKGROUND_BYTES && backgroundAvailable()) {
+          await this.storeBackground(bytes, {hash: await tiny.sha256hex(bytes), type, name: file.name});
+          continue;
+        }
+        await tiny.signedFetch("/upload", "PUT", bytes, {contentType: type, signal: this.controller.signal});
       }
     }
     // storeSealed encrypts one file with a fresh AES-GCM key. The ciphertext
@@ -345,7 +468,14 @@
       const {ciphertext, fragment, state} = this.pending;
       const hash = await tiny.sha256hex(ciphertext);
       let descriptor;
-      if (upload()?.upload) {
+      if (ciphertext.byteLength >= BACKGROUND_BYTES && backgroundAvailable() && upload()?.plan) {
+        descriptor = await this.storeBackground(ciphertext, {
+          hash,
+          type: "application/octet-stream",
+          name: file.name,
+          fragment
+        });
+      } else if (upload()?.upload) {
         const task = upload().upload(ciphertext, {
           url: new URL(tiny.localPath("/"), location.href).href,
           hash,

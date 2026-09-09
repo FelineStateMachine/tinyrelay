@@ -41,6 +41,31 @@ const receiveShare = async (request, url) => {
   return Response.redirect(url.pathname.replace(/\/share$/, "/files") + "#share=" + id, 303);
 };
 
+// Background uploads finish after the page closes. The last response is the
+// blob descriptor; it is parked for the Files page and the person is told.
+const uploadResult = async (registration, ok, detail) => {
+  const cache = await caches.open("tiny-uploads");
+  let response = Response.json({error: detail || "upload failed"}, {status: 500});
+  if (ok) {
+    const records = await registration.matchAll();
+    const last = records[records.length - 1];
+    if (last) response = (await last.responseReady).clone();
+  }
+  await cache.put(new Request(new URL("/uploads/" + registration.id, self.registration.scope).href), response);
+};
+self.addEventListener("backgroundfetchsuccess", event => {
+  event.waitUntil(uploadResult(event.registration, true).then(() => event.updateUI({title: "Upload complete"})));
+});
+self.addEventListener("backgroundfetchfail", event => {
+  event.waitUntil(uploadResult(event.registration, false, event.registration.failureReason).then(() => event.updateUI({title: "Upload failed"})));
+});
+self.addEventListener("backgroundfetchabort", event => {
+  event.waitUntil(uploadResult(event.registration, false, "aborted"));
+});
+self.addEventListener("backgroundfetchclick", event => {
+  event.waitUntil(self.clients.openWindow(new URL("files", self.registration.scope).href));
+});
+
 // Notifications are opt-in per device; a push only arrives after the person
 // enabled them on this browser. The payload is the relay's short summary.
 self.addEventListener("push", event => {

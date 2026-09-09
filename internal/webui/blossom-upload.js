@@ -31,7 +31,10 @@
     return descriptor;
   };
 
-  const uploadTask = async (source, options = {}, controller) => {
+  // resolveTarget checks the source and options and returns the blob URL
+  // the upload addresses. Both the live uploader and the background plan
+  // use it so they agree on every detail.
+  const resolveTarget = async (source, options) => {
     const bytes = await asBytes(source);
     const hash = options.hash || hex(await sha256(bytes));
     if (!/^[0-9a-f]{64}$/.test(hash)) throw new Error("expected a lowercase SHA-256 hash");
@@ -55,7 +58,38 @@
     const target = new RegExp("/" + hash + "(?:\\.[a-z0-9]{1,8})?/?$").test(path)
       ? base
       : base.replace(/\/$/, "") + "/" + hash + (extension ? "." + extension : "");
-    const url = target;
+    return {bytes, hash, type, url: target};
+  };
+
+  // plan lists the signed chunk requests for one upload without sending
+  // them, so a browser can hand the transfer to Background Fetch and finish
+  // it after the page closes. Each chunk carries its own authorization.
+  const plan = async (source, options = {}) => {
+    const {bytes, hash, type, url} = await resolveTarget(source, options);
+    const chunkSize =
+      Number.isSafeInteger(options.chunkSize) && options.chunkSize > 0 ? options.chunkSize : 5 * 1024 * 1024;
+    const requests = [];
+    for (let offset = 0; offset < bytes.byteLength || (bytes.byteLength === 0 && offset === 0); offset += chunkSize) {
+      const chunk = bytes.slice(offset, Math.min(offset + chunkSize, bytes.byteLength));
+      const headers = {
+        "upload-type": type,
+        "upload-length": String(bytes.byteLength),
+        "upload-offset": String(offset),
+        "content-type": "application/octet-stream"
+      };
+      if (options.authorize) {
+        const value = await options.authorize(url, "PATCH", chunk, {hash, type});
+        if (typeof value === "string") headers.authorization = value;
+        else if (value && typeof value === "object") Object.assign(headers, value);
+      }
+      requests.push({url, method: "PATCH", headers, body: chunk});
+      if (bytes.byteLength === 0) break;
+    }
+    return {hash, url, size: bytes.byteLength, requests};
+  };
+
+  const uploadTask = async (source, options = {}, controller) => {
+    const {bytes, hash, type, url} = await resolveTarget(source, options);
     const fetcher = options.fetch || globalThis.fetch;
     if (typeof fetcher !== "function") throw new Error("fetch is unavailable");
     const chunkSize =
@@ -248,7 +282,7 @@
     return task;
   };
 
-  const api = Object.freeze({upload});
+  const api = Object.freeze({upload, plan});
   globalThis.tiny = globalThis.tiny || {};
   globalThis.tiny.blossom = {...globalThis.tiny.blossom, upload: api};
 })();
