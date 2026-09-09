@@ -30,10 +30,16 @@
 //   <nostr-compose kind="…" [coordinate="30617:…"] [root="…" root-pubkey="…" root-kind="…"] [parent="…" …]>
 //     Signs a NIP-34 issue, pull request, NIP-22 reply or status event and
 //     posts it to the relay. A reply outside a repository omits the coordinate.
+//   <wiki-compose name="…" [author="…" coordinate="30818:…" event="…"]>
+//     Signs a NIP-54 article and posts it. Someone other than the author
+//     publishes a fork of the version in view; a "propose" button also signs
+//     a merge request to that author.
 //   <nostr-react event="…" pubkey="…" [kind="…"]>
-//     Answers a request for a decision with a signed kind 7 reaction: the
-//     Approve button sends +, Deny sends -. The prompt method asks for a
-//     visible confirmation first, which the answer link from a notification uses.
+//     Signs a NIP-25 reaction to one event; the pressed button carries "+"
+//     or "-". A request for a decision is approved or denied and a wiki
+//     merge request accepted or rejected this way. The prompt method asks
+//     for a visible confirmation first, which the answer link from a
+//     notification uses.
 //   <approval-item id="approval-…">
 //     One request on the Approvals page. When the page opens with the item's
 //     id and an answer in the query, it scrolls into view and offers that answer.
@@ -74,6 +80,8 @@
         event.preventDefault();
         if (this.submitting) return;
         this.submitting = true;
+        // The button that sent the form, for elements whose buttons differ.
+        this.submitter = event.submitter || null;
         this.busy(true);
         try {
           await this.submit(form);
@@ -562,11 +570,9 @@
     }
   }
 
-  // NostrReact answers a request for a decision. The reaction names the
-  // request with e and the asker with p, so the asker's own subscription
-  // sees the answer. Nothing is signed without a press: the buttons submit
-  // the form, and prompt() asks once more before signing on behalf of a
-  // notification action.
+  // publishSigned asks the signer for a signature, checks that what came
+  // back is the event that was requested, since extensions may edit input,
+  // then posts it once and reports the relay's answer.
   const publishSigned = async unsigned => {
     if (!window.nostr?.signEvent) throw Error("Connect a signer first.");
     const expected = JSON.stringify(unsigned);
@@ -574,11 +580,22 @@
     const actual = event && JSON.stringify({kind: event.kind, created_at: event.created_at, tags: event.tags, content: event.content});
     if (actual !== expected || !window.NostrSigner?.verifyEvent(event)) throw Error("The signer returned an invalid or changed event.");
     const response = await tiny.signedFetch("/events", "POST", JSON.stringify(event), {contentType: "application/json"});
-    const result = await response.json();
-    if (!response.ok || result.accepted !== true) throw Error(result.error || result.message || "The relay rejected the event.");
+    let result = null;
+    try { result = await response.json(); } catch {}
+    if (!response.ok || result?.accepted !== true) throw Error(result?.error || result?.message || "The relay rejected the event.");
     return event;
   };
+  const unixNow = () => Math.floor(Date.now() / 1000);
+
+  // NostrReact signs a NIP-25 reaction to one event: "+" or "-" from the
+  // pressed button. The reaction names the event with e and its author with
+  // p, so the author's own subscription sees the answer. A request for a
+  // decision is approved or denied this way and a wiki merge request
+  // accepted or rejected. Nothing is signed without a press: the buttons
+  // submit the form, and prompt() asks once more before signing on behalf of
+  // a notification action.
   const decisions = {"+": "approve", "-": "deny"};
+  const reactionWords = {"+": "Approved.", "-": "Denied.", accept: "Accepted.", approve: "Approved.", reject: "Rejected.", deny: "Denied."};
   class NostrReact extends FormElement {
     connectedCallback() {
       if (this.form) return;
@@ -586,12 +603,12 @@
       if (this.listening) return;
       this.listening = true;
       this.addEventListener("click", event => {
-        const button = event.target.closest("button[name=answer]");
+        const button = event.target.closest("button[name=reaction]");
         if (button) this.choice = button.value;
       });
     }
 
-    async submit(form, choice = this.choice) {
+    async submit(form, choice = this.choice ?? this.submitter?.value ?? form?.elements?.reaction?.value) {
       const id = this.getAttribute("event"), pubkey = this.getAttribute("pubkey");
       if (!isHex64(id) || !isHex64(pubkey)) throw Error("The request address is missing.");
       if (!(choice in decisions)) throw Error("Choose Approve or Deny.");
@@ -599,9 +616,11 @@
       const kind = this.getAttribute("kind");
       if (/^\d+$/.test(kind || "")) tags.push(["k", kind]);
       this.report("Signing…");
-      await publishSigned({kind: 7, created_at: Math.floor(Date.now() / 1000), tags, content: choice});
+      await publishSigned({kind: 7, created_at: unixNow(), tags, content: choice});
+      const label = (this.submitter?.textContent || "").trim().toLowerCase();
       this.choice = null;
-      this.report(choice === "+" ? "Approved." : "Denied.");
+      this.submitter = null;
+      this.report(reactionWords[label] || reactionWords[choice]);
       await tiny.navigate?.((globalThis.location?.href || "").split("?", 1)[0]);
     }
 
@@ -629,6 +648,60 @@
       this.output.replaceChildren(question, confirm, " ", cancel);
       delete this.output.dataset.error;
       confirm.focus();
+    }
+  }
+
+  // WikiCompose publishes a NIP-54 article. When the signer is not the
+  // author of the version in view, the article is a fork of that version,
+  // and "propose" also signs a kind 818 merge request to that author. The
+  // name follows the title on a new page until it is edited by hand.
+  class WikiCompose extends FormElement {
+    connectedCallback() {
+      super.connectedCallback();
+      const title = this.form?.elements?.title, name = this.form?.elements?.name;
+      if (this.wired === this.form || !title || !name) return;
+      this.wired = this.form;
+      let follow = !this.getAttribute("name");
+      name.addEventListener("input", () => { follow = name.value.trim() === ""; });
+      name.addEventListener("change", () => { name.value = tiny.util.wikiName(name.value); });
+      title.addEventListener("input", () => { if (follow) name.value = tiny.util.wikiName(title.value); });
+    }
+
+    async submit(form) {
+      const value = key => form.elements[key]?.value.trim() || "";
+      const title = value("title"), d = tiny.util.wikiName(value("name") || title), summary = value("summary");
+      const content = form.elements.content?.value || "";
+      if (!title) throw Error("Enter a title.");
+      if (!d) throw Error("Enter a name with at least one letter or digit.");
+      if (!content.trim()) throw Error("Enter the content.");
+      const action = this.submitter?.value || "publish";
+      const author = this.getAttribute("author") || "", coordinate = this.getAttribute("coordinate") || "", base = this.getAttribute("event") || "";
+      if (!window.nostr?.signEvent) throw Error("Connect a signer first.");
+      const pubkey = typeof window.nostr.getPublicKey === "function" ? await window.nostr.getPublicKey() : "";
+      const forking = isHex64(author) && author !== pubkey;
+      if (action === "propose" && !forking) throw Error("This is your own version; publish it instead.");
+      const tags = [["d", d], ["title", title]];
+      if (summary) tags.push(["summary", summary]);
+      if (forking) {
+        if (!/^30818:[0-9a-f]{64}:.+$/.test(coordinate) || !isHex64(base)) throw Error("The version to fork is missing.");
+        tags.push(["a", coordinate, "", "fork"], ["e", base, "", "fork"]);
+      }
+      const version = await publishSigned({kind: 30818, created_at: unixNow(), tags, content});
+      if (action === "propose") {
+        const request = {kind: 818, created_at: unixNow(), tags: [["a", coordinate], ["e", version.id, "", "source"], ["e", base], ["p", author]], content: summary || "Proposed version of " + title};
+        await publishSigned(request);
+        this.report("Published and proposed to " + author.slice(0, 12) + ".");
+      } else {
+        this.report("Published.");
+      }
+      const path = "/wiki/" + encodeURIComponent(d);
+      const href = tiny.localPath ? tiny.localPath(path) : path;
+      if (tiny.navigate) {
+        globalThis.history?.pushState?.({}, "", href);
+        await tiny.navigate(href);
+      } else {
+        globalThis.location?.assign?.(href);
+      }
     }
   }
 
@@ -1100,6 +1173,7 @@
   customElements.define("agent-grant", AgentGrant);
   customElements.define("nostr-react", NostrReact);
   customElements.define("approval-item", ApprovalItem);
+  customElements.define("wiki-compose", WikiCompose);
   customElements.define("push-toggle", PushToggle);
   customElements.define("share-link", ShareLink);
   customElements.define("nostr-key", NostrKey);
@@ -1130,7 +1204,7 @@
       if (root && !(url.pathname === root || url.pathname.startsWith(root + "/"))) return null;
       return root ? url.pathname.slice(root.length) || "/" : url.pathname;
     };
-    const allowedRoute = path => /^(?:\/(?:inbox|approvals|outbox|search|articles|private|chat|media|sites|marmot|grasp|terms|signin|connect|tools|repo|repos|file|files)?\/?|\/manage(?:\/(?:people|agents|moderation|rules|identity|connect|data|sync|views|health|owner|status))?\/?|\/(?:invite|e|a)\/.+)$/.test(path || "");
+    const allowedRoute = path => /^(?:\/(?:inbox|approvals|outbox|search|articles|private|chat|media|sites|marmot|grasp|terms|signin|connect|tools|repo|repos|file|files|wiki)?\/?|\/manage(?:\/(?:people|agents|moderation|rules|identity|connect|data|sync|views|health|owner|status))?\/?|\/(?:invite|e|a|wiki)\/.+)$/.test(path || "");
     let navigationSerial = 0, activeAbort;
     const streams = new Set();
     const closeStreams = () => {
@@ -1145,7 +1219,7 @@
     document.addEventListener("fx:sse:close", event => streams.delete(event.detail.cfg));
     window.addEventListener("pagehide", closeStreams);
     const repairComponents = () => {
-      document.querySelectorAll("rpc-form,signed-form,publish-list,agent-grant,nostr-react").forEach(node => {
+      document.querySelectorAll("rpc-form,signed-form,publish-list,agent-grant,nostr-react,wiki-compose").forEach(node => {
         if (node.form?.isConnected) return;
         node.form = null;
         node.output = null;

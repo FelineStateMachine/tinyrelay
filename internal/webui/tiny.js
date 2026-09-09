@@ -86,7 +86,21 @@
     const checksum = Array.from({length: 6}, (_, index) => (polymod >>> (5 * (5 - index))) & 31);
     return prefix + "1" + words.concat(checksum).map(word => bech32Charset[word]).join("");
   };
-  tiny.util = Object.freeze({...tiny.util, bytes, hex, sha256, fromHex, element, relayURL, b64url, fromB64url, bech32Encode});
+  // wikiName turns a title into a NIP-54 page name the way the relay does:
+  // lowercase, whitespace as hyphens, letters, digits and marks kept,
+  // everything else dropped, hyphens collapsed and trimmed at both ends.
+  const wikiName = title => {
+    let out = "";
+    for (const ch of String(title ?? "").toLowerCase()) {
+      if (/[\s\-_]/u.test(ch)) {
+        if (out && !out.endsWith("-")) out += "-";
+      } else if (/[\p{L}\p{Nd}\p{M}]/u.test(ch)) {
+        out += ch;
+      }
+    }
+    return out.replace(/^-+|-+$/g, "");
+  };
+  tiny.util = Object.freeze({...tiny.util, bytes, hex, sha256, fromHex, element, relayURL, b64url, fromB64url, bech32Encode, wikiName});
   // signer returns the active signer: a resumed remote signer first, then a
   // NIP-07 extension.
   tiny.signer = () => globalThis.tinySigner || globalThis.nostr;

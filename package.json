@@ -10,7 +10,8 @@
     "test:files": "node --test scripts/blossom-encryption.test.mjs scripts/blossom-manifests.test.mjs scripts/blossom-manifests-review.test.mjs scripts/blossom-upload.test.mjs scripts/file-messages.test.mjs scripts/file-workspace.test.mjs scripts/private-services.test.mjs scripts/tiny-namespace.test.mjs",
     "test:collaboration": "node --test scripts/collaboration-compose.test.mjs",
     "test:agents": "node --test scripts/agent-grant.test.mjs",
-    "test:approvals": "node --test scripts/approvals.test.mjs"
+    "test:approvals": "node --test scripts/approvals.test.mjs",
+    "test:wiki": "node --test scripts/wiki-compose.test.mjs"
   },
   "devDependencies": {
     "@noble/hashes": "2.4.0",
