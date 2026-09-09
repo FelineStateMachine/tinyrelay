@@ -56,7 +56,12 @@ const (
 	KIND_CONTENT_EDIT        = 40003
 	KIND_ROOM_MEMBER_ADDED   = 44100
 	KIND_ROOM_MEMBER_REMOVED = 44101
-	KIND_AGENT_GRANT         = 30392
+
+	// NIP-54 wiki: articles, merge requests and redirects.
+	KIND_WIKI_ARTICLE  = 30818
+	KIND_WIKI_MERGE    = 818
+	KIND_WIKI_REDIRECT = 30819
+	KIND_AGENT_GRANT   = 30392
 )
 
 // NIP-90 long tasks: a job request kind in 5000 to 5999 is answered by a

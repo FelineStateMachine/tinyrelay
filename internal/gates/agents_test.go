@@ -131,6 +131,18 @@ func TestAgentGrantScopesKindsRoomsAndRepositories(t *testing.T) {
 	if err := f.gate.Write(ctx, signed(t, agentSecret, 1630, agentNow, [][]string{{"a", address}}, "status"), session, agentNow); err != nil {
 		t.Fatalf("maintainer status rejected: %v", err)
 	}
+	// Wiki access carries the wiki kinds without listing them.
+	f.grant(t, agentNow+2, grantTags(f.agent, agentNow+3600, []string{"wiki", "propose"}))
+	for _, kind := range []int{event.KIND_WIKI_ARTICLE, event.KIND_WIKI_MERGE} {
+		if err := f.gate.Write(ctx, signed(t, agentSecret, kind, agentNow, [][]string{{"d", "notes"}, {"title", "Notes"}, {"a", "30818:" + f.owner + ":notes"}, {"p", f.owner}, {"e", strings.Repeat("e", 64), "", "source"}}, "wiki"), session, agentNow); err != nil {
+			t.Fatalf("wiki kind %d rejected for propose: %v", kind, err)
+		}
+	}
+	expectRestricted(t, f.gate.Write(ctx, signed(t, agentSecret, event.KIND_WIKI_REDIRECT, agentNow, [][]string{{"d", "notes"}}, ""), session, agentNow), "kind 30819")
+	f.grant(t, agentNow+3, grantTags(f.agent, agentNow+3600, []string{"wiki", "edit"}))
+	if err := f.gate.Write(ctx, signed(t, agentSecret, event.KIND_WIKI_REDIRECT, agentNow, [][]string{{"d", "notes"}, {"redirect", "30818:" + f.owner + ":notes"}}, ""), session, agentNow); err != nil {
+		t.Fatalf("redirect rejected for edit: %v", err)
+	}
 }
 
 func TestAgentGrantStateRejectsWrites(t *testing.T) {

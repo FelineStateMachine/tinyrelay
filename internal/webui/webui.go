@@ -1085,6 +1085,41 @@ func dateAfter(days int) string {
 	return time.Now().UTC().AddDate(0, 0, days).Format("2006-01-02")
 }
 
+// agentByKey finds one grant in the agents list, for the form that replaces
+// it. An unknown or empty key yields nil, so the form stays blank.
+func agentByKey(agents []any, pubkey string) any {
+	if !hexID.MatchString(pubkey) {
+		return nil
+	}
+	for _, agent := range agents {
+		if plainString(valueMap(agent)["pubkey"]) == pubkey {
+			return agent
+		}
+	}
+	return nil
+}
+
+// repoLines renders a grant's repositories one per line, the way the form
+// takes them: owner:identifier:level.
+func repoLines(agent any) string {
+	repos, _ := valueMap(valueMap(agent)["scope"])["repos"].([]any)
+	lines := make([]string, 0, len(repos))
+	for _, repo := range repos {
+		r := valueMap(repo)
+		lines = append(lines, plainString(r["owner"])+":"+plainString(r["identifier"])+":"+plainString(r["level"]))
+	}
+	return strings.Join(lines, "\n")
+}
+
+// dateOf renders a unix time as the form's date value.
+func dateOf(value any) string {
+	seconds := unixSeconds(value)
+	if seconds <= 0 {
+		return ""
+	}
+	return time.Unix(seconds, 0).UTC().Format("2006-01-02")
+}
+
 var supportedMethods = []string{
 	"supportedmethods", "stats", "getpolicy", "setpolicy", "listaudit", "listviews", "listmembers", "listpeople", "setmember", "allowpubkey", "unrulepubkey", "removemember", "createinvite", "listinvites", "revokeinvite", "listclaims", "createclaim", "deleteclaim", "removesubtree", "listbannedpubkeys", "listallowedpubkeys", "banpubkey", "listreports", "resolvereport", "banevent", "allowevent", "listeventsneedingmoderation", "blockip", "unblockip", "listblockedips", "exportconfig", "importconfig", "planconfig", "listblobs", "deleteblob", "listbannedevents", "deleteevent", "listrecentevents", "searchevents", "pinevent", "unpinevent", "listpins", "allowkind", "disallowkind", "unrulekind", "storagestats", "gitstorage", "setretention", "listretention", "purgekind", "listallowedkinds", "listblockedkinds", "notifytest", "resetrules", "listpresets", "listconnectiontemplates", "listconnections", "setconnections", "applypreset", "forkrelay", "pullfrom", "pullstatus", "listjobs", "deliverystatus", "addjob", "removejob", "runjob", "backfill", "transferowner", "listdumps", "deletedump", "dumpnow", "backupnow", "listbackups", "deletebackup", "changerelayname", "changerelaydescription", "changerelayicon", "adddomain", "setdomainsite", "checkdomain", "removedomain", "listdomains", "listcallbacks", "addcallback", "removecallback", "pausecallback", "resumecallback",
 }

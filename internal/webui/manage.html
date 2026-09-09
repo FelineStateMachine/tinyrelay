@@ -52,7 +52,7 @@
 {{with index $a "lastEvent"}}{{if when .}}<tr><th>last event</th><td><time datetime="{{datetime .}}">{{when .}}</time></td></tr>{{end}}{{end}}
 <tr><th>callbacks</th><td>{{range $c := callbacksFor $.Callbacks $pk}}{{$cm := asMap $c}}{{$cs := callbackState $c}}{{$cid := str (index $cm "id")}}<agent-callback data-state="{{$cs}}"><code>{{str (index $cm "host")}}</code> kinds {{callbackKinds $c}} | <span data-state="{{$cs}}" title="{{str (index $cm "lastStatus")}}">{{$cs}}</span>{{with index $cm "lastDelivery"}}{{if when .}} | delivered <time datetime="{{datetime .}}">{{when .}}</time>{{end}}{{end}} {{if eq $cs "paused"}}<rpc-form method="resumecallback" refresh><input type="hidden" name="param" value="&quot;{{$cid}}&quot;"><button>Resume</button></rpc-form>{{else}}<rpc-form method="pausecallback" refresh><input type="hidden" name="param" value="&quot;{{$cid}}&quot;"><button>Pause</button></rpc-form>{{end}}<rpc-form method="removecallback" refresh><input type="hidden" name="param" value="&quot;{{$cid}}&quot;"><button>Remove</button></rpc-form></agent-callback>{{else}}none{{end}}</td></tr>
 </table>
-<p>{{if eq $state "paused"}}<rpc-form method="resumeagent" refresh><input type="hidden" name="param" value="&quot;{{$pk}}&quot;"><button>Resume</button></rpc-form>{{else if eq $state "active"}}<rpc-form method="pauseagent" refresh><input type="hidden" name="param" value="&quot;{{$pk}}&quot;"><button>Pause</button></rpc-form>{{end}}{{if ne $state "revoked"}}<rpc-form method="revokeagent" refresh><input type="hidden" name="param" value="&quot;{{$pk}}&quot;"><button>Revoke</button></rpc-form>{{end}}<a href="/manage/agents?agent={{$pk}}">recent activity</a></p>
+<p>{{if eq $state "paused"}}<rpc-form method="resumeagent" refresh><input type="hidden" name="param" value="&quot;{{$pk}}&quot;"><button>Resume</button></rpc-form>{{else if eq $state "active"}}<rpc-form method="pauseagent" refresh><input type="hidden" name="param" value="&quot;{{$pk}}&quot;"><button>Pause</button></rpc-form>{{end}}{{if ne $state "revoked"}}<rpc-form method="revokeagent" refresh><input type="hidden" name="param" value="&quot;{{$pk}}&quot;"><button>Revoke</button></rpc-form>{{end}}<a href="/manage/agents?agent={{$pk}}">recent activity</a>{{if ne $state "revoked"}} <a href="/manage/agents?agent={{$pk}}&amp;edit={{$pk}}#grant">edit</a>{{end}}</p>
 </agent-card>
 {{end}}{{with asMap .Event}}{{$agent := asMap (index . "agent")}}
 <h3>Recent activity of {{agentLabel $agent}}</h3>
@@ -61,19 +61,19 @@
 {{end}}</ol>
 {{else}}<p>No events from this agent yet.</p>
 {{end}}{{end}}
-<h3>New agent</h3>
-<p>The grant is a kind 30392 event signed by your key. The agent's own key signs everything it publishes.</p>
+{{$edit := agentByKey .Feed (.Query.Get "edit")}}{{$es := asMap (index (asMap $edit) "scope")}}<h3 id="grant">{{if $edit}}Replace the grant for {{agentLabel $edit}}{{else}}New agent{{end}}</h3>
+<p>{{if $edit}}The form holds the current grant. Signing it publishes a new kind 30392 event for the same key, which replaces the old grant at once.{{else}}The grant is a kind 30392 event signed by your key. The agent's own key signs everything it publishes.{{end}}</p>
 <agent-grant>
-<label>Name <input name="name" maxlength="64" required placeholder="release-notes"></label>
-<label>Key <select name="key"><option value="generate">generate here, show once</option><option value="paste">paste a public key</option></select></label>
-<label>Public key <input name="pubkey" pattern="[0-9a-f]{64}" placeholder="64 hex characters"></label>
-<label>Rooms <input name="rooms" placeholder="build, agents"></label>
-<label>Repositories <textarea name="repos" placeholder="owner pubkey:identifier:read&#10;owner pubkey:identifier:maintain"></textarea></label>
-<label>Wiki <select name="wiki"><option value="">none</option><option value="propose">propose</option><option value="edit">edit</option></select></label>
-<label>Kinds <input name="kinds" placeholder="1, 1111, 1621"></label>
-<label>Rate per minute <input name="rate" type="number" min="1" max="600" value="60"></label>
-<label>Expires <input name="expires" type="date" value="{{dateAfter 90}}" required></label>
-<button>Sign grant</button>
+<label>Name <input name="name" maxlength="64" required placeholder="release-notes"{{with $edit}} value="{{agentLabel .}}"{{end}}></label>
+<label>Key <select name="key"><option value="generate">generate here, show once</option><option value="paste"{{if $edit}} selected{{end}}>paste a public key</option></select></label>
+<label>Public key <input name="pubkey" pattern="[0-9a-f]{64}" placeholder="64 hex characters"{{with $edit}} value="{{str (index (asMap .) "pubkey")}}"{{end}}></label>
+<label>Rooms <input name="rooms" placeholder="build, agents"{{with $edit}} value="{{scopeList . "rooms"}}"{{end}}></label>
+<label>Repositories <textarea name="repos" placeholder="owner pubkey:identifier:read&#10;owner pubkey:identifier:maintain">{{with $edit}}{{repoLines .}}{{end}}</textarea></label>
+<label>Wiki <select name="wiki"><option value="">none</option><option value="propose"{{if eq (str (index $es "wiki")) "propose"}} selected{{end}}>propose</option><option value="edit"{{if eq (str (index $es "wiki")) "edit"}} selected{{end}}>edit</option></select></label>
+<label>Kinds <input name="kinds" placeholder="1, 1111, 1621"{{with $edit}} value="{{scopeList . "kinds"}}"{{end}}></label>
+<label>Rate per minute <input name="rate" type="number" min="1" max="600" value="{{if $edit}}{{str (index $es "rate")}}{{else}}60{{end}}"></label>
+<label>Expires <input name="expires" type="date" value="{{if $edit}}{{dateOf (index (asMap $edit) "expires")}}{{else}}{{dateAfter 90}}{{end}}" required></label>
+<button>{{if $edit}}Sign the replacement{{else}}Sign grant{{end}}</button>
 <noscript><p>Signing a grant needs JavaScript and a connected signer. You can also publish the kind 30392 event from any client.</p></noscript>
 </agent-grant>
 </section>

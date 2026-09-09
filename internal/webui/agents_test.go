@@ -218,3 +218,35 @@ func TestAgentStateHelpers(t *testing.T) {
 		t.Errorf("callback counts = %v", counts)
 	}
 }
+
+func TestAgentsPageEditPrefillsTheGrantForm(t *testing.T) {
+	backend := &agentsBackend{fakeBackend: fakeBackend{policy: policy.Defaults(strings.Repeat("a", 64))}}
+	app, err := New(backend, Options{Actor: func(*http.Request) (string, error) { return backend.policy.Owner, nil }})
+	if err != nil {
+		t.Fatal(err)
+	}
+	recorder := httptest.NewRecorder()
+	app.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/manage/agents?agent="+agentActive+"&edit="+agentActive, nil))
+	body := recorder.Body.String()
+	for _, marker := range []string{
+		`<h3 id="grant">Replace the grant for hermes</h3>`,
+		`<input name="name" maxlength="64" required placeholder="release-notes" value="hermes">`,
+		`<option value="paste" selected>paste a public key</option>`,
+		`<input name="pubkey" pattern="[0-9a-f]{64}" placeholder="64 hex characters" value="` + agentActive + `">`,
+		`placeholder="build, agents" value="build, agents">`,
+		`>` + strings.Repeat("a", 64) + `:tinyrelay:maintain</textarea>`,
+		`<option value="propose" selected>propose</option>`,
+		`placeholder="1, 1111, 1621" value="9, 1111, 1621">`,
+		`<button>Sign the replacement</button>`,
+		`&amp;edit=` + agentActive + `#grant">edit</a>`,
+	} {
+		if !strings.Contains(body, marker) {
+			t.Errorf("edit form missing %q", marker)
+		}
+	}
+	recorder = httptest.NewRecorder()
+	app.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/manage/agents?edit=nonsense", nil))
+	if body := recorder.Body.String(); !strings.Contains(body, `<h3 id="grant">New agent</h3>`) || strings.Contains(body, "selected>paste") {
+		t.Fatal("unknown edit key did not fall back to the blank form")
+	}
+}

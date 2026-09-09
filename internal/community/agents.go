@@ -103,6 +103,14 @@ func (g AgentGrant) AllowsKind(kind int) bool {
 	if (event.IsJobResult(kind) || kind == event.KIND_JOB_FEEDBACK) && g.ServesJobs() {
 		return true
 	}
+	// Wiki access carries its kinds: proposing means publishing a version and
+	// asking for a merge; editing adds redirects.
+	switch g.Scope.Wiki {
+	case "propose":
+		return kind == event.KIND_WIKI_ARTICLE || kind == event.KIND_WIKI_MERGE
+	case "edit":
+		return kind == event.KIND_WIKI_ARTICLE || kind == event.KIND_WIKI_MERGE || kind == event.KIND_WIKI_REDIRECT
+	}
 	return false
 }
 
