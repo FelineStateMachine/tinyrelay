@@ -65,7 +65,7 @@ func TestApprovalsPageRendersRequestsForTheOwner(t *testing.T) {
 		`<nostr-key hex="` + asker + `"`, "in repository tinyrelay", "expires <time",
 		"<p>Publish release notes 1.4</p>", "<p>Publish release notes 1.4 to the articles feed as drafted?</p>",
 		"<pre>about 30617:" + backend.policy.Owner + ":tinyrelay | kind 1621 dddddddddddd</pre>",
-		`<nostr-react event="` + strings.Repeat("1", 64) + `" pubkey="` + asker + `" kind="1111"><button name="answer" value="+">Approve</button> <button name="answer" value="-">Deny</button></nostr-react>`,
+		`<nostr-react event="` + strings.Repeat("1", 64) + `" pubkey="` + asker + `" kind="1111"><button name="reaction" value="+">Approve</button> <button name="reaction" value="-">Deny</button></nostr-react>`,
 		`<nostr-compose kind="1111" root="` + strings.Repeat("1", 64) + `" root-pubkey="` + asker + `" root-kind="1111" coordinate="30617:` + backend.policy.Owner + `:tinyrelay">`,
 		`<a href="/repo?owner=` + backend.policy.Owner + `&amp;repo=tinyrelay&amp;view=issue&amp;id=` + strings.Repeat("d", 64) + `">open</a>`,
 		`<approval-item id="approval-` + strings.Repeat("2", 64) + `" data-type="question"`, "in #build", `<a href="/e/` + strings.Repeat("2", 64) + `">open</a>`,
