@@ -20,6 +20,7 @@ import (
 	"github.com/FelineStateMachine/tinyrelay/internal/event"
 	"github.com/FelineStateMachine/tinyrelay/internal/gates"
 	"github.com/FelineStateMachine/tinyrelay/internal/gitrelay"
+	"github.com/FelineStateMachine/tinyrelay/internal/mcp"
 	"github.com/FelineStateMachine/tinyrelay/internal/policy"
 	"github.com/FelineStateMachine/tinyrelay/internal/records"
 	"github.com/FelineStateMachine/tinyrelay/internal/relay"
@@ -54,6 +55,7 @@ type Tenant struct {
 	replication   *replication.Service
 	git           *gitrelay.GitRelay
 	ui            *webui.App
+	mcp           *mcp.Server
 	schedulerWake chan struct{}
 	workCtx       context.Context
 	workCancel    context.CancelFunc

@@ -127,6 +127,9 @@ func (t *Tenant) initServices(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	if err := t.initMCP(); err != nil {
+		return err
+	}
 	t.workCtx, t.workCancel = context.WithCancel(context.Background())
 	t.workWG.Add(1)
 	go func() {

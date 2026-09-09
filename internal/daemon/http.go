@@ -21,7 +21,7 @@ import (
 
 func (t *Tenant) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Access-Control-Allow-Origin", "*")
-	w.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type, X-SHA-256, X-Content-Length, X-Content-Type, Upload-Type, Upload-Length, Upload-Offset")
+	w.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type, Accept, MCP-Protocol-Version, Mcp-Method, Mcp-Name, X-SHA-256, X-Content-Length, X-Content-Type, Upload-Type, Upload-Length, Upload-Offset")
 	w.Header().Set("Access-Control-Allow-Methods", "GET, HEAD, POST, PUT, PATCH, DELETE, OPTIONS")
 	w.Header().Set("Access-Control-Expose-Headers", "Allow, X-Reason")
 	w.Header().Set("X-Content-Type-Options", "nosniff")
@@ -66,6 +66,14 @@ func (t *Tenant) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	if strings.HasPrefix(r.URL.Path, "/push/") || r.URL.Path == "/inbox/seen" {
 		t.pushHTTP(w, r)
+		return
+	}
+	if r.URL.Path == "/mcp" {
+		t.mcpHTTP(w, r)
+		return
+	}
+	if r.URL.Path == "/llms.txt" {
+		t.llmsHTTP(w, r)
 		return
 	}
 	if t.tryBrowseHTTP(w, r) {
