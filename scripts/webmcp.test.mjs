@@ -160,6 +160,32 @@ test("approval tools list, read and open requests for a decision", async () => {
   assert.equal(opened.searchParams.get("answer"), null);
 });
 
+test("job tools list and read long tasks through the session", async () => {
+  const requests = [];
+  const {tools} = await browser({path: "/r/work/tools", fetch: async url => {
+    requests.push(new URL(url, "https://tiny.example"));
+    return new Response(JSON.stringify({items: [{id: "a".repeat(64), kind: 5001, state: "open", status: "processing"}], next_cursor: "",
+      item: {id: "b".repeat(64), kind: 5002, state: "done"}, feedback: [{status: "processing"}], results: [{kind: 6002}]}));
+  }});
+  const list = tools.get("tiny.list_jobs");
+  assert.equal(list.annotations.readOnlyHint, true);
+  assert.equal(list.inputSchema.properties.state.enum.join(","), "open,done,all");
+  assert.equal(list.inputSchema.properties.mine.type, "boolean");
+  const listed = await list.execute({state: "open", mine: true, limit: 5});
+  assert.equal(requests.at(-1).pathname, "/r/work/webmcp/query");
+  assert.equal(requests.at(-1).searchParams.get("method"), "browsejobs");
+  assert.deepEqual(JSON.parse(requests.at(-1).searchParams.get("params")), [{state: "open", mine: true, limit: 5}]);
+  assert.equal(listed.structuredContent.result.items[0].status, "processing");
+  const read = tools.get("tiny.read_job");
+  assert.equal(read.annotations.readOnlyHint, true);
+  assert.deepEqual([...read.inputSchema.required], ["id"]);
+  const detail = await read.execute({id: "b".repeat(64)});
+  assert.equal(requests.at(-1).searchParams.get("method"), "browsejob");
+  assert.deepEqual(JSON.parse(requests.at(-1).searchParams.get("params")), [{id: "b".repeat(64)}]);
+  assert.equal(detail.structuredContent.result.item.state, "done");
+  assert.equal(detail.structuredContent.result.results[0].kind, 6002);
+});
+
 test("link, files and notification tools reach the new surfaces", async () => {
   const calls = [];
   const {tools, sandbox} = await browser({path: "/r/work/tools", signedFetch: async (url, method, body) => {

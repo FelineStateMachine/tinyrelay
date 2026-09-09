@@ -104,6 +104,11 @@
     (input, signal) => query("browseapprovals", input, signal));
   register("tiny.read_approval", "Read one request for a decision by event id with every reaction and reply from the people asked.",
     object({id: hash}, ["id"]), reads, (input, signal) => query("browseapproval", input, signal));
+  register("tiny.list_jobs", "List long task requests (NIP-90 job requests) visible to your account, each with its newest feedback status and its result when one exists. state narrows the list to open, done or all; mine lists only your own requests.",
+    object({cursor: text, limit, state: {type: "string", enum: ["open", "done", "all"]}, mine: {type: "boolean"}}), reads,
+    (input, signal) => query("browsejobs", input, signal));
+  register("tiny.read_job", "Read one long task request by event id with its feedback timeline and results.",
+    object({id: hash}, ["id"]), reads, (input, signal) => query("browsejob", input, signal));
   const pageName = {type: "string", minLength: 1, maxLength: 512, description: "Page name or title; the relay normalizes it to the NIP-54 d tag."};
   register("tiny.list_wiki", "List wiki pages with their shown version, version count and open merge requests. Supports search by title or summary, an author filter and pagination.",
     object({q: text, author: pubkey, cursor: text, limit}), reads, (input, signal) => query("browsewiki", input, signal));
