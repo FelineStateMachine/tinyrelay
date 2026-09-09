@@ -56,7 +56,37 @@
     const text = value.replace(/-/g, "+").replace(/_/g, "/") + "===".slice((value.length + 3) % 4);
     return Uint8Array.from(atob(text), char => char.charCodeAt(0));
   };
-  tiny.util = Object.freeze({...tiny.util, bytes, hex, sha256, fromHex, element, relayURL, b64url, fromB64url});
+  // bech32Encode renders bytes as a NIP-19 bare string such as an nsec or
+  // npub. The browser bundle decodes these but has no plain encoder.
+  const bech32Charset = "qpzry9x8gf2tvdw0s3jn54khce6mua7l";
+  const bech32Polymod = values => {
+    const generators = [0x3b6a57b2, 0x26508e6d, 0x1ea119fa, 0x3d4233dd, 0x2a1462b3];
+    let checksum = 1;
+    for (const value of values) {
+      const top = checksum >>> 25;
+      checksum = (((checksum & 0x1ffffff) << 5) ^ value) >>> 0;
+      generators.forEach((generator, index) => { if ((top >>> index) & 1) checksum = (checksum ^ generator) >>> 0; });
+    }
+    return checksum;
+  };
+  const bech32Encode = (prefix, value) => {
+    const words = [];
+    let accumulator = 0, bits = 0;
+    for (const byte of bytes(value)) {
+      accumulator = ((accumulator << 8) | byte) >>> 0;
+      bits += 8;
+      while (bits >= 5) {
+        bits -= 5;
+        words.push((accumulator >>> bits) & 31);
+      }
+    }
+    if (bits > 0) words.push((accumulator << (5 - bits)) & 31);
+    const expanded = [...prefix].map(char => char.charCodeAt(0) >>> 5).concat(0, [...prefix].map(char => char.charCodeAt(0) & 31));
+    const polymod = bech32Polymod(expanded.concat(words, [0, 0, 0, 0, 0, 0])) ^ 1;
+    const checksum = Array.from({length: 6}, (_, index) => (polymod >>> (5 * (5 - index))) & 31);
+    return prefix + "1" + words.concat(checksum).map(word => bech32Charset[word]).join("");
+  };
+  tiny.util = Object.freeze({...tiny.util, bytes, hex, sha256, fromHex, element, relayURL, b64url, fromB64url, bech32Encode});
   // signer returns the active signer: a resumed remote signer first, then a
   // NIP-07 extension.
   tiny.signer = () => globalThis.tinySigner || globalThis.nostr;
