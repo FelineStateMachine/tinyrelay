@@ -4,7 +4,7 @@ Use **Files** to search your uploads, import a public HTTPS URL or Blossom URI, 
 
 ## Uploading
 
-The **Upload** panel on the Files page stores files or a folder. Choose the files, check **folder** to select a whole folder, and check **encrypt** to encrypt in the browser before sending. Plain uploads store each file as it is and refresh the listing. **Import from URL** stores a copy of a public HTTPS URL or Blossom URI.
+The **Upload** panel on the Files page stores files or a folder. Choose files, choose a folder, or drop either onto the panel, and check **encrypt** to encrypt in the browser before sending. Plain uploads store each file as it is and refresh the listing. **Import from URL** stores a copy of a public HTTPS URL or Blossom URI.
 
 ## Encrypted files
 

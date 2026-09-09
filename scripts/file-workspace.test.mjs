@@ -108,7 +108,6 @@ const workspaceServer = t => {
     upload.connectedCallback();
     const form = upload.querySelector("form");
     form.elements.namedItem("file").files = files;
-    form.elements.namedItem("folder").checked = true;
     form.elements.namedItem("encrypt").checked = true;
     return upload.run(form);
   };

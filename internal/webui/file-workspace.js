@@ -151,13 +151,23 @@
       if (this.bound) return;
       this.bound = true;
       this.innerHTML =
-        '<form><label>File or folder <input type="file" name="file" multiple required></label><label><input type="checkbox" name="folder"> folder</label><label><input type="checkbox" name="encrypt"> encrypt</label><button>Upload</button></form><p data-controls hidden><button type="button" data-cancel disabled>Cancel</button> <button type="button" data-retry disabled>Retry</button></p><label data-share hidden>Share link <input data-share-url readonly></label><output role="status"></output>';
+        '<form><label>Files <input type="file" name="file" multiple></label><input type="file" name="folder" webkitdirectory multiple hidden><p data-drop><button type="button" data-pick-folder>Choose folder</button> or drop files or a folder here</p><label><input type="checkbox" name="encrypt"> encrypt</label><button>Upload</button></form><p data-controls hidden><button type="button" data-cancel disabled>Cancel</button> <button type="button" data-retry disabled>Retry</button></p><label data-share hidden>Share link <input data-share-url readonly></label><output role="status"></output>';
       this.out = this.querySelector("output");
       const form = this.querySelector("form");
-      const input = form.elements.namedItem("file");
-      form.elements.namedItem("folder").addEventListener("change", event => {
-        if (event.currentTarget.checked) input.setAttribute("webkitdirectory", "");
-        else input.removeAttribute("webkitdirectory");
+      const files = form.elements.namedItem("file");
+      const folder = form.elements.namedItem("folder");
+      files.addEventListener("change", () => this.choose([...files.files]));
+      folder.addEventListener("change", () => this.choose([...folder.files]));
+      this.querySelector("[data-pick-folder]").addEventListener("click", () => folder.click());
+      this.addEventListener("dragover", event => {
+        event.preventDefault();
+        this.dataset.over = "";
+      });
+      this.addEventListener("dragleave", () => delete this.dataset.over);
+      this.addEventListener("drop", event => {
+        event.preventDefault();
+        delete this.dataset.over;
+        this.dropped(event.dataTransfer).catch(error => this.say(error.message, true));
       });
       form.addEventListener("submit", event => {
         event.preventDefault();
@@ -165,6 +175,49 @@
       });
       this.querySelector("[data-cancel]").addEventListener("click", () => this.controller?.abort());
       this.querySelector("[data-retry]").addEventListener("click", () => this.run().catch(() => {}));
+    }
+    // choose records a selection. A folder is recognized from the relative
+    // paths that folder pickers and folder drops attach to their files.
+    choose(files) {
+      const folder = files.some(file => (file.webkitRelativePath || "").includes("/"));
+      this.chosen = {files, folder};
+      if (files.length)
+        this.say(
+          folder
+            ? files.length + " files in a folder selected."
+            : files.length + (files.length === 1 ? " file selected." : " files selected.")
+        );
+    }
+    async dropped(transfer) {
+      const entries = [...(transfer.items || [])].map(item => item.webkitGetAsEntry?.()).filter(Boolean);
+      if (!entries.length) return this.choose([...transfer.files]);
+      const files = [];
+      const walk = (entry, path) =>
+        new Promise((resolve, reject) => {
+          if (files.length > MAX_FILES) return reject(Error("Choose a folder with at most 10,000 files."));
+          if (entry.isFile) {
+            entry.file(file => {
+              if (path) Object.defineProperty(file, "webkitRelativePath", {value: path + file.name});
+              files.push(file);
+              resolve();
+            }, reject);
+            return;
+          }
+          const reader = entry.createReader();
+          const next = () =>
+            reader.readEntries(async batch => {
+              if (!batch.length) return resolve();
+              try {
+                for (const child of batch) await walk(child, path + entry.name + "/");
+              } catch (error) {
+                return reject(error);
+              }
+              next();
+            }, reject);
+          next();
+        });
+      for (const entry of entries) await walk(entry, "");
+      this.choose(files);
     }
     disconnectedCallback() {
       this.controller?.abort();
@@ -183,12 +236,8 @@
     async run(form) {
       if (this.busy) return;
       if (form) {
-        const files = [...form.elements.namedItem("file").files];
-        this.selection = {
-          files,
-          folder: Boolean(form.elements.namedItem("folder").checked),
-          encrypt: Boolean(form.elements.namedItem("encrypt").checked)
-        };
+        if (!this.chosen) this.choose([...form.elements.namedItem("file").files]);
+        this.selection = {...this.chosen, encrypt: Boolean(form.elements.namedItem("encrypt").checked)};
         this.pending = null;
       }
       if (!this.selection?.files.length) throw Error("Choose a file or folder first.");
@@ -221,7 +270,7 @@
       } finally {
         this.busy = false;
         this.controls(false, completed);
-        if (completed) this.selection = null;
+        if (completed) this.selection = this.chosen = null;
       }
     }
     async storePlain(files) {
