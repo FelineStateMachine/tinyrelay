@@ -148,7 +148,7 @@ func TestRoomPageRendersMessagesOldestFirstWithMarkers(t *testing.T) {
 		`&lt;script&gt;alert(1)&lt;/script&gt;`,
 		`<span>to <nostr-name pubkey="` + roomAgent + `"`,
 		`<span data-reaction="&#43;1">&#43;1 1</span>`,
-		`<p>hello again, see <a href="https://example.com/docs" rel="noopener">`, `<span data-edited>edited</span>`,
+		`<div><p>hello again, see <a href="https://example.com/docs" rel="noopener">`, `<span data-edited>edited</span>`,
 		`<a href="/rooms/general/thread/` + roomThread + `">thread | 1 reply</a>`,
 		`<a href="/rooms/general/thread/` + roomThread + `">in thread</a>`,
 		`<room-live room="general"></room-live>`,

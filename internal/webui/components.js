@@ -616,6 +616,74 @@
     node.append(text.slice(last));
     return node;
   };
+  // chatMarkdown renders the same Markdown subset the page renders for chat
+  // messages: paragraphs with line breaks, fenced code, headings, lists,
+  // inline code, emphasis, links, and bare http(s) or nostr: references. It
+  // builds nodes rather than markup, so message text never becomes HTML.
+  const inlinePattern = /(`[^`]+`)|\[([^\]]+)\]\(([^)\s]+)\)|\*\*([^*]+)\*\*|(^|[^*\w])\*([^*]+)\*|(https?:\/\/[^\s<>"']+|(?:web\+)?nostr:[a-z0-9]+)/g;
+  const safeLink = target => /^(https?:\/\/|\/(?!\/)|\.\.?\/|#|mailto:)/.test(target) || (!target.includes(":") && !target.startsWith("//"));
+  const chatInline = (node, text) => {
+    let last = 0;
+    for (const match of String(text).matchAll(inlinePattern)) {
+      node.append(text.slice(last, match.index));
+      last = match.index + match[0].length;
+      if (match[1]) { node.append(el("code", match[1].slice(1, -1))); continue; }
+      if (match[2] !== undefined) {
+        if (!safeLink(match[3])) { node.append(match[0]); continue; }
+        const link = el("a", match[2]);
+        link.href = match[3];
+        if (match[3].startsWith("http")) link.rel = "noopener";
+        node.append(link);
+        continue;
+      }
+      if (match[4] !== undefined) { node.append(chatInline(el("strong"), match[4])); continue; }
+      if (match[6] !== undefined) { node.append(match[5], chatInline(el("em"), match[6])); continue; }
+      const trimmed = match[7].replace(/[.,;:!?)]+$/, "");
+      const link = el("a", trimmed);
+      link.href = trimmed.startsWith("http") ? trimmed : tiny.localPath("/open?target=" + encodeURIComponent(trimmed));
+      if (trimmed.startsWith("http")) link.rel = "noopener";
+      node.append(link, match[7].slice(trimmed.length));
+    }
+    node.append(text.slice(last));
+    return node;
+  };
+  const listItem = line => /^\s*(?:[-*+]|\d+[.)])\s+/.test(line);
+  const chatMarkdown = (node, text) => {
+    const lines = String(text).replace(/\r\n/g, "\n").split("\n");
+    let paragraph = [];
+    const flush = () => {
+      if (!paragraph.length) return;
+      const p = el("p");
+      paragraph.forEach((line, index) => { if (index) p.append(el("br")); chatInline(p, line); });
+      node.append(p);
+      paragraph = [];
+    };
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+      if (line.startsWith("```")) {
+        flush();
+        const code = [];
+        for (i++; i < lines.length && !lines[i].startsWith("```"); i++) code.push(lines[i]);
+        const pre = el("pre"); pre.append(el("code", code.join("\n"))); node.append(pre);
+      } else if (line.startsWith("#")) {
+        flush();
+        const level = Math.min(6, line.length - line.replace(/^#+/, "").length);
+        node.append(chatInline(el("h" + level), line.slice(level).trim()));
+      } else if (listItem(line)) {
+        flush();
+        const list = el(/^\s*\d/.test(line) ? "ol" : "ul");
+        for (; i < lines.length && listItem(lines[i]); i++) list.append(chatInline(el("li"), lines[i].replace(/^\s*(?:[-*+]|\d+[.)])\s+/, "")));
+        i--;
+        node.append(list);
+      } else if (!line.trim()) {
+        flush();
+      } else {
+        paragraph.push(line.trim());
+      }
+    }
+    flush();
+    return node;
+  };
   const keyNode = hex => { const node = el("nostr-key", hex.slice(0, 12)); node.setAttribute("hex", hex); node.title = hex; return node; };
   // nameNode shows a person: the vendored nostr-name element replaces the short
   // id with the profile name published on this relay.
@@ -646,7 +714,7 @@
     time.title = time.dateTime.slice(0, 16).replace("T", " ") + " UTC";
     small.append(time);
     header.append(name, member?.role ? " | " + member.role : "", small);
-    const body = notice ? el("p", notice) : linkify(el("p"), event.content || "");
+    const body = notice ? el("p", notice) : chatMarkdown(el("div"), event.content || "");
     node.append(header, body);
     const footer = el("footer");
     const mentions = notice ? [] : (event.tags || []).filter(tag => tag[0] === "p" && isHex64(tag[1]) && tag[1] !== pubkey).map(tag => tag[1]);
@@ -705,9 +773,9 @@
     const targets = (event.tags || []).filter(tag => tag[0] === "e");
     const target = targets.length && document.getElementById("msg-" + targets[targets.length - 1][1]);
     if (!target || target.dataset.pubkey !== event.pubkey || target.dataset.notice !== undefined) return;
-    const body = target.querySelector(":scope > p");
+    const body = target.querySelector(":scope > div");
     if (!body) return;
-    body.replaceWith(linkify(el("p"), event.content || ""));
+    body.replaceWith(chatMarkdown(el("div"), event.content || ""));
     if (target.dataset.edited !== undefined) return;
     target.dataset.edited = "";
     let footer = target.querySelector(":scope > footer");
@@ -884,7 +952,7 @@
       roomAppend(event, {room: this.getAttribute("room"), inThread: Boolean(root)});
     }
   }
-  tiny.rooms = Object.freeze({keyHex, roomMentions, roomID, messageNode, roomAppend, roomReact, roomEdit, linkify});
+  tiny.rooms = Object.freeze({keyHex, roomMentions, roomID, messageNode, roomAppend, roomReact, roomEdit, linkify, chatMarkdown});
 
   // JsonView renders any JSON value. Arrays of objects become tables, objects
   // become definition lists, scalar arrays become lists, and deep nesting

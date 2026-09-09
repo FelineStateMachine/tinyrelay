@@ -15,6 +15,17 @@ import (
 // the tags this function emits reach the page, so untrusted README files and
 // relay descriptions cannot inject markup. Anything else stays plain text.
 func renderMarkdown(source string) template.HTML {
+	return markdownHTML(source, false)
+}
+
+// renderChatMarkdown is the same subset for chat messages, where a single
+// newline is a line break and bare http(s) and nostr: references become
+// links, as people and agents type them.
+func renderChatMarkdown(source string) template.HTML {
+	return template.HTML(autolinkOutsideTags(string(markdownHTML(source, true))))
+}
+
+func markdownHTML(source string, breaks bool) template.HTML {
 	lines := strings.Split(strings.ReplaceAll(source, "\r\n", "\n"), "\n")
 	var out strings.Builder
 	var paragraph []string
@@ -22,7 +33,15 @@ func renderMarkdown(source string) template.HTML {
 		if len(paragraph) == 0 {
 			return
 		}
-		out.WriteString("<p>" + inlineMarkdown(strings.Join(paragraph, " ")) + "</p>\n")
+		joiner := " "
+		if breaks {
+			joiner = "<br>"
+		}
+		parts := make([]string, len(paragraph))
+		for i, line := range paragraph {
+			parts[i] = inlineMarkdown(line)
+		}
+		out.WriteString("<p>" + strings.Join(parts, joiner) + "</p>\n")
 		paragraph = paragraph[:0]
 	}
 	for i := 0; i < len(lines); i++ {
@@ -146,4 +165,55 @@ func renderRepositoryMarkdown(source string, query url.Values) template.HTML {
 		destination.Fragment = target.Fragment
 		return `<a href="` + html.EscapeString(destination.String()) + `">`
 	}))
+}
+
+// tagOrText splits rendered HTML into tags and the text between them.
+var tagOrText = regexp.MustCompile(`<[^>]+>|[^<]+`)
+
+// chatLinkPattern matches bare links in escaped text: http(s) URLs and
+// nostr: references, as roomLinkPattern does before escaping.
+var chatLinkPattern = regexp.MustCompile(`https?://[^\s<>"']+|(?:web\+)?nostr:[a-z0-9]+`)
+
+// autolinkOutsideTags links bare URLs and nostr: references in the text
+// between tags, leaving anything already inside a link or code alone.
+func autolinkOutsideTags(rendered string) string {
+	var out strings.Builder
+	skip := 0
+	for _, part := range tagOrText.FindAllString(rendered, -1) {
+		if strings.HasPrefix(part, "<") {
+			lower := strings.ToLower(part)
+			switch {
+			case strings.HasPrefix(lower, "<a ") || strings.HasPrefix(lower, "<code") || strings.HasPrefix(lower, "<pre"):
+				skip++
+			case strings.HasPrefix(lower, "</a") || strings.HasPrefix(lower, "</code") || strings.HasPrefix(lower, "</pre"):
+				if skip > 0 {
+					skip--
+				}
+			}
+			out.WriteString(part)
+			continue
+		}
+		if skip > 0 {
+			out.WriteString(part)
+			continue
+		}
+		last := 0
+		for _, match := range chatLinkPattern.FindAllStringIndex(part, -1) {
+			out.WriteString(part[last:match[0]])
+			link := part[match[0]:match[1]]
+			trimmed := strings.TrimRight(link, ".,;:!?)")
+			href := trimmed
+			if !strings.HasPrefix(trimmed, "http") {
+				href = "/open?target=" + template.URLQueryEscaper(html.UnescapeString(trimmed))
+			}
+			out.WriteString(`<a href="` + html.EscapeString(html.UnescapeString(href)) + `"`)
+			if strings.HasPrefix(trimmed, "http") {
+				out.WriteString(` rel="noopener"`)
+			}
+			out.WriteString(`>` + trimmed + `</a>` + link[len(trimmed):])
+			last = match[1]
+		}
+		out.WriteString(part[last:])
+	}
+	return out.String()
 }

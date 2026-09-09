@@ -37,3 +37,20 @@ func TestRepositoryMarkdownDecodesPathsAndPreservesFragments(t *testing.T) {
 		t.Fatalf("encoded README link lost its resource or fragment: %s", got)
 	}
 }
+
+func TestChatMarkdownBreaksLinesAndAutolinksOutsideLinksAndCode(t *testing.T) {
+	got := string(renderChatMarkdown("It works: **[the page](https://012.run/wiki/agents)**.\nsee https://example.com/x, and nostr:npub1ttrypewl3au52wqux86r22yt506c077k3maj02a0jste97wrvd5sjfutc2\n\n- `code https://not.a.link`\n- [x](javascript:alert(1))\n\n```\nhttps://in.code\n```"))
+	for _, want := range []string{
+		`<strong><a href="https://012.run/wiki/agents">the page</a></strong>.<br>see <a href="https://example.com/x" rel="noopener">https://example.com/x</a>, and <a href="/open?target=nostr%3Anpub1ttrypewl3au52wqux86r22yt506c077k3maj02a0jste97wrvd5sjfutc2">nostr:npub1ttrypewl3au52wqux86r22yt506c077k3maj02a0jste97wrvd5sjfutc2</a></p>`,
+		"<li><code>code https://not.a.link</code></li>",
+		"<li>[x](javascript:alert(1))</li>",
+		"<pre><code>https://in.code</code></pre>",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("missing %q in %s", want, got)
+		}
+	}
+	if strings.Count(got, "<a ") != 3 {
+		t.Fatalf("expected three links, got %s", got)
+	}
+}

@@ -186,7 +186,7 @@ test("room-live appends streamed messages once, summarizes reactions and reconne
   assert.equal(node.querySelector("header b nostr-name").getAttribute("pubkey"), message.pubkey);
   const link = node.querySelector("p a");
   assert.equal(link.href, "https://example.com/x");
-  assert.equal(node.querySelector("p").textContent, "see https://example.com/x, ok");
+  assert.equal(node.querySelector("div p").textContent, "see https://example.com/x, ok");
   assert.equal(node.querySelector("footer span nostr-name").getAttribute("pubkey"), "c".repeat(64));
   source.emit("message", {data: "not json"});
   source.emit("message", {data: JSON.stringify({...message, id: "9".repeat(64), kind: 20001})});
@@ -199,13 +199,13 @@ test("room-live appends streamed messages once, summarizes reactions and reconne
   assert.equal(summary.textContent, "+1 2");
   const edit = finalizeEvent({kind: 40003, created_at: 1757203750, tags: [["h", "build"], ["e", message.id]], content: "see https://example.com/y instead"}, secret);
   source.emit("message", {data: JSON.stringify(edit)});
-  assert.equal(node.querySelector("p").textContent, "see https://example.com/y instead");
+  assert.equal(node.querySelector("div p").textContent, "see https://example.com/y instead");
   assert.equal(node.querySelector("p a").href, "https://example.com/y");
   assert.equal(node.dataset.edited, "");
   assert.equal(node.querySelectorAll("footer span[data-edited]").length, 1);
   const stranger = finalizeEvent({kind: 40003, created_at: 1757203760, tags: [["h", "build"], ["e", message.id]], content: "hijacked"}, generateSecretKey());
   source.emit("message", {data: JSON.stringify(stranger)});
-  assert.equal(node.querySelector("p").textContent, "see https://example.com/y instead");
+  assert.equal(node.querySelector("div p").textContent, "see https://example.com/y instead");
   assert.equal(s.list.children.length, 1);
   // An agent's message carries the marker from the members list.
   const agent = finalizeEvent({kind: 11, created_at: 1757203800, tags: [["h", "build"]], content: "draft"}, secret);
@@ -242,3 +242,23 @@ test("room-live on a thread page keeps only replies to its root", () => {
   live.disconnectedCallback();
   assert.equal(source.closed, true);
 });
+
+test("chat markdown renders the shared subset without ever parsing markup", () => {
+  const s = setup();
+  const body = s.rooms.chatMarkdown(new FakeNode("div"), "It works: **[the page](https://012.run/wiki/agents)**.\nsee https://example.com/x, plus <b>not markup</b>\n\n- `code https://not.a.link`\n- [x](javascript:alert(1))\n\n```\nhttps://in.code\n```");
+  const [p, list, pre] = body.children;
+  assert.equal(p.localName, "p");
+  assert.equal(p.querySelector("strong a").href, "https://012.run/wiki/agents");
+  assert.equal(p.querySelectorAll("br").length, 1);
+  assert.equal(p.querySelectorAll("a").length, 2);
+  assert.equal(p.textContent, "It works: the page.see https://example.com/x, plus <b>not markup</b>");
+  assert.equal(list.localName, "ul");
+  assert.equal(list.children[0].querySelector("code").textContent, "code https://not.a.link");
+  assert.equal(list.children[0].querySelectorAll("a").length, 0);
+  assert.equal(list.children[1].textContent, "[x](javascript:alert(1))");
+  assert.equal(list.children[1].querySelectorAll("a").length, 0);
+  assert.equal(pre.localName, "pre");
+  assert.equal(pre.querySelector("code").textContent, "https://in.code");
+  assert.equal(pre.querySelectorAll("a").length, 0);
+});
+

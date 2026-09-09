@@ -232,6 +232,7 @@ func parseTemplates() (*template.Template, error) {
 		"datetime":        datetime,
 		"when":            when,
 		"markdown":        renderMarkdown,
+		"chatMarkdown":    renderChatMarkdown,
 		"hasPrefix":       strings.HasPrefix,
 		"npub":            identityNpub,
 		"wsURL":           wsURL,

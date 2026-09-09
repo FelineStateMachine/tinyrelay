@@ -258,8 +258,10 @@ room-message{display:block;padding:8px 0;border-bottom:1px solid var(--line)}
 room-message>header{font:12px var(--mono);color:var(--muted);margin-bottom:2px;user-select:none;-webkit-user-select:none}
 room-message>header b{color:var(--ink);font-weight:500}room-message>header b nostr-key{cursor:copy}
 room-message>header small{float:right}
-room-message>p{margin:0;font:14px/1.45 var(--sans);white-space:pre-wrap;overflow-wrap:anywhere}
-room-message>p a{color:var(--accent)}
+room-message>p,room-message>div{margin:0;font:14px/1.45 var(--sans);overflow-wrap:anywhere}room-message>p{white-space:pre-wrap}
+room-message>p a,room-message>div a{color:var(--accent)}
+room-message>div p{margin:0 0 6px}room-message>div>:last-child{margin-bottom:0}room-message>div ul,room-message>div ol{margin:0 0 6px 20px;padding:0}
+room-message>div pre{margin:0 0 6px;padding:6px 8px;background:var(--rail);border:1px solid var(--line);overflow:auto;font:12px/1.4 var(--mono);white-space:pre}room-message>div code{font:12px var(--mono)}room-message>div h1,room-message>div h2,room-message>div h3,room-message>div h4{margin:4px 0 6px;font-size:14px;border:0}
 room-message>footer{font:12px var(--mono);color:var(--muted);margin-top:4px}
 room-message>footer>*+*::before{content:" | "}
 room-message[data-agent]>header b::after{content:" agent";color:var(--bark);font-size:11px}
