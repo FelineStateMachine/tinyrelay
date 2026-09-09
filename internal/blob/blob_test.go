@@ -291,6 +291,112 @@ func TestBlobClaimsPreserveDeduplicatedOwnershipAndCursor(t *testing.T) {
 	}
 }
 
+// TestAgentUploadsExpireUnlessAPersonClaimsThem covers the ttl an agent
+// grant puts on uploads: claims carry the expiry, the sweep removes blobs
+// whose every claim lapsed and keeps those a person holds.
+func TestAgentUploadsExpireUnlessAPersonClaimsThem(t *testing.T) {
+	service := testService(t)
+	agent := strings.Repeat("a", 64)
+	person := strings.Repeat("b", 64)
+	now := time.Now().Unix()
+	service.config.UploadTerms = func(_ context.Context, uploader string) (UploadTerms, error) {
+		if uploader == agent {
+			return UploadTerms{ExpiresAt: now + 10}, nil
+		}
+		return UploadTerms{}, nil
+	}
+	ctx := context.Background()
+	shared, err := service.Put(ctx, PutOptions{Reader: strings.NewReader("shared site file"), Type: "text/html", Uploader: agent})
+	if err != nil {
+		t.Fatal(err)
+	}
+	alone, err := service.Put(ctx, PutOptions{Reader: strings.NewReader("agent only file"), Type: "text/html", Uploader: agent})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var expires int64
+	if err := service.store.DB().QueryRow("SELECT expires FROM blob_claims WHERE sha256=? AND uploader=?", alone.SHA256, agent).Scan(&expires); err != nil || expires != now+10 {
+		t.Fatalf("agent claim expires=%d err=%v, want %d", expires, err, now+10)
+	}
+	if _, err := service.Put(ctx, PutOptions{Reader: strings.NewReader("shared site file"), Type: "text/html", Uploader: person}); err != nil {
+		t.Fatal(err)
+	}
+	if err := service.store.DB().QueryRow("SELECT expires FROM blob_claims WHERE sha256=? AND uploader=?", shared.SHA256, person).Scan(&expires); err != nil || expires != 0 {
+		t.Fatalf("person claim expires=%d err=%v, want 0", expires, err)
+	}
+	if removed, err := service.SweepExpired(ctx, now+9); err != nil || removed != 0 {
+		t.Fatalf("early sweep removed %d err=%v", removed, err)
+	}
+	if removed, err := service.SweepExpired(ctx, now+10); err != nil || removed != 1 {
+		t.Fatalf("sweep removed %d err=%v, want 1", removed, err)
+	}
+	if _, _, err := service.Get(ctx, alone.SHA256); err == nil {
+		t.Fatal("expired unclaimed blob still served")
+	}
+	if _, err := os.Stat(filepath.Join(service.root, alone.SHA256)); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("expired blob file remains: %v", err)
+	}
+	if _, _, err := service.Get(ctx, shared.SHA256); err != nil {
+		t.Fatalf("blob a person claimed was removed: %v", err)
+	}
+	mine, err := service.ListMetadata(ctx, agent)
+	if err != nil || len(mine) != 0 {
+		t.Fatalf("agent still lists %d blobs after expiry: %v", len(mine), err)
+	}
+	theirs, err := service.ListMetadata(ctx, person)
+	if err != nil || len(theirs) != 1 {
+		t.Fatalf("person lists %d blobs: %v", len(theirs), err)
+	}
+	// A restart keeps the expiry column and the earlier rows.
+	if _, err := New(ctx, service.config); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestEncryptedOnlyTermsRefusePlainUploads(t *testing.T) {
+	service := testService(t)
+	agent := strings.Repeat("a", 64)
+	service.config.UploadTerms = func(_ context.Context, uploader string) (UploadTerms, error) {
+		return UploadTerms{Encrypted: uploader == agent}, nil
+	}
+	ctx := context.Background()
+	png := "\x89PNG\r\n\x1a\n" + strings.Repeat("\x00", 64)
+	for name, options := range map[string]PutOptions{
+		"declared page":     {Reader: strings.NewReader("<html>plain</html>"), Type: "text/html", Uploader: agent},
+		"sniffed image":     {Reader: strings.NewReader(png), Type: "application/octet-stream", Uploader: agent},
+		"declared manifest": {Reader: strings.NewReader("{}"), Type: "application/json", Uploader: agent},
+	} {
+		if _, err := service.Put(ctx, options); !errors.Is(err, ErrNotEncrypted) {
+			t.Fatalf("%s: err=%v, want ErrNotEncrypted", name, err)
+		}
+	}
+	if entries, _ := os.ReadDir(service.root); len(entries) != 0 {
+		t.Fatalf("refused uploads left %d files", len(entries))
+	}
+	cipher := "\x8f\x1a\x9c\x03" + strings.Repeat("\xe2\x71\x05\x9b\x4c", 20)
+	if _, err := service.Put(ctx, PutOptions{Reader: strings.NewReader(cipher), Type: "application/octet-stream", Uploader: agent}); err != nil {
+		t.Fatalf("ciphertext refused: %v", err)
+	}
+	if _, err := service.Put(ctx, PutOptions{Reader: strings.NewReader("\x82\xa1t\x01"), Type: "application/vnd.blossom.directory+msgpack", Uploader: agent}); err != nil {
+		t.Fatalf("encrypted manifest refused: %v", err)
+	}
+	// Claiming a plain blob someone else stored is refused too.
+	if _, err := service.Put(ctx, PutOptions{Reader: strings.NewReader("<html>theirs</html>"), Type: "text/html", Uploader: strings.Repeat("b", 64)}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.Put(ctx, PutOptions{Reader: strings.NewReader("<html>theirs</html>"), Type: "text/html", Uploader: agent}); !errors.Is(err, ErrNotEncrypted) {
+		t.Fatalf("claim of a plain blob: err=%v", err)
+	}
+	// The door answers 403 with the reason.
+	service.config.Authorize = func(*http.Request, Action) (string, error) { return agent, nil }
+	req := httptest.NewRequest(http.MethodPut, "https://relay.test/upload", strings.NewReader("<html>plain</html>"))
+	req.Header.Set("Content-Type", "text/html")
+	response := record(service.Handler().ServeHTTP, req)
+	if response.Code != http.StatusForbidden || !strings.Contains(response.Body.String(), "requires encrypted uploads") {
+		t.Fatalf("plain upload = %d %s", response.Code, response.Body.String())
+	}
+}
+
 const testUploader = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
 
 func testService(t *testing.T) *Service {

@@ -61,12 +61,30 @@ type Config struct {
 	// Limits is read for each upload so policy changes apply without reopening
 	// the blob service. Zero values mean unlimited.
 	Limits func() Limits
+	// UploadTerms returns what an uploader's standing imposes on its uploads:
+	// an agent grant with a sites ttl gives its claims an expiry, and one with
+	// the encrypted flag refuses plain uploads. Zero values mean no terms.
+	UploadTerms func(context.Context, string) (UploadTerms, error)
 }
 
 type Limits struct {
 	MaxFileBytes     int64
 	UserStorageBytes int64
 }
+
+// UploadTerms is what an uploader's grant imposes on the blobs it stores.
+// ExpiresAt is the unix time its claims lapse, 0 for never; Encrypted
+// requires the stored bytes to be an encrypted blob or manifest.
+type UploadTerms struct {
+	ExpiresAt int64
+	Encrypted bool
+}
+
+// encryptedTypes are the content types the browser uploader gives encrypted
+// objects: AES-GCM ciphertext for files and chunks, and the BUD-16 directory
+// type for encrypted manifests. Anything the relay recognizes as a page,
+// image, video, audio or document is plain.
+var encryptedTypes = map[string]bool{"application/octet-stream": true, "application/vnd.blossom.directory+msgpack": true}
 
 type Blob struct {
 	SHA256   string `json:"sha256"`
@@ -107,6 +125,7 @@ var ErrHashMismatch = errors.New("conflict: mirrored blob hash does not match th
 var ErrFileTooLarge = errors.New("invalid: blob exceeds the per-file size limit")
 var ErrQuotaExceeded = errors.New("restricted: uploader storage quota exceeded")
 var ErrMultipartConflict = errors.New("conflict: upload metadata differs from existing session")
+var ErrNotEncrypted = errors.New("restricted: agent grant requires encrypted uploads")
 
 var shaPattern = regexp.MustCompile(`^[0-9a-f]{64}$`)
 var blobPathPattern = regexp.MustCompile(`^/([0-9a-f]{64})(?:\.[a-z0-9]{1,8})?$`)
@@ -156,6 +175,14 @@ func New(ctx context.Context, config Config) (*Service, error) {
 	INSERT OR IGNORE INTO blob_claims(sha256,uploader,claimed_at)
 		SELECT sha256,uploader,uploaded FROM blobs WHERE uploader != ''`); err != nil {
 		return nil, fmt.Errorf("initialize blob metadata: %w", err)
+	}
+	// Claims made under an agent grant with a ttl carry an expiry; every
+	// earlier claim keeps 0, which never lapses.
+	if _, err := config.Store.DB().ExecContext(ctx, "ALTER TABLE blob_claims ADD COLUMN expires INTEGER NOT NULL DEFAULT 0"); err != nil && !strings.Contains(err.Error(), "duplicate column") {
+		return nil, fmt.Errorf("add blob claim expiry: %w", err)
+	}
+	if _, err := config.Store.DB().ExecContext(ctx, "CREATE INDEX IF NOT EXISTS blob_claims_expires ON blob_claims(expires) WHERE expires>0"); err != nil {
+		return nil, fmt.Errorf("index blob claim expiry: %w", err)
 	}
 	if err := reconcile(ctx, config.Store, filepath.Join(config.Root, "blobs")); err != nil {
 		return nil, err
@@ -649,6 +676,10 @@ func (s *Service) installUpload(ctx context.Context, candidate uploadCandidate) 
 	if s.blocked(ctx, sha) {
 		return Blob{}, false, ErrBlocked
 	}
+	terms, err := s.uploadTerms(ctx, uploader)
+	if err != nil {
+		return Blob{}, false, err
+	}
 	limits := s.currentLimits()
 	if limits.MaxFileBytes > 0 && count > limits.MaxFileBytes {
 		return Blob{}, false, ErrFileTooLarge
@@ -657,6 +688,9 @@ func (s *Service) installUpload(ctx context.Context, candidate uploadCandidate) 
 		return Blob{}, false, ErrQuotaExceeded
 	}
 	if existing, err := s.lookup(ctx, sha); err == nil {
+		if terms.Encrypted && !encryptedTypes[existing.Type] {
+			return Blob{}, false, ErrNotEncrypted
+		}
 		if uploader != "" {
 			if limits.UserStorageBytes > 0 && !s.hasClaim(ctx, sha, uploader) {
 				used, usageErr := s.quotaUsageExcept(ctx, uploader, candidate.reservation)
@@ -667,7 +701,7 @@ func (s *Service) installUpload(ctx context.Context, candidate uploadCandidate) 
 					return Blob{}, false, ErrQuotaExceeded
 				}
 			}
-			if err := s.claim(ctx, sha, uploader); err != nil {
+			if err := s.claim(ctx, sha, uploader, terms.ExpiresAt); err != nil {
 				return Blob{}, false, err
 			}
 		}
@@ -689,6 +723,16 @@ func (s *Service) installUpload(ctx context.Context, candidate uploadCandidate) 
 			return Blob{}, false, ErrQuotaExceeded
 		}
 	}
+	// The type is settled before the bytes are installed so a plain upload
+	// under an encrypted-only grant leaves nothing behind. A declared octet
+	// stream is sniffed: encrypted bytes stay one, a page or an image does not.
+	typ = contentType(typ)
+	if typ == "application/octet-stream" {
+		typ = detectFileType(candidate.path)
+	}
+	if terms.Encrypted && !encryptedTypes[typ] {
+		return Blob{}, false, ErrNotEncrypted
+	}
 	final := filepath.Join(s.root, sha)
 	if err := os.Rename(candidate.path, final); err != nil && !errors.Is(err, os.ErrExist) {
 		return Blob{}, false, fmt.Errorf("install blob: %w", err)
@@ -697,12 +741,8 @@ func (s *Service) installUpload(ctx context.Context, candidate uploadCandidate) 
 		return Blob{}, false, fmt.Errorf("sync blob directory: %w", err)
 	}
 	now := time.Now().UTC().Unix()
-	typ = contentType(typ)
-	if typ == "application/octet-stream" {
-		typ = detectFileType(final)
-	}
 	entry := Blob{SHA256: sha, Size: count, Type: typ, Uploader: uploader, Uploaded: now}
-	err := s.store.WithTx(ctx, func(tx *sql.Tx) error {
+	err = s.store.WithTx(ctx, func(tx *sql.Tx) error {
 		if _, err := tx.ExecContext(ctx, "DELETE FROM blob_tombstones WHERE sha256=?", entry.SHA256); err != nil {
 			return fmt.Errorf("clear blob deletion tombstone: %w", err)
 		}
@@ -710,7 +750,7 @@ func (s *Service) installUpload(ctx context.Context, candidate uploadCandidate) 
 			return fmt.Errorf("record blob: %w", err)
 		}
 		if entry.Uploader != "" {
-			if _, err := tx.ExecContext(ctx, "INSERT OR IGNORE INTO blob_claims(sha256,uploader,claimed_at) VALUES(?,?,?)", entry.SHA256, entry.Uploader, entry.Uploaded); err != nil {
+			if _, err := tx.ExecContext(ctx, claimSQL, entry.SHA256, entry.Uploader, entry.Uploaded, terms.ExpiresAt); err != nil {
 				return fmt.Errorf("record blob claim: %w", err)
 			}
 		}
@@ -745,12 +785,62 @@ func (s *Service) quotaUsageExcept(ctx context.Context, uploader, reservation st
 	return used.Int64, nil
 }
 
-func (s *Service) claim(ctx context.Context, sha, uploader string) error {
-	_, err := s.store.DB().ExecContext(ctx, "INSERT OR IGNORE INTO blob_claims(sha256,uploader,claimed_at) VALUES(?,?,?)", sha, uploader, time.Now().UTC().Unix())
+// claimSQL records a claim. The insert trigger on blobs has usually made the
+// row already, without an expiry, so the newest upload's terms replace it.
+const claimSQL = "INSERT INTO blob_claims(sha256,uploader,claimed_at,expires) VALUES(?,?,?,?) ON CONFLICT(sha256,uploader) DO UPDATE SET expires=excluded.expires"
+
+func (s *Service) claim(ctx context.Context, sha, uploader string, expires int64) error {
+	_, err := s.store.DB().ExecContext(ctx, claimSQL, sha, uploader, time.Now().UTC().Unix(), expires)
 	if err != nil {
 		return fmt.Errorf("record blob claim: %w", err)
 	}
 	return nil
+}
+
+func (s *Service) uploadTerms(ctx context.Context, uploader string) (UploadTerms, error) {
+	if s.config.UploadTerms == nil || uploader == "" {
+		return UploadTerms{}, nil
+	}
+	terms, err := s.config.UploadTerms(ctx, uploader)
+	if err != nil {
+		return UploadTerms{}, fmt.Errorf("check upload terms: %w", err)
+	}
+	return terms, nil
+}
+
+// SweepExpired removes the blobs whose every claim has lapsed and releases
+// lapsed claims on blobs someone else still holds, so an agent's files leave
+// with its site while a person's claim keeps them. It returns how many blobs
+// were removed.
+func (s *Service) SweepExpired(ctx context.Context, now int64) (int, error) {
+	s.quotaMu.Lock()
+	defer s.quotaMu.Unlock()
+	rows, err := s.store.DB().QueryContext(ctx, `SELECT DISTINCT sha256 FROM blob_claims c WHERE c.expires>0 AND c.expires<=?
+		AND NOT EXISTS(SELECT 1 FROM blob_claims live WHERE live.sha256=c.sha256 AND (live.expires=0 OR live.expires>?))`, now, now)
+	if err != nil {
+		return 0, fmt.Errorf("list expired blobs: %w", err)
+	}
+	var expired []string
+	for rows.Next() {
+		var sha string
+		if err := rows.Scan(&sha); err != nil {
+			_ = rows.Close()
+			return 0, err
+		}
+		expired = append(expired, sha)
+	}
+	if err := errors.Join(rows.Err(), rows.Close()); err != nil {
+		return 0, err
+	}
+	for _, sha := range expired {
+		if err := s.Delete(ctx, sha); err != nil {
+			return 0, err
+		}
+	}
+	if _, err := s.store.DB().ExecContext(ctx, "DELETE FROM blob_claims WHERE expires>0 AND expires<=?", now); err != nil {
+		return 0, fmt.Errorf("release expired blob claims: %w", err)
+	}
+	return len(expired), nil
 }
 
 func (s *Service) currentLimits() Limits {
@@ -1309,7 +1399,7 @@ func statusFor(err error) int {
 	if errors.Is(err, ErrQuotaExceeded) {
 		return http.StatusForbidden
 	}
-	if errors.Is(err, ErrBlocked) {
+	if errors.Is(err, ErrBlocked) || errors.Is(err, ErrNotEncrypted) {
 		return http.StatusForbidden
 	}
 	if strings.HasPrefix(err.Error(), "auth-required:") {
