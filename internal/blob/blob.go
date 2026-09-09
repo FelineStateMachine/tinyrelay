@@ -801,11 +801,8 @@ func (s *Service) uploadTerms(ctx context.Context, uploader string) (UploadTerms
 	if s.config.UploadTerms == nil || uploader == "" {
 		return UploadTerms{}, nil
 	}
-	terms, err := s.config.UploadTerms(ctx, uploader)
-	if err != nil {
-		return UploadTerms{}, fmt.Errorf("check upload terms: %w", err)
-	}
-	return terms, nil
+	// A refusal keeps its reason so the door answers with the right status.
+	return s.config.UploadTerms(ctx, uploader)
 }
 
 // SweepExpired removes the blobs whose every claim has lapsed and releases
@@ -1407,6 +1404,9 @@ func statusFor(err error) int {
 	}
 	if strings.HasPrefix(err.Error(), "invalid:") {
 		return http.StatusBadRequest
+	}
+	if strings.HasPrefix(err.Error(), "restricted:") {
+		return http.StatusForbidden
 	}
 	return http.StatusInternalServerError
 }

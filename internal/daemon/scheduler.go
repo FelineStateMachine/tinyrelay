@@ -48,6 +48,7 @@ func (t *Tenant) runScheduler() {
 				if t.blobs != nil {
 					report("partial uploads", t.blobs.CleanupMultipart(ctx))
 				}
+				report("expired uploads", t.sweepExpiredBlobs(ctx, now.Unix()))
 				report("retention", t.sweep(ctx, now.Unix()))
 				report("restore-state", t.sweepReplicationState(ctx, now.Unix()))
 				nextMaintenance = now.Add(time.Minute)

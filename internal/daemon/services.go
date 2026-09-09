@@ -47,7 +47,7 @@ func (t *Tenant) initServices(ctx context.Context) error {
 		return err
 	}
 	t.blobs, err = blob.New(ctx, blob.Config{
-		Root: t.meta.Paths.Root, PublicURL: t.publicURL, Store: t.store, Authorize: t.authorizeBlob,
+		Root: t.meta.Paths.Root, PublicURL: t.publicURL, Store: t.store, Authorize: t.authorizeBlob, UploadTerms: t.blobUploadTerms,
 		Limits: func() blob.Limits {
 			limits := t.Policy().FileLimits
 			return blob.Limits{MaxFileBytes: limits.MaxFileBytes, UserStorageBytes: limits.UserStorageBytes}
@@ -310,8 +310,79 @@ func (t *Tenant) authorizeBlob(r *http.Request, action blob.Action) (string, err
 		if !allowed {
 			return "", errors.New("restricted: file upload is not allowed")
 		}
+		// An agent's standing is its grant: an active one makes it a member
+		// for uploads, a paused, revoked or expired one stops them.
+		if role == "agent" {
+			if _, err := t.agentUploadGrant(r.Context(), pubkey); err != nil {
+				return "", err
+			}
+		}
 	}
 	return pubkey, nil
+}
+
+// agentUploadGrant returns the grant behind an agent key's uploads when it
+// currently allows publishing.
+func (t *Tenant) agentUploadGrant(ctx context.Context, pubkey string) (community.AgentGrant, error) {
+	grant, ok, err := t.community.AgentGrant(ctx, pubkey)
+	if err != nil {
+		return community.AgentGrant{}, fmt.Errorf("check agent upload grant: %w", err)
+	}
+	if !ok {
+		return community.AgentGrant{}, errors.New("restricted: agent grant is missing")
+	}
+	switch {
+	case grant.RevokedAt > 0:
+		return community.AgentGrant{}, errors.New("restricted: agent grant is revoked")
+	case grant.Paused:
+		return community.AgentGrant{}, errors.New("restricted: agent grant is paused")
+	case grant.ExpiresAt <= time.Now().Unix():
+		return community.AgentGrant{}, errors.New("restricted: agent grant has expired")
+	}
+	return grant, nil
+}
+
+// blobUploadTerms is what the blob service asks before it stores an upload:
+// a key whose only standing is an agent grant takes the grant's sites ttl as
+// the expiry of its claims and its encrypted flag as a requirement. Keys
+// with a human role, and agents without a sites tag, upload on no terms.
+func (t *Tenant) blobUploadTerms(ctx context.Context, pubkey string) (blob.UploadTerms, error) {
+	role, err := t.community.Role(ctx, pubkey)
+	if err != nil {
+		return blob.UploadTerms{}, fmt.Errorf("check uploader role: %w", err)
+	}
+	if role != "agent" {
+		return blob.UploadTerms{}, nil
+	}
+	grant, err := t.agentUploadGrant(ctx, pubkey)
+	if err != nil {
+		return blob.UploadTerms{}, err
+	}
+	terms := blob.UploadTerms{Encrypted: grant.UploadsEncrypted()}
+	if days := grant.UploadTTLDays(); days > 0 {
+		terms.ExpiresAt = time.Now().Unix() + int64(days)*86400
+	}
+	return terms, nil
+}
+
+// sweepExpiredBlobs retires uploads whose agent ttl has lapsed. The step is
+// recorded as the blob-expiry storage operation with a bounded outcome and
+// a count, never a hash or a key.
+func (t *Tenant) sweepExpiredBlobs(ctx context.Context, now int64) error {
+	if t.blobs == nil {
+		return nil
+	}
+	started := time.Now()
+	removed, err := t.blobs.SweepExpired(ctx, now)
+	outcome := "ok"
+	if err != nil {
+		outcome = "error"
+	}
+	t.app.telemetry.ObserveStorage("blob-expiry", outcome, time.Since(started))
+	if removed > 0 {
+		t.app.telemetry.Logger().Info("expired uploads removed", "tenant", t.meta.Name, "blobs", removed)
+	}
+	return err
 }
 
 func (t *Tenant) validateBlobUpload(r *http.Request, hash string) error {
