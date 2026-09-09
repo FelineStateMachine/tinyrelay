@@ -48,6 +48,10 @@ func (t *Tenant) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		t.router.HandleHTTP(w, r)
 		return
 	}
+	if isRoomStreamPath(r.URL.Path) {
+		t.roomStreamHTTP(w, r)
+		return
+	}
 	if r.URL.Path != "/backups/restore" && r.URL.Path != "/manage/jobs/status" {
 		ctx, done, err := t.beginOperation(r.Context())
 		if err != nil {

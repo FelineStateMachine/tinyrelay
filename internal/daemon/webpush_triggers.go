@@ -111,6 +111,28 @@ func (t *Tenant) pushNotices(ctx context.Context, e event.Event) []pushNotice {
 			}
 			notices = append(notices, pushNotice{recipient: recipient, category: category, body: body + excerpt(e.Content), url: base + "/e/" + e.ID})
 		}
+	case event.KIND_CHAT, event.KIND_THREAD, event.KIND_THREAD_REPLY:
+		// Room messages name the room so the summary reads as a conversation.
+		roomID := event.Tag(e, "h")
+		if roomID == "" || e.Kind == event.KIND_MARMOT_GROUP {
+			return nil
+		}
+		room, err := t.community.Room(ctx, roomID)
+		if err != nil || !room.Live() {
+			return nil
+		}
+		name := room.Name
+		if name == "" {
+			name = room.ID
+		}
+		authored := t.referencedAuthors(ctx, e)
+		for _, recipient := range pushRecipients(e) {
+			category, body := pushMentions, "Mentioned you in "+name+": "
+			if authored[recipient] {
+				category, body = pushReplies, "Replied to you in "+name+": "
+			}
+			notices = append(notices, pushNotice{recipient: recipient, category: category, body: body + excerpt(e.Content), url: base + "/rooms/" + room.ID})
+		}
 	}
 	return notices
 }
@@ -199,7 +221,7 @@ func (t *Tenant) inboxUnread(ctx context.Context, pubkey string) int {
 	since := t.inboxSeen(ctx, pubkey)
 	// Count conversation kinds only, so relay records addressed to the
 	// owner do not inflate the badge.
-	filter := event.Filter{Kinds: []int{1, 4, 1111, event.KIND_WRAP, event.KIND_GIT_ISSUE, event.KIND_GIT_PR, 30023}, Tags: map[string][]string{"p": {pubkey}}}
+	filter := event.Filter{Kinds: []int{1, 4, event.KIND_CHAT, event.KIND_THREAD, event.KIND_THREAD_REPLY, 1111, event.KIND_WRAP, event.KIND_GIT_ISSUE, event.KIND_GIT_PR, 30023}, Tags: map[string][]string{"p": {pubkey}}}
 	if since > 0 {
 		filter.Since = &since
 	}

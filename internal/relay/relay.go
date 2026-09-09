@@ -95,18 +95,38 @@ func (c Config) withDefaults() Config {
 }
 
 type Router struct {
-	backend   Backend
-	cfg       Config
-	mu        sync.RWMutex // publish is exclusive with REQ registration + query
-	clientsMu sync.Mutex
-	clients   map[*client]struct{}
-	closed    chan struct{}
-	closeOnce sync.Once
-	clientsWG sync.WaitGroup
+	backend     Backend
+	cfg         Config
+	mu          sync.RWMutex // publish is exclusive with REQ registration + query
+	clientsMu   sync.Mutex
+	clients     map[*client]struct{}
+	listenersMu sync.Mutex
+	listeners   map[*listener]struct{}
+	closed      chan struct{}
+	closeOnce   sync.Once
+	clientsWG   sync.WaitGroup
 }
 
+type listener struct{ fn func(event.Event) }
+
 func New(backend Backend, cfg Config) *Router {
-	return &Router{backend: backend, cfg: cfg.withDefaults(), clients: make(map[*client]struct{}), closed: make(chan struct{})}
+	return &Router{backend: backend, cfg: cfg.withDefaults(), clients: make(map[*client]struct{}), listeners: make(map[*listener]struct{}), closed: make(chan struct{})}
+}
+
+// Listen registers an in-process observer of live fan-out. It sees every
+// event delivered to websocket subscribers, before the reader's own access
+// check. The callback runs under the publish fence and must not block; the
+// returned function removes it.
+func (r *Router) Listen(fn func(event.Event)) func() {
+	l := &listener{fn: fn}
+	r.listenersMu.Lock()
+	r.listeners[l] = struct{}{}
+	r.listenersMu.Unlock()
+	return func() {
+		r.listenersMu.Lock()
+		delete(r.listeners, l)
+		r.listenersMu.Unlock()
+	}
 }
 
 func (r *Router) HandleHTTP(w http.ResponseWriter, req *http.Request) {
@@ -689,6 +709,15 @@ func (r *Router) fanout(e event.Event) {
 			}
 		}
 	}
+	r.listenersMu.Lock()
+	ls := make([]*listener, 0, len(r.listeners))
+	for l := range r.listeners {
+		ls = append(ls, l)
+	}
+	r.listenersMu.Unlock()
+	for _, l := range ls {
+		l.fn(e)
+	}
 }
 
 func (c *client) canRead(e event.Event, f *event.Filter) bool {
@@ -885,7 +914,7 @@ func accessEvent(e event.Event) bool {
 	switch e.Kind {
 	case event.KIND_REPORT, event.KIND_VANISH, event.KIND_JOIN, event.KIND_LEAVE,
 		event.KIND_NIP43_JOIN, event.KIND_NIP43_LEAVE, event.KIND_PUT_USER,
-		event.KIND_REMOVE_USER, event.KIND_DELETE_EVENT:
+		event.KIND_REMOVE_USER, event.KIND_DELETE_EVENT, event.KIND_DELETE_GROUP:
 		return true
 	default:
 		return false

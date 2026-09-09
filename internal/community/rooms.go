@@ -97,7 +97,9 @@ func RoomAdminKind(kind int) bool {
 }
 
 // RoomNoticeKind reports whether kind is a relay-signed member notice.
-func RoomNoticeKind(kind int) bool { return kind == event.KIND_ROOM_MEMBER_ADDED || kind == event.KIND_ROOM_MEMBER_REMOVED }
+func RoomNoticeKind(kind int) bool {
+	return kind == event.KIND_ROOM_MEMBER_ADDED || kind == event.KIND_ROOM_MEMBER_REMOVED
+}
 
 // RoomAccessFor maps the tenant read rule onto the slug room's access.
 func RoomAccessFor(reads string) string {

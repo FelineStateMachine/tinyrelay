@@ -163,6 +163,24 @@ func (g *maintenanceGate) endMaintenance() func() {
 	}
 }
 
+// watch returns a channel that closes on the next gate change, so a
+// long-lived reader can stop when maintenance or shutdown begins.
+func (g *maintenanceGate) watch() <-chan struct{} {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if g.changed == nil {
+		g.changed = make(chan struct{})
+	}
+	return g.changed
+}
+
+// blocked reports whether new operations are being refused.
+func (g *maintenanceGate) blocked() bool {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	return g.maintenance || g.closing
+}
+
 func (g *maintenanceGate) signalLocked() {
 	if g.changed != nil {
 		close(g.changed)

@@ -18,6 +18,7 @@ import (
 
 	"github.com/FelineStateMachine/tinyrelay/internal/auth"
 	"github.com/FelineStateMachine/tinyrelay/internal/blob"
+	"github.com/FelineStateMachine/tinyrelay/internal/community"
 	"github.com/FelineStateMachine/tinyrelay/internal/configport"
 	"github.com/FelineStateMachine/tinyrelay/internal/event"
 	"github.com/FelineStateMachine/tinyrelay/internal/gitrelay"
@@ -475,12 +476,18 @@ func (t *Tenant) workHandlers() map[string]work.Handler {
 		},
 		"records-projection": func(ctx context.Context, intent work.Intent) error {
 			var payload struct {
+				Action  string `json:"action"`
+				Room    string `json:"room"`
 				PubKey  string `json:"pubkey"`
 				Role    string `json:"role"`
 				Removed int    `json:"removed"`
+				Deleted int    `json:"deleted"`
 			}
 			if err := json.Unmarshal([]byte(intent.Payload), &payload); err != nil {
 				return err
+			}
+			if payload.Action == "room" {
+				return t.projectRoom(ctx, payload.Room, payload.PubKey, payload.Removed != 0, payload.Deleted != 0)
 			}
 			var changes []records.MembershipChange
 			if payload.PubKey != "" && (payload.Role != "" || payload.Removed != 0) {
@@ -578,6 +585,11 @@ func (t *Tenant) replacePolicy(p policy.Policy) {
 	previous := t.policy
 	t.policy = p
 	t.mu.Unlock()
+	if community.RoomAccessFor(previous.Reads) != community.RoomAccessFor(p.Reads) {
+		if err := t.community.EnsureSlugRoom(context.Background(), t.meta.Name, community.RoomAccessFor(p.Reads)); err != nil {
+			t.app.telemetry.Logger().Error("refresh main room", "tenant", t.meta.Name, "error", err)
+		}
+	}
 	if err := t.reconcileAutomaticInbox(context.Background(), previous, p); err != nil {
 		t.app.telemetry.Logger().Error("reconcile automatic inbox job", "tenant", t.meta.Name, "error", err)
 	}

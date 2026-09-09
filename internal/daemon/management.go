@@ -37,6 +37,10 @@ func (t *Tenant) executeManagement(ctx context.Context, actor, method string, pa
 		result, err = t.executeBrowse(ctx, actor, method, params)
 		return result, true, err
 	}
+	if roomBrowseMethod(method) {
+		result, err = t.executeRoomBrowse(ctx, actor, method, params)
+		return result, true, err
+	}
 	if publicManagementMethod(method) {
 		return t.executePublicManagement(ctx, actor, method, params)
 	}

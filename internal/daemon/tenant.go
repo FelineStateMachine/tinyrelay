@@ -95,6 +95,9 @@ func newTenant(ctx context.Context, cfg tenantConfig) (*Tenant, error) {
 	if err != nil {
 		return nil, err
 	}
+	if err := t.community.EnsureSlugRoom(ctx, t.meta.Name, community.RoomAccessFor(p.Reads)); err != nil {
+		return nil, err
+	}
 	t.gate, err = gates.New(gates.Config{Store: t.store, Community: t.community, Policy: t.Policy, Slug: t.meta.Name})
 	if err != nil {
 		return nil, err
@@ -227,7 +230,7 @@ func (t *Tenant) Publish(ctx context.Context, e event.Event, s relay.Session) (s
 	}
 	var metadataNext policy.Policy
 	metadataChanged := false
-	if e.Kind == event.KIND_EDIT_METADATA || e.Kind == event.KIND_PINS {
+	if (e.Kind == event.KIND_EDIT_METADATA || e.Kind == event.KIND_PINS) && t.roomScope(e) == "" {
 		role, roleErr := t.community.Role(ctx, e.PubKey)
 		if roleErr != nil {
 			return "", roleErr
@@ -354,10 +357,15 @@ func (t *Tenant) Publish(ctx context.Context, e event.Event, s relay.Session) (s
 		_, saveErr := storage.SaveTx(ctx, tx, e, opts)
 		return saveErr
 	}
-	switch e.Kind {
-	case event.KIND_JOIN, event.KIND_LEAVE, event.KIND_NIP43_JOIN, event.KIND_NIP43_LEAVE:
+	room := t.roomScope(e)
+	switch {
+	case room != "" && community.RoomAdminKind(e.Kind):
+		_, err = t.community.HandleRoomEventTx(ctx, e, persist)
+	case room != "" && !event.IsEphemeral(e.Kind):
+		err = t.community.HandleRoomMessageTx(ctx, e, persist)
+	case e.Kind == event.KIND_JOIN, e.Kind == event.KIND_LEAVE, e.Kind == event.KIND_NIP43_JOIN, e.Kind == event.KIND_NIP43_LEAVE:
 		_, err = t.community.HandleMembershipEventTx(ctx, e, persist)
-	case event.KIND_PUT_USER, event.KIND_REMOVE_USER, event.KIND_DELETE_EVENT, event.KIND_CREATE_INVITE:
+	case e.Kind == event.KIND_PUT_USER, e.Kind == event.KIND_REMOVE_USER, e.Kind == event.KIND_DELETE_EVENT, e.Kind == event.KIND_CREATE_INVITE:
 		_, err = t.community.HandleModerationEventTx(ctx, e, persist)
 	default:
 		_, err = t.store.Save(ctx, e, opts)
@@ -410,6 +418,18 @@ func (t *Tenant) agentBeforeCommit(e event.Event, now int64, before func(context
 		}
 		return t.community.ApplyAgentEventTx(txCtx, tx, e, now)
 	}
+}
+
+// roomScope names the room an event is addressed to when that room is not
+// the tenant's own group, which keeps its established handling.
+func (t *Tenant) roomScope(e event.Event) string {
+	if e.Kind == event.KIND_MARMOT_GROUP {
+		return ""
+	}
+	if id := event.Tag(e, "h"); id != "" && id != t.meta.Name {
+		return id
+	}
+	return ""
 }
 
 func (t *Tenant) vanish(ctx context.Context, e event.Event) error {
