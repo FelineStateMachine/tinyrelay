@@ -253,7 +253,9 @@ wiki-compose output{display:block;font:12px var(--mono);color:var(--muted);margi
 #content>section#room,#content>section#thread{padding-bottom:0}
 #room h1 small,#thread h1 small{font:12px var(--mono);color:var(--muted)}
 #crumbs,#newest,#empty{font:12px var(--mono);color:var(--muted)}
-#messages,#root{max-width:720px}
+/* Rooms read as a centered conversation column; the compose bar spans the
+   content column but its controls sit in the same 720px lane. */
+#room>*:not(room-compose),#thread>*:not(room-compose),room-compose>*{max-width:720px;margin-left:auto;margin-right:auto}
 room-message{display:block;padding:8px 0;border-bottom:1px solid var(--line)}
 room-message>header{font:12px var(--mono);color:var(--muted);margin-bottom:2px;user-select:none;-webkit-user-select:none}
 room-message>header b{color:var(--ink);font-weight:500}room-message>header b nostr-key{cursor:copy}
