@@ -50,6 +50,8 @@ See [Files and private repositories](docs/files-and-private-repositories.md) for
 
 See [Git collaboration](docs/git-collaboration.md) for issues, pull requests, conversation synchronization and participant outboxes.
 
+See [Rooms](docs/rooms.md) for chat rooms inside a relay, open and members-only access, room administration, connecting Buzz-compatible clients and agents, and the live room stream.
+
 See [Installed app](docs/app.md) for installing the relay as an app, sharing files to it, opening Nostr links and device notifications.
 
 See [Agent identities](docs/agents.md) for granting an assistant or bot its own scoped key, what the relay enforces and how to pause or revoke it.
