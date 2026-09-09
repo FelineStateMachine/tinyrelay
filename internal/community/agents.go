@@ -17,12 +17,14 @@ import (
 	"strings"
 
 	"github.com/FelineStateMachine/tinyrelay/internal/event"
+	"github.com/FelineStateMachine/tinyrelay/internal/sites"
 )
 
 const (
 	AgentRateDefault  = 60
 	AgentRateMax      = 600
 	AgentGrantMaxDays = 365
+	AgentSiteTTLMax   = 365
 	agentNameMax      = 64
 	agentRoomMax      = 128
 	agentListMax      = 256
@@ -47,6 +49,16 @@ const (
 	AgentJobsBoth    = "both"
 )
 
+// AgentSite is one static site an agent may publish. Label is a site label
+// under the agent's own key or "*" for any of them. TTLDays, when set, bounds
+// how long a manifest and the files behind it live; Encrypted requires the
+// agent's uploads to be encrypted.
+type AgentSite struct {
+	Label     string `json:"label"`
+	TTLDays   int    `json:"ttl,omitempty"`
+	Encrypted bool   `json:"encrypted,omitempty"`
+}
+
 // AgentScope is the part of a grant the gate checks on every event.
 type AgentScope struct {
 	Kinds []int       `json:"kinds"`
@@ -54,6 +66,7 @@ type AgentScope struct {
 	Repos []AgentRepo `json:"repos"`
 	Wiki  string      `json:"wiki,omitempty"`
 	Jobs  string      `json:"jobs,omitempty"`
+	Sites []AgentSite `json:"sites,omitempty"`
 	Rate  int         `json:"rate"`
 }
 
@@ -103,6 +116,9 @@ func (g AgentGrant) AllowsKind(kind int) bool {
 	if (event.IsJobResult(kind) || kind == event.KIND_JOB_FEEDBACK) && g.ServesJobs() {
 		return true
 	}
+	if siteManifestKind(kind) && len(g.Scope.Sites) > 0 {
+		return true
+	}
 	// Wiki access carries its kinds: proposing means publishing a version and
 	// asking for a merge; editing adds redirects.
 	switch g.Scope.Wiki {
@@ -112,6 +128,53 @@ func (g AgentGrant) AllowsKind(kind int) bool {
 		return kind == event.KIND_WIKI_ARTICLE || kind == event.KIND_WIKI_MERGE || kind == event.KIND_WIKI_REDIRECT
 	}
 	return false
+}
+
+// siteManifestKind reports whether a kind is a site manifest a grant's sites
+// tag admits: the key's own site and named sites under it. Snapshots are
+// left out; they are copies of a site rather than a site the agent publishes.
+func siteManifestKind(kind int) bool {
+	return kind == sites.KindSite || kind == sites.KindNamedSite
+}
+
+// SiteEntries lists the grant's site entries that cover one label.
+func (g AgentGrant) SiteEntries(label string) []AgentSite {
+	var out []AgentSite
+	for _, site := range g.Scope.Sites {
+		if site.Label == "*" || (label != "" && site.Label == label) {
+			out = append(out, site)
+		}
+	}
+	return out
+}
+
+// UploadTTLDays is the number of days the agent's uploads live: the longest
+// ttl among its site entries, or 0 when there is none or an entry sets none.
+func (g AgentGrant) UploadTTLDays() int { return longestTTL(g.Scope.Sites) }
+
+// UploadsEncrypted reports whether the agent's uploads must be encrypted.
+// One entry with the flag applies it to every upload the agent makes, since
+// an upload does not say which site it is for.
+func (g AgentGrant) UploadsEncrypted() bool {
+	for _, site := range g.Scope.Sites {
+		if site.Encrypted {
+			return true
+		}
+	}
+	return false
+}
+
+func longestTTL(entries []AgentSite) int {
+	longest := 0
+	for _, site := range entries {
+		if site.TTLDays == 0 {
+			return 0
+		}
+		if site.TTLDays > longest {
+			longest = site.TTLDays
+		}
+	}
+	return longest
 }
 
 // RequestsJobs reports whether the jobs tag lets the agent publish job
@@ -164,6 +227,9 @@ func (g AgentGrant) Check(e event.Event, now int64) error {
 	if room := event.Tag(e, "h"); room != "" && !g.AllowsRoom(room) {
 		return errors.New("restricted: agent grant does not allow room " + room)
 	}
+	if siteManifestKind(e.Kind) {
+		return g.checkSite(e, now)
+	}
 	if !gitKind(e.Kind) {
 		return nil
 	}
@@ -182,6 +248,30 @@ func (g AgentGrant) Check(e event.Event, now int64) error {
 		if gitStatusKind(e.Kind) && level != "maintain" {
 			return fmt.Errorf("restricted: agent grant does not allow status changes in repository %s:%s", coordinate[0], coordinate[1])
 		}
+	}
+	return nil
+}
+
+// checkSite applies the sites entries to a manifest: the label must be
+// covered, and when the covering entries carry a ttl the manifest must
+// expire within it so NIP-40 retires the site on time.
+func (g AgentGrant) checkSite(e event.Event, now int64) error {
+	label := sites.SiteLabel(e)
+	entries := g.SiteEntries(label)
+	if len(entries) == 0 {
+		return fmt.Errorf("restricted: agent grant does not allow site %s", label)
+	}
+	ttl := longestTTL(entries)
+	if ttl == 0 {
+		return nil
+	}
+	latest := now + int64(ttl)*86400
+	expires := event.Expiration(e)
+	if expires == 0 {
+		return fmt.Errorf("invalid: agent grant allows site %s for %d days: add an expiration tag no later than %d", label, ttl, latest)
+	}
+	if expires > latest {
+		return fmt.Errorf("invalid: agent grant allows site %s for %d days: set the expiration tag no later than %d", label, ttl, latest)
 	}
 	return nil
 }
@@ -286,6 +376,21 @@ func ParseAgentGrant(e event.Event, now int64) (AgentGrant, error) {
 	default:
 		return AgentGrant{}, errors.New("invalid: agent grant jobs tag must be request, serve or both")
 	}
+	for _, tag := range e.Tags {
+		if len(tag) == 0 || tag[0] != "sites" {
+			continue
+		}
+		site, err := parseAgentSite(tag[1:], agent)
+		if err != nil {
+			return AgentGrant{}, err
+		}
+		if !siteListed(grant.Scope.Sites, site.Label) {
+			grant.Scope.Sites = append(grant.Scope.Sites, site)
+		}
+	}
+	if len(grant.Scope.Sites) > agentListMax {
+		return AgentGrant{}, fmt.Errorf("invalid: agent grant lists more than %d entries", agentListMax)
+	}
 	if value := event.Tag(e, "rate"); value != "" {
 		rate, err := strconv.Atoi(strings.TrimSpace(value))
 		if err != nil || rate < 1 || rate > AgentRateMax {
@@ -311,6 +416,49 @@ func parseAgentRepo(value string) (AgentRepo, bool) {
 		return AgentRepo{}, false
 	}
 	return AgentRepo{Owner: parts[0], Identifier: parts[1], Level: level}, true
+}
+
+// parseAgentSite reads one sites tag: a label, then any of ttl=<days> and
+// encrypted. The label is "*" or a site label under the agent's own key.
+func parseAgentSite(values []string, agent string) (AgentSite, error) {
+	if len(values) == 0 {
+		return AgentSite{}, errors.New("invalid: agent grant sites tag needs a site label or *")
+	}
+	site := AgentSite{Label: strings.TrimSpace(values[0])}
+	if site.Label != "*" {
+		parsed, ok := sites.ParseSite(site.Label)
+		if !ok || parsed.Kind == sites.KindSiteSnapshot {
+			return AgentSite{}, errors.New("invalid: agent grant sites tag needs a site label or *")
+		}
+		if parsed.PubKey != agent {
+			return AgentSite{}, errors.New("invalid: agent grant sites label must be a site under the agent's own key")
+		}
+	}
+	for _, flag := range values[1:] {
+		flag = strings.TrimSpace(flag)
+		switch {
+		case flag == "encrypted":
+			site.Encrypted = true
+		case strings.HasPrefix(flag, "ttl="):
+			days, err := strconv.Atoi(strings.TrimPrefix(flag, "ttl="))
+			if err != nil || days < 1 || days > AgentSiteTTLMax {
+				return AgentSite{}, fmt.Errorf("invalid: agent grant sites ttl must be between 1 and %d days", AgentSiteTTLMax)
+			}
+			site.TTLDays = days
+		default:
+			return AgentSite{}, errors.New("invalid: agent grant sites tag allows only ttl=<days> and encrypted after the label")
+		}
+	}
+	return site, nil
+}
+
+func siteListed(entries []AgentSite, label string) bool {
+	for _, site := range entries {
+		if site.Label == label {
+			return true
+		}
+	}
+	return false
 }
 
 // CanGrantAgents reports whether a role may sign agent grants.

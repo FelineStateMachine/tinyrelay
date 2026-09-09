@@ -12,6 +12,7 @@ import (
 	"github.com/FelineStateMachine/tinyrelay/internal/event"
 	"github.com/FelineStateMachine/tinyrelay/internal/policy"
 	"github.com/FelineStateMachine/tinyrelay/internal/relay"
+	"github.com/FelineStateMachine/tinyrelay/internal/sites"
 	"github.com/FelineStateMachine/tinyrelay/internal/storage"
 )
 
@@ -253,5 +254,117 @@ func TestAgentGrantShapeAndSigner(t *testing.T) {
 	grant, err := community.ParseAgentGrant(e, agentNow)
 	if err != nil || grant.Scope.Rate != community.AgentRateDefault || grant.Scope.Wiki != "propose" || grant.Name != "helper" {
 		t.Fatalf("parsed grant %+v %v", grant, err)
+	}
+}
+
+func TestAgentGrantSitesCoverLabelsAndRequireExpiry(t *testing.T) {
+	f := newAgentFixture(t)
+	ctx := context.Background()
+	session := relay.Session{PubKeys: []string{f.agent}}
+	hash := strings.Repeat("a", 64)
+	paths := [][]string{{"path", "/index.html", hash}}
+	own := sites.SiteLabel(event.Event{Kind: sites.KindSite, PubKey: f.agent})
+	base, _ := sites.Base36(f.agent)
+	named := base + "docs"
+	manifest := func(kind int, tags ...[]string) event.Event {
+		return signed(t, agentSecret, kind, agentNow, append(append([][]string{}, paths...), tags...), "")
+	}
+	// Without a sites tag the manifest kinds stay closed.
+	f.grant(t, agentNow, grantTags(f.agent, agentNow+3600, []string{"k", "1"}))
+	expectRestricted(t, f.gate.Write(ctx, manifest(sites.KindSite), session, agentNow), "kind 15128")
+	// One label without a ttl: that site only, no expiration needed.
+	f.grant(t, agentNow+1, grantTags(f.agent, agentNow+3600, []string{"sites", named}))
+	if err := f.gate.Write(ctx, manifest(sites.KindNamedSite, []string{"d", "docs"}), session, agentNow); err != nil {
+		t.Fatalf("covered named site rejected: %v", err)
+	}
+	expectRestricted(t, f.gate.Write(ctx, manifest(sites.KindNamedSite, []string{"d", "blog"}), session, agentNow), "site "+base+"blog")
+	expectRestricted(t, f.gate.Write(ctx, manifest(sites.KindSite), session, agentNow), "site "+own)
+	// A ttl requires an expiration tag within it; the reason says what to add.
+	f.grant(t, agentNow+2, grantTags(f.agent, agentNow+3600, []string{"sites", own, "ttl=2"}, []string{"sites", named, "ttl=1", "encrypted"}))
+	latest := strconv.FormatInt(agentNow+2*86400, 10)
+	err := f.gate.Write(ctx, manifest(sites.KindSite), session, agentNow)
+	if err == nil || !strings.HasPrefix(err.Error(), "invalid: agent grant allows site "+own+" for 2 days: add an expiration tag no later than "+latest) {
+		t.Fatalf("manifest without expiration: %v", err)
+	}
+	err = f.gate.Write(ctx, manifest(sites.KindSite, []string{"expiration", strconv.FormatInt(agentNow+3*86400, 10)}), session, agentNow)
+	if err == nil || !strings.Contains(err.Error(), "set the expiration tag no later than "+latest) {
+		t.Fatalf("manifest expiring too late: %v", err)
+	}
+	if err := f.gate.Write(ctx, manifest(sites.KindSite, []string{"expiration", latest}), session, agentNow); err != nil {
+		t.Fatalf("manifest within the ttl rejected: %v", err)
+	}
+	if err := f.gate.Write(ctx, manifest(sites.KindNamedSite, []string{"d", "docs"}, []string{"expiration", strconv.FormatInt(agentNow+86400, 10)}), session, agentNow); err != nil {
+		t.Fatalf("named manifest within its own ttl rejected: %v", err)
+	}
+	if err := f.gate.Write(ctx, manifest(sites.KindNamedSite, []string{"d", "docs"}, []string{"expiration", latest}), session, agentNow); err == nil {
+		t.Fatal("named manifest beyond its own ttl accepted")
+	}
+	// A star covers every label under the key and the longest ttl applies.
+	grant := f.grant(t, agentNow+3, grantTags(f.agent, agentNow+3600, []string{"sites", "*", "ttl=5"}, []string{"sites", named, "ttl=1"}))
+	if err := f.gate.Write(ctx, manifest(sites.KindNamedSite, []string{"d", "blog"}, []string{"expiration", strconv.FormatInt(agentNow+5*86400, 10)}), session, agentNow); err != nil {
+		t.Fatalf("star label rejected: %v", err)
+	}
+	if err := f.gate.Write(ctx, manifest(sites.KindNamedSite, []string{"d", "docs"}, []string{"expiration", strconv.FormatInt(agentNow+5*86400, 10)}), session, agentNow); err != nil {
+		t.Fatalf("longest ttl not applied: %v", err)
+	}
+	parsed, err := community.ParseAgentGrant(grant, agentNow)
+	if err != nil || parsed.UploadTTLDays() != 5 || parsed.UploadsEncrypted() {
+		t.Fatalf("parsed sites %+v %v", parsed.Scope.Sites, err)
+	}
+	// Snapshots are not admitted by the sites tag.
+	expectRestricted(t, f.gate.Write(ctx, manifest(sites.KindSiteSnapshot), session, agentNow), "kind 5128")
+	// Paused and revoked grants stop manifests like every other event.
+	if _, err := f.community.SetAgentPaused(ctx, f.owner, f.agent, true); err != nil {
+		t.Fatal(err)
+	}
+	expectRestricted(t, f.gate.Write(ctx, manifest(sites.KindSite, []string{"expiration", latest}), session, agentNow), "paused")
+	if _, err := f.community.RevokeAgent(ctx, f.owner, f.agent, agentNow); err != nil {
+		t.Fatal(err)
+	}
+	expectRestricted(t, f.gate.Write(ctx, manifest(sites.KindSite, []string{"expiration", latest}), session, agentNow), "revoked")
+}
+
+func TestAgentGrantSitesShape(t *testing.T) {
+	f := newAgentFixture(t)
+	ctx := context.Background()
+	other, _ := event.PublicKey(agentOtherSecret)
+	own := sites.SiteLabel(event.Event{Kind: sites.KindSite, PubKey: f.agent})
+	foreign := sites.SiteLabel(event.Event{Kind: sites.KindSite, PubKey: other})
+	for _, tc := range []struct {
+		name string
+		tag  []string
+		want string
+	}{
+		{"empty", []string{"sites"}, "invalid: agent grant sites tag needs a site label"},
+		{"bad label", []string{"sites", "not-a-site"}, "invalid: agent grant sites tag needs a site label"},
+		{"other key", []string{"sites", foreign}, "invalid: agent grant sites label must be a site under the agent's own key"},
+		{"snapshot", []string{"sites", "v" + strings.Repeat("0", 50)}, "invalid: agent grant sites tag needs a site label"},
+		{"ttl zero", []string{"sites", "*", "ttl=0"}, "invalid: agent grant sites ttl must be between 1 and 365"},
+		{"ttl long", []string{"sites", "*", "ttl=366"}, "invalid: agent grant sites ttl must be between 1 and 365"},
+		{"ttl text", []string{"sites", "*", "ttl=soon"}, "invalid: agent grant sites ttl must be between 1 and 365"},
+		{"unknown flag", []string{"sites", own, "public"}, "invalid: agent grant sites tag allows only ttl=<days> and encrypted"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			e := signed(t, agentOwnerSecret, event.KIND_AGENT_GRANT, agentNow, grantTags(f.agent, agentNow+60, tc.tag), "")
+			err := f.gate.Write(ctx, e, relay.Session{PubKeys: []string{f.owner}}, agentNow)
+			if err == nil || !strings.HasPrefix(err.Error(), tc.want) {
+				t.Fatalf("want %q, got %v", tc.want, err)
+			}
+		})
+	}
+	e := signed(t, agentOwnerSecret, event.KIND_AGENT_GRANT, agentNow, grantTags(f.agent, agentNow+60, []string{"sites", own, "ttl=30", "encrypted"}, []string{"sites", own, "ttl=7"}, []string{"sites", "*"}), "")
+	if err := f.gate.Write(ctx, e, relay.Session{PubKeys: []string{f.owner}}, agentNow); err != nil {
+		t.Fatalf("valid sites grant rejected: %v", err)
+	}
+	grant, err := community.ParseAgentGrant(e, agentNow)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []community.AgentSite{{Label: own, TTLDays: 30, Encrypted: true}, {Label: "*"}}
+	if len(grant.Scope.Sites) != len(want) || grant.Scope.Sites[0] != want[0] || grant.Scope.Sites[1] != want[1] {
+		t.Fatalf("sites = %+v, want %+v", grant.Scope.Sites, want)
+	}
+	if !grant.UploadsEncrypted() || grant.UploadTTLDays() != 0 {
+		t.Fatalf("an entry without a ttl should leave uploads unlimited: ttl=%d encrypted=%v", grant.UploadTTLDays(), grant.UploadsEncrypted())
 	}
 }
