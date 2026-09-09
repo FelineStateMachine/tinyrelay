@@ -74,6 +74,21 @@
   };
   paintChrome();
   matchMedia("(prefers-color-scheme: dark)").addEventListener("change", paintChrome);
+  // Browsers that can install the app announce it; the footer then offers
+  // a quiet link and nothing else changes until it is pressed.
+  let installPrompt = null;
+  const installButton = () => document.getElementById("install");
+  window.addEventListener("beforeinstallprompt", event => {
+    event.preventDefault();
+    installPrompt = event;
+    const button = installButton();
+    if (button) button.hidden = false;
+  });
+  window.addEventListener("appinstalled", () => {
+    installPrompt = null;
+    const button = installButton();
+    if (button) button.hidden = true;
+  });
   const setMenu = open => {
     const menu = document.getElementById("nav-menu");
     if (menu) menu.open = open;
@@ -85,6 +100,18 @@
     if (rail && !shellBindings.has(rail)) {
       shellBindings.add(rail);
       rail.addEventListener("click", event => { if (event.target.closest("a")) setMenu(false); });
+    }
+    const install = installButton();
+    if (install && !shellBindings.has(install)) {
+      shellBindings.add(install);
+      install.hidden = !installPrompt;
+      install.addEventListener("click", async () => {
+        if (!installPrompt) return;
+        const prompt = installPrompt;
+        installPrompt = null;
+        install.hidden = true;
+        try { await prompt.prompt(); } catch {}
+      });
     }
     if (themeButton && !shellBindings.has(themeButton)) {
       shellBindings.add(themeButton);

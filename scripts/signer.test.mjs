@@ -24,6 +24,7 @@ async function page({signedIn = false, bunkerResult = null} = {}) {
     navigator: {clipboard: {writeText: async () => {} }},
     getComputedStyle: () => ({getPropertyValue: () => ""}),
     matchMedia: () => ({matches: false, addEventListener() {}}),
+    addEventListener() {},
     localStorage: {getItem: () => null, setItem() {}, removeItem() {}},
     sessionStorage: {getItem: key => saved.get(key), setItem: (key, value) => saved.set(key, value), removeItem: key => saved.delete(key)},
     NostrSigner: {

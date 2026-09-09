@@ -38,6 +38,8 @@ img{max-width:100%}
 #who button{border:0;background:none;padding:0;color:var(--accent);font:inherit}#who button:hover{text-decoration:underline}
 #railbox{box-sizing:border-box;padding-bottom:44px}
 #rail-tools{position:absolute;right:0;bottom:0;margin:0;padding:10px 2ch 10px 2.5ch}
+/* The install hint sits on the footer's centre line so it never moves the prompt or the session. */
+#install{position:absolute;left:50%;top:0;transform:translateX(-50%);border:0;background:none;padding:0;color:var(--muted);font:12px var(--mono);line-height:27px;cursor:pointer}#install:hover{color:var(--ink);text-decoration:underline}#install[hidden]{display:none}
 share-link{display:inline-block}share-link:empty{display:none}
 #theme{border:0;background:none;padding:0;color:var(--muted);font:12px var(--mono)}#theme:hover{color:var(--ink);text-decoration:underline}
 
@@ -210,6 +212,7 @@ html,body{overflow:auto}
 #content>section{padding:14px 2.5ch 20px}
 #prompt{display:none}#footer td:last-child{text-align:left;white-space:nowrap}
 #footer{padding:0 12px}#who{font-size:11px}
+#install{left:auto;right:12px;transform:none}
 #navigation-status:not(:empty),#session-status:not(:empty){position:absolute;bottom:100%;left:0;right:0;padding:6px 12px;background:var(--rail);border-top:1px solid var(--line);white-space:normal}
 #split,#split>tbody,#split>tbody>tr,#split>tbody>tr>td{display:block;width:auto}
 #tree{border-right:0;border-bottom:1px solid var(--line)}
