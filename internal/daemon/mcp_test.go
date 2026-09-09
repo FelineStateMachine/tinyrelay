@@ -12,6 +12,7 @@ import (
 
 	"github.com/FelineStateMachine/tinyrelay/internal/event"
 	"github.com/FelineStateMachine/tinyrelay/internal/mcp"
+	"github.com/FelineStateMachine/tinyrelay/internal/sites"
 )
 
 type mcpCall struct {
@@ -270,6 +271,81 @@ func mcpSigned(t *testing.T, secret string, kind int, tags [][]string, content s
 	var value map[string]any
 	_ = json.Unmarshal(raw, &value)
 	return value
+}
+
+// TestMCPPublishSiteBuildsChecksAndPublishes covers the site manifest tool:
+// the template for the caller's own site and a named site, refusals of
+// labels under other keys and bad paths, and publishing the signed event.
+func TestMCPPublishSiteBuildsChecksAndPublishes(t *testing.T) {
+	app, tenant := testTenant(t)
+	owner := tenant.Policy().Owner
+	member, _ := event.PublicKey(testMemberSecret)
+	call := func(name string, arguments map[string]any) (map[string]any, bool) {
+		t.Helper()
+		w, response := mcpCall{method: "tools/call", name: name, arguments: arguments, sign: true}.do(t, app, "/mcp")
+		if w.Code != http.StatusOK {
+			t.Fatalf("%s: %d %s", name, w.Code, w.Body.String())
+		}
+		return mcpToolResult(t, response)
+	}
+	structured := func(result map[string]any) map[string]any {
+		value, _ := result["structuredContent"].(map[string]any)
+		return value
+	}
+	text := func(result map[string]any) string {
+		content, _ := result["content"].([]any)
+		if len(content) == 0 {
+			return ""
+		}
+		return content[0].(map[string]any)["text"].(string)
+	}
+	hash := strings.Repeat("a", 64)
+	paths := []any{[]any{"/index.html", hash}, []any{"/style.css", strings.ToUpper(hash)}}
+	expiration := time.Now().Unix() + 86400
+	result, isError := call("publish_site", map[string]any{"paths": paths, "expiration": expiration})
+	unsigned, _ := structured(result)["unsigned"].(map[string]any)
+	tags, _ := json.Marshal(unsigned["tags"])
+	if isError || unsigned["kind"] != float64(sites.KindSite) || string(tags) != `[["path","/index.html","`+hash+`"],["path","/style.css","`+hash+`"],["expiration","`+strconv.FormatInt(expiration, 10)+`"]]` {
+		t.Fatalf("publish_site template: %s", text(result))
+	}
+	base, _ := sites.Base36(owner)
+	result, isError = call("publish_site", map[string]any{"label": base + "docs", "paths": paths})
+	unsigned, _ = structured(result)["unsigned"].(map[string]any)
+	tags, _ = json.Marshal(unsigned["tags"])
+	if isError || unsigned["kind"] != float64(sites.KindNamedSite) || !strings.HasPrefix(string(tags), `[["d","docs"],["path",`) {
+		t.Fatalf("publish_site named template: %s", text(result))
+	}
+	other, _ := sites.Base36(member)
+	for name, arguments := range map[string]map[string]any{
+		"other key":   {"label": other + "docs", "paths": paths},
+		"bad label":   {"label": "nope", "paths": paths},
+		"no paths":    {},
+		"odd pair":    {"paths": []any{[]any{"/index.html"}}},
+		"bad path":    {"paths": []any{[]any{"index.html", hash}}},
+		"bad hash":    {"paths": []any{[]any{"/index.html", "short"}}},
+		"duplicate":   {"paths": []any{[]any{"/index.html", hash}, []any{"/index.html", hash}}},
+		"past expiry": {"paths": paths, "expiration": 1},
+	} {
+		if result, isError := call("publish_site", arguments); !isError || !strings.Contains(text(result), "kind 15128") {
+			t.Fatalf("%s accepted: %s", name, text(result))
+		}
+	}
+	result, isError = call("publish_site", map[string]any{"event": mcpSigned(t, testOwnerSecret, sites.KindSite, [][]string{{"path", "/../x.js", hash}}, "")})
+	if !isError || !strings.Contains(text(result), "site path") {
+		t.Fatalf("publish_site bad signed path: %s", text(result))
+	}
+	result, isError = call("publish_site", map[string]any{"event": mcpSigned(t, testOwnerSecret, 1, [][]string{}, "not a site")})
+	if !isError || !strings.Contains(text(result), "not a site manifest") {
+		t.Fatalf("publish_site wrong kind: %s", text(result))
+	}
+	result, isError = call("publish_site", map[string]any{"event": mcpSigned(t, testOwnerSecret, sites.KindSite, [][]string{{"path", "/index.html", hash}, {"expiration", strconv.FormatInt(expiration, 10)}}, "")})
+	if isError || structured(result)["accepted"] != true {
+		t.Fatalf("publish_site publish: %s", text(result))
+	}
+	manifest, err := tenant.sites.Manifest(context.Background(), sites.Site{Kind: sites.KindSite, PubKey: owner})
+	if err != nil || manifest.Kind != sites.KindSite {
+		t.Fatalf("published manifest not indexed: %+v %v", manifest, err)
+	}
 }
 
 func TestMCPRoomWikiAndAgentTools(t *testing.T) {

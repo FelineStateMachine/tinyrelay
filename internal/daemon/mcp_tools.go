@@ -19,6 +19,7 @@ import (
 	"github.com/FelineStateMachine/tinyrelay/internal/gates"
 	"github.com/FelineStateMachine/tinyrelay/internal/mcp"
 	"github.com/FelineStateMachine/tinyrelay/internal/relay"
+	"github.com/FelineStateMachine/tinyrelay/internal/sites"
 	"github.com/FelineStateMachine/tinyrelay/internal/wiki"
 )
 
@@ -73,6 +74,7 @@ const (
 	mcpJobRequestShape  = `Expected a signed event of kind 5000 to 5999 with optional tags ["i","<data>","url" or "event" or "job" or "text","<relay>","<marker>"], ["output","<mime type>"], ["param","<key>","<value>"], ["bid","<millisats>"], ["relays","wss://..."], ["p","<provider pubkey>"] and ["expiration","<unix time>"], with content empty or the encrypted inputs.`
 	mcpJobFeedbackShape = `Expected a signed kind 7000 event with tags ["status","payment-required" or "processing" or "error" or "success" or "partial","<info>"], ["e","<request id>"], ["p","<requester pubkey>"] and optional ["amount","<millisats>","<bolt11>"], with content empty or a partial result.`
 	mcpJobResultShape   = `Expected a signed event of the request kind plus 1000 (6000 to 6999) with tags ["e","<request id>"], ["p","<requester pubkey>"], optional ["request","<request event JSON>"], the request's ["i",...] tags and optional ["amount","<millisats>","<bolt11>"], with the output in content.`
+	mcpSiteShape        = `Expected a signed kind 15128 event for your own site, or a signed kind 35128 event with ["d","<site name>"] for a named site under your key, with one ["path","/<file path>","<sha256 of the file>"] tag per file, the blobs already uploaded, and an optional ["expiration","<unix time>"] tag.`
 	mcpSignNext         = "Sign this event with your Nostr key and call the tool again with the signed event as the event argument."
 	mcpAnswerNote       = " The answer arrives as a kind 7 reaction from the asked key on the published event: + approves, - declines, and any other content is the person's reply. Read the room or thread, or query kind 7 events with #e set to the event id, to collect it."
 )
@@ -195,6 +197,7 @@ func (t *Tenant) mcpTools() (*mcp.Registry, error) {
 	add("react", "React to an event with a kind 7 reaction: + to like or approve, - to dislike or decline, or one emoji. Pass target, target_pubkey and content (plus room for a room message) to receive the unsigned event, sign it, then call again with the signed event. A + or - from a wiki merge request's destination author answers the request.", mcp.Object(map[string]any{"event": mcpEvent, "target": mcpHash, "target_pubkey": mcpPubKey, "content": map[string]any{"type": "string", "minLength": 1, "description": "+, - or one emoji."}, "room": mcpRoomID}), mcpPublishes, t.mcpWrite(mcpBuildReact, mcpCheckReact, mcpReactShape))
 	add("publish_wiki_page", "Publish or replace your version of a kind 30818 wiki page in Djot markup. Pass d (the page name), title and content, plus optional summary and, to fork another author's version, fork_author and fork_event, to receive the unsigned event, sign it, then call again with the signed event.", mcp.Object(map[string]any{"event": mcpEvent, "d": mcpPageName, "title": mcpText, "summary": mcpText, "content": mcpText, "fork_author": mcpPubKey, "fork_event": mcpHash}), mcpPublishes, t.mcpWrite(mcpBuildWikiPage, mcpCheckWikiPage, mcpWikiShape))
 	add("propose_wiki_merge", "Ask a wiki author to take in changes from another version with a kind 818 merge request. Pass d, destination (the author asked), source (the proposed version's event id) and content, plus an optional base version id, to receive the unsigned event, sign it, then call again with the signed event. The destination author answers with a + or - reaction.", mcp.Object(map[string]any{"event": mcpEvent, "d": mcpPageName, "destination": mcpPubKey, "source": mcpHash, "base": mcpHash, "content": mcpText}), mcpPublishes, t.mcpWrite(mcpBuildWikiMerge, mcpCheckWikiMerge, mcpMergeShape))
+	add("publish_site", "Publish a static site manifest (NIP-5A). Upload the files to the blob store first, then pass paths as [path, sha256] pairs, an optional label (your npub for your own site, the default, or a named site label under your key) and an optional expiration, to receive the unsigned kind 15128 or 35128 event, sign it, then call again with the signed event. An agent needs a sites grant that covers the label; a grant with a ttl requires the expiration.", mcp.Object(map[string]any{"event": mcpEvent, "label": map[string]any{"type": "string", "minLength": 1, "description": "Site label: your npub, or a named site label under your key. Defaults to your own site."}, "paths": map[string]any{"type": "array", "items": map[string]any{"type": "array", "items": mcpText}, "description": "One [path, sha256] pair per file, such as [\"/index.html\", \"<sha256>\"]."}, "expiration": mcpUnixTime}), mcpPublishes, t.mcpWrite(mcpBuildSite, mcpCheckSite, mcpSiteShape))
 	add("create_room", "Create a chat room with a kind 9007 event. Relay members may do this. Pass room (the new id), name and optional about and visibility (open or members) to receive the unsigned event, sign it, then call again with the signed event. The signer becomes the room owner.", mcp.Object(map[string]any{"event": mcpEvent, "room": mcpRoomID, "name": mcpText, "about": mcpText, "visibility": map[string]any{"type": "string", "enum": []string{"open", "members"}}}), mcpPublishes, t.mcpWrite(mcpBuildRoom, mcpCheckRoom, mcpRoomShape))
 	add("request_decision", "Ask a person for an approval, a decision or an answer. Pass pubkey (the person asked), request (approve, decide or question) and content, plus room for a kind 9 room message or root, root_kind and root_pubkey for a kind 1111 comment under an issue, pull request or other event, and optional expiration and subject, to receive the unsigned event carrying a request tag, sign it, then call again with the signed event."+mcpAnswerNote, mcp.Object(map[string]any{"event": mcpEvent, "pubkey": mcpPubKey, "request": map[string]any{"type": "string", "enum": mcpRequestKinds}, "content": mcpText, "room": mcpRoomID, "root": mcpHash, "root_kind": map[string]any{"type": "integer", "minimum": 0}, "root_pubkey": mcpPubKey, "expiration": mcpUnixTime, "subject": mcpText}), mcpPublishes, t.mcpWrite(mcpBuildRequest, mcpCheckRequest, mcpRequestShape))
 	add("request_job", "Ask for a long task with a NIP-90 job request. Pass kind (5000 to 5999) and inputs, plus optional output, params, bid in millisats, relays and expiration, to receive the unsigned event, sign it, then call again with the signed event. A serving agent answers with job feedback and a result naming the request; read them with read_job.", mcp.Object(map[string]any{"event": mcpEvent, "kind": mcpJobKind, "inputs": mcpJobInputs, "output": map[string]any{"type": "string", "description": "Expected output MIME type."}, "params": map[string]any{"type": "object", "description": "Job parameters as key and string value, each becoming a param tag."}, "bid": mcpMsats, "relays": map[string]any{"type": "array", "items": mcpText}, "expiration": mcpUnixTime}), mcpPublishes, t.mcpWrite(mcpBuildJobRequest, mcpCheckJobRequest, mcpJobRequestShape))
@@ -601,6 +604,59 @@ func mcpBuildWikiMerge(call mcp.Call) (mcpUnsigned, error) {
 		tags = append(tags, []string{"e", base})
 	}
 	return mcpUnsigned{Kind: kindWikiMerge, CreatedAt: time.Now().Unix(), Tags: tags, Content: content}, nil
+}
+
+// mcpBuildSite builds a site manifest for the caller's own site or a named
+// site under its key. The template passes the same validation as the signed
+// event so a bad path is reported before anything is signed.
+func mcpBuildSite(call mcp.Call) (mcpUnsigned, error) {
+	kind, tags := sites.KindSite, [][]string{}
+	if label := strings.TrimSpace(call.String("label")); label != "" {
+		site, ok := sites.ParseSite(label)
+		if !ok || site.Kind == sites.KindSiteSnapshot {
+			return mcpUnsigned{}, errors.New("label must be your npub or a named site label under your key")
+		}
+		if site.PubKey != call.Actor {
+			return mcpUnsigned{}, errors.New("label " + label + " is not a site under your key")
+		}
+		kind = site.Kind
+		if site.Kind == sites.KindNamedSite {
+			tags = append(tags, []string{"d", site.D})
+		}
+	}
+	pairs, _ := call.Arguments["paths"].([]any)
+	if len(pairs) == 0 {
+		return mcpUnsigned{}, errors.New("paths is required: one [path, sha256] pair per file")
+	}
+	for _, pair := range pairs {
+		values, _ := pair.([]any)
+		if len(values) != 2 {
+			return mcpUnsigned{}, errors.New("each entry of paths is a [path, sha256] pair")
+		}
+		path, _ := values[0].(string)
+		hash, _ := values[1].(string)
+		tags = append(tags, []string{"path", path, strings.ToLower(strings.TrimSpace(hash))})
+	}
+	if expiration := call.Int("expiration"); expiration > 0 {
+		if int64(expiration) <= time.Now().Unix() {
+			return mcpUnsigned{}, errors.New("expiration must be in the future")
+		}
+		tags = append(tags, []string{"expiration", strconv.Itoa(expiration)})
+	}
+	if err := sites.ValidateManifest(event.Event{Kind: kind, PubKey: call.Actor, Tags: tags}); err != nil {
+		return mcpUnsigned{}, errors.New(strings.TrimPrefix(err.Error(), "invalid: "))
+	}
+	return mcpUnsigned{Kind: kind, CreatedAt: time.Now().Unix(), Tags: tags, Content: ""}, nil
+}
+
+func mcpCheckSite(e event.Event) error {
+	if e.Kind != sites.KindSite && e.Kind != sites.KindNamedSite {
+		return fmt.Errorf("kind %d is not a site manifest", e.Kind)
+	}
+	if err := sites.ValidateManifest(e); err != nil {
+		return errors.New(strings.TrimPrefix(err.Error(), "invalid: "))
+	}
+	return nil
 }
 
 func mcpBuildRoom(call mcp.Call) (mcpUnsigned, error) {

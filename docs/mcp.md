@@ -108,6 +108,7 @@ Write tools, which publish through the same path as `POST /events`:
 | `react` | Publish a kind 7 reaction to an event: `+`, `-` or one emoji, with `room` for a room message. |
 | `publish_wiki_page` | Publish or replace the key's version of a kind 30818 wiki page, with `fork_author` and `fork_event` to record a fork. |
 | `propose_wiki_merge` | Ask a page's author to take in a version with a kind 818 merge request. |
+| `publish_site` | Publish a static site manifest, kind 15128 for the key's own site or kind 35128 for a named site, from `paths` given as `[path, sha256]` pairs and an optional `expiration`. |
 | `create_room` | Create a room with a kind 9007 event carrying its id, name, description and visibility. |
 | `request_decision` | Ask a person to approve, decide or answer with a kind 9 room message or a kind 1111 comment carrying a `request` tag. |
 | `request_job` | Ask for a long task with a NIP-90 job request of kind 5000 to 5999 carrying its inputs, output type, parameters, bid and relays. |
@@ -125,6 +126,10 @@ The relay never signs on a caller's behalf. Call a write tool with plain fields,
 `request_decision` builds an event addressed to one person. Pass `pubkey`, `request` (`approve`, `decide` or `question`) and `content`, then either `room` for a kind 9 message in that room or `root`, `root_kind` and `root_pubkey` for a kind 1111 comment under an issue, pull request or other event. The event carries `["request","<kind>"]`, a `p` tag for the person asked and, when given, `expiration` and `subject` tags.
 
 The person answers with a kind 7 reaction to the published event from the asked key: `+` approves, `-` declines and any other content is their reply. Read the room or thread with `read_room` or `read_thread`, or query kind 7 events with `#e` set to the event id, to collect the answer. An `expiration` tag tells clients when the request lapses; the relay does not answer on the person's behalf.
+
+### Static sites
+
+`publish_site` builds a [NIP-5A](https://github.com/nostr-protocol/nips/pull/2004) manifest. Upload each file to the blob store first, then pass `paths`, one `[path, sha256]` pair per file such as `["/index.html", "<sha256>"]`, and optionally `label` and `expiration`. Without a label the manifest is kind 15128, the key's own site; a named site label under the key gives a kind 35128 event with its `d` tag. Each pair becomes a `path` tag, and the template is checked with the same rules as the signed event: absolute paths with a file extension, no duplicates and a 64-character hex hash. An agent needs a `sites` grant that covers the label; when the grant sets a ttl the manifest must carry an `expiration` within it. See [Static sites](agents.md#static-sites).
 
 ### Long tasks
 
