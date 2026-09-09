@@ -13,21 +13,35 @@ import (
 
 // wikiView is one page as the templates see it. Version is the version
 // being shown, Number its place counted from the oldest, Others the rest.
+// Revision and Revisions number the shown version among its author's
+// revisions; History lists every revision the viewer may see, newest
+// first. Archived is set when an older revision was opened by id, and
+// ReadersRevision names the approved revision readers see while the
+// shown one is a proposal that is not approved.
 type wikiView struct {
-	D, Title      string
-	Version       map[string]any
-	Author        string
-	Number, Count int
-	Forks, Links  int
-	Versions      []map[string]any
-	Others        []map[string]any
-	Merges        []map[string]any
-	OpenMerges    []map[string]any
-	OpenCount     int
-	RedirectsTo   []map[string]any
-	RedirectsFrom []map[string]any
+	D, Title            string
+	Version             map[string]any
+	Author              string
+	Number, Count       int
+	Revision, Revisions int
+	Forks, Links        int
+	Versions            []map[string]any
+	Others              []map[string]any
+	History             []map[string]any
+	Archived            bool
+	ReadersRevision     int
+	Merges              []map[string]any
+	OpenMerges          []map[string]any
+	OpenCount           int
+	RedirectsTo         []map[string]any
+	RedirectsFrom       []map[string]any
 	// CanApprove is set when the viewer may accept or reject proposals.
 	CanApprove bool
+}
+
+func wikiInt(value any) int {
+	number, _ := value.(float64)
+	return int(number)
 }
 
 // wikiProposalView is how a version's proposal state reads for one viewer.
@@ -77,13 +91,24 @@ func wikiPageView(result any) wikiView {
 	view.Merges = wikiMaps(page["merges"])
 	view.RedirectsTo = wikiMaps(page["redirects_to"])
 	view.RedirectsFrom = wikiMaps(page["redirects_from"])
+	view.History = wikiMaps(page["history"])
 	view.CanApprove, _ = page["can_approve"].(bool)
 	view.Count = len(view.Versions)
 	if current := valueMap(page["version"]); current != nil {
 		view.Version = current
 		view.Author = plainString(current["author"])
+		view.Revision, view.Revisions = wikiInt(current["revision"]), wikiInt(current["revisions"])
+		view.Archived = plainString(current["superseded_by"]) != "" && plainString(page["preferred_by"]) == "version"
 		if links, ok := current["links"].([]any); ok {
 			view.Links = len(links)
+		}
+		if current["proposal"] == true && plainString(current["approval"]) != "approved" {
+			for _, h := range view.History {
+				if plainString(h["author"]) == view.Author && plainString(h["approval"]) == "approved" {
+					view.ReadersRevision = wikiInt(h["revision"])
+					break
+				}
+			}
 		}
 	}
 	if view.Title == "" {

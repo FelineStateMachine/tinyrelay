@@ -23,13 +23,14 @@
 <h1>{{$w.Title}}</h1>
 {{template "alert" .Notice}}{{if not $w.Version}}<p>This name has no article of its own.</p>
 {{template "wikiRedirects" $w}}{{if .Actor}}{{template "wikiEditor" .}}{{end}}
-{{else}}{{$s := wikiProposal $w.Version $.Actor $w.CanApprove}}{{if $s.Shown}}<wiki-proposal data-state="{{$s.State}}">Proposed by {{template "nostrName" $w.Author}} | {{$s.State}}{{if $s.By}} {{when $s.At}} by {{template "nostrName" $s.By}}{{end}}{{if $s.Decide}}<nostr-react event="{{str (index $w.Version "id")}}" pubkey="{{$w.Author}}" kind="30818"><button name="reaction" value="+">Accept</button><button name="reaction" value="-">Reject</button></nostr-react>{{end}}</wiki-proposal>
+{{else}}{{$s := wikiProposal $w.Version $.Actor $w.CanApprove}}{{if $s.Shown}}<wiki-proposal data-state="{{$s.State}}">Proposed by {{template "nostrName" $w.Author}} | {{$s.State}}{{if $s.By}} {{when $s.At}} by {{template "nostrName" $s.By}}{{end}}{{if $s.Decide}}<nostr-react event="{{str (index $w.Version "id")}}" pubkey="{{$w.Author}}" kind="30818"><button name="reaction" value="+">Accept</button><button name="reaction" value="-">Reject</button></nostr-react>{{end}}{{if $w.ReadersRevision}}<small>showing {{$s.State}} revision {{$w.Revision}}; readers see approved revision {{$w.ReadersRevision}}</small>{{end}}</wiki-proposal>
 {{end}}{{range $m := $w.OpenMerges}}<merge-request>{{template "nostrName" (str (index $m "author"))}} proposes a new version of this page | <a href="{{wikiURL $w.D "merge" (str (index $m "id"))}}">compare</a>{{if eq $.Actor (str (index $m "destination"))}}<nostr-react event="{{str (index $m "id")}}" pubkey="{{str (index $m "author")}}" kind="818"><button name="reaction" value="+">Accept</button><button name="reaction" value="-">Reject</button></nostr-react>{{end}}<a href="/e/{{str (index $m "id")}}">Reply</a></merge-request>
 {{end}}{{if .Query.Get "merge"}}{{template "wikiCompare" .}}
 {{else if .Query.Get "edit"}}{{template "wikiEditor" .}}
 {{else if .Query.Get "history"}}{{template "wikiHistory" .}}
-{{else}}<wiki-article><header>wiki | {{$w.D}} | by {{template "nostrName" $w.Author}} | version {{$w.Number}} of {{$w.Count}} | {{$w.Forks}} fork{{if ne $w.Forks 1}}s{{end}}</header>
-{{with asMap (index $w.Version "fork")}}<p><small>forked from <a href="{{wikiURL $w.D "version" (str (index . "e"))}}">{{shortID (index . "e")}}</a></small></p>
+{{else}}<wiki-article><header>wiki | {{$w.D}} | revision {{$w.Revision}} by {{template "nostrName" $w.Author}} | version {{$w.Number}} of {{$w.Count}} | {{$w.Forks}} fork{{if ne $w.Forks 1}}s{{end}}</header>
+{{if $w.Archived}}<p id="wiki-revision-note">revision {{$w.Revision}} of {{$w.Revisions}} by this author; a newer revision exists | <a href="{{wikiURL $w.D "author" $w.Author}}">show the newest</a></p>
+{{end}}{{with asMap (index $w.Version "fork")}}<p><small>forked from <a href="{{wikiURL $w.D "version" (str (index . "e"))}}">{{shortID (index . "e")}}</a></small></p>
 {{end}}{{with asMap (index $w.Version "defer")}}<p><small>the author defers to <a href="{{wikiURL $w.D "version" (str (index . "e"))}}">{{shortID (index . "e")}}</a></small></p>
 {{end}}{{wikiHTML (index $w.Version "content")}}</wiki-article>
 {{template "wikiRedirects" $w}}{{end}}{{end}}</section>
@@ -62,18 +63,18 @@
 {{else}}<p>The destination author has no version of this page.</p>
 {{end}}<p><a href="{{wikiURL $w.D}}">back to the page</a></p></div>{{end}}{{end}}
 
-{{/* wikiHistory lists every version of a page, newest first. */}}
+{{/* wikiHistory lists every revision of a page across authors, newest first. */}}
 {{define "wikiHistory"}}{{$w := wikiView .Event}}<table id="rows">
-<thead><tr><th>author</th><th>version</th><th>notes</th><th>published</th></tr></thead>
+<thead><tr><th>author</th><th>revision</th><th>version</th><th>notes</th><th>published</th></tr></thead>
 <tbody>
-{{range $w.Versions}}{{$s := wikiProposal . $.Actor $w.CanApprove}}<tr{{if $s.Shown}} data-state="{{$s.State}}"{{end}}><td>{{template "nostrName" (str (index . "author"))}}</td><td><a href="{{wikiURL $w.D "version" (str (index . "id"))}}">{{shortID (index . "id")}}</a></td><td>{{with asMap (index . "fork")}}fork of {{shortID (index . "e")}}{{end}}{{with asMap (index . "defer")}} defers to {{shortID (index . "e")}}{{end}}{{with index . "likes"}} | {{str .}} likes{{end}}{{if $s.Shown}} | proposed {{$s.State}}{{end}}</td><td>{{when (index . "created_at")}}</td></tr>
+{{range $w.History}}{{$s := wikiProposal . $.Actor $w.CanApprove}}<tr{{if $s.Shown}} data-state="{{$s.State}}"{{end}}><td>{{template "nostrName" (str (index . "author"))}}</td><td>{{str (index . "revision")}} <small>{{if index . "superseded_by"}}replaced{{else}}current{{end}}</small></td><td><a href="{{wikiURL $w.D "version" (str (index . "id"))}}">{{shortID (index . "id")}}</a></td><td>{{with asMap (index . "fork")}}fork of {{shortID (index . "e")}}{{end}}{{with asMap (index . "defer")}} defers to {{shortID (index . "e")}}{{end}}{{with index . "likes"}} | {{str .}} likes{{end}}{{if $s.Shown}} | proposed {{$s.State}}{{end}}</td><td>{{when (index . "created_at")}}</td></tr>
 {{end}}</tbody>
 </table>
 <p><a href="{{wikiURL $w.D}}">back to the page</a></p>{{end}}
 
 {{define "panel-wiki"}}{{if eq .Tab "wiki"}}<section><h4>Wiki</h4><table><tr><th>protocol</th><td>NIP-54</td></tr><tr><th>markup</th><td>Djot</td></tr><tr><th>reads</th><td>{{.Policy.Reads}}</td></tr></table></section>
 <section><h4>Actions</h4><ul>{{if .Actor}}<li><a href="/wiki?new=1">new page</a></li>{{else}}<li><a href="/signin">sign in to write</a></li>{{end}}</ul></section>
-{{else}}{{$w := wikiView .Event}}<section><h4>Page</h4><table><tr><th>name</th><td><code>{{or $w.D (.Query.Get "d")}}</code></td></tr><tr><th>versions</th><td>{{$w.Count}}</td></tr><tr><th>merge requests</th><td>{{$w.OpenCount}} open</td></tr><tr><th>links</th><td>{{$w.Links}}</td></tr></table></section>
+{{else}}{{$w := wikiView .Event}}<section><h4>Page</h4><table><tr><th>name</th><td><code>{{or $w.D (.Query.Get "d")}}</code></td></tr><tr><th>versions</th><td>{{$w.Count}}</td></tr>{{if $w.History}}<tr><th>revisions</th><td>{{len $w.History}}</td></tr>{{end}}<tr><th>merge requests</th><td>{{$w.OpenCount}} open</td></tr><tr><th>links</th><td>{{$w.Links}}</td></tr></table></section>
 {{if $w.Others}}<section><h4>Other versions</h4><ul>{{range $w.Others}}{{$s := wikiProposal . $.Actor $w.CanApprove}}<li{{if $s.Shown}} data-state="{{$s.State}}"{{end}}><a href="{{wikiURL $w.D "version" (str (index . "id"))}}">{{shortID (index . "author")}}</a>{{with asMap (index . "fork")}} | fork{{end}}{{if $s.Shown}} | proposed {{$s.State}}{{end}} <small>{{short (index . "created_at")}}</small></li>{{end}}</ul></section>
 {{end}}{{if $w.RedirectsTo}}<section><h4>Also known as</h4><ul>{{range $w.RedirectsTo}}<li><code>{{str (index . "d")}}</code></li>{{end}}</ul></section>
 {{end}}<section><h4>Actions</h4><ul>{{if $w.Version}}{{if eq .Actor $w.Author}}<li><a href="{{wikiURL $w.D "edit" "1"}}">edit</a></li>{{else if .Actor}}<li><a href="{{wikiURL $w.D "edit" "1"}}">fork</a></li>{{end}}<li><a href="{{wikiURL $w.D "history" "1"}}">history</a></li>{{end}}{{if .Actor}}<li><a href="/wiki?new=1">new page</a></li>{{else}}<li><a href="/signin">sign in to write</a></li>{{end}}</ul></section>{{end}}{{end}}
