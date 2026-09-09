@@ -142,6 +142,9 @@ agent-card th{text-align:left;font-weight:normal;color:var(--muted);width:9em;pa
 agent-card td code{color:var(--muted)}
 agent-card p{margin:8px 0 0}agent-card rpc-form{display:inline-block;border:0;padding:0;margin:0 8px 0 0;vertical-align:top}agent-card rpc-form output:empty{display:none}
 agent-card p>a{display:inline-block;font:12px var(--mono);line-height:29px;vertical-align:top}
+/* agent-callback: one registered callback on an agent card, with its controls. */
+agent-callback{display:block;margin:0 0 4px}agent-callback code{color:inherit}
+agent-callback rpc-form{display:inline-block;border:0;padding:0;margin:0 0 0 6px;vertical-align:middle}agent-callback rpc-form output:empty{display:none}agent-callback button{font-size:12px;padding:1px 6px}
 #rows:has(td[data-state]){table-layout:fixed}#rows:has(td[data-state]) td:nth-child(3){width:110px}#rows:has(td[data-state]) td:last-child{width:150px}
 [data-state=active],#rows td[data-state=active]{color:var(--accent)}[data-state=paused],#rows td[data-state=paused]{color:var(--bark)}[data-state=revoked],#rows td[data-state=revoked]{color:var(--alert)}
 agent-grant{display:block;border-bottom:1px solid var(--line);padding:10px 0;max-width:720px}

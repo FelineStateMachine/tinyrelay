@@ -92,6 +92,8 @@ type PageData struct {
 	Connections []any
 	// Rooms lists the rooms the viewer may see; the rooms rail renders it.
 	Rooms []any
+	// Callbacks lists the event callbacks shown beside each agent.
+	Callbacks []any
 }
 
 func New(backend Backend, options Options) (*App, error) {
@@ -922,6 +924,11 @@ func (a *App) agentsPage(request *http.Request, actor string, data *PageData) {
 		return
 	}
 	data.Feed = browseRows(result)
+	// Callbacks are shown per agent; a failure here leaves the row empty
+	// rather than hiding the agents.
+	if callbacks, err := a.backend.Query(request.Context(), "listcallbacks", nil, actor); err == nil {
+		data.Callbacks = browseRows(callbacks)
+	}
 	selected := request.URL.Query().Get("agent")
 	if selected == "" {
 		// Without a choice, show the first agent that can still publish.
@@ -1034,13 +1041,52 @@ func agentCounts(agents []any) map[string]int {
 	return counts
 }
 
+// callbacksFor picks the callbacks one key registered.
+func callbacksFor(callbacks []any, pubkey string) []any {
+	var out []any
+	for _, callback := range callbacks {
+		if plainString(valueMap(callback)["owner"]) == pubkey {
+			out = append(out, callback)
+		}
+	}
+	return out
+}
+
+// callbackState is active or paused; a paused callback carries the reason
+// in its lastStatus.
+func callbackState(callback any) string {
+	if valueMap(callback)["paused"] == true {
+		return "paused"
+	}
+	return "active"
+}
+
+// callbackKinds lists the kinds a callback's filter names.
+func callbackKinds(callback any) string {
+	kinds, _ := valueMap(valueMap(callback)["filter"])["kinds"].([]any)
+	parts := make([]string, 0, len(kinds))
+	for _, kind := range kinds {
+		parts = append(parts, plainString(kind))
+	}
+	return strings.Join(parts, ", ")
+}
+
+// callbackCounts tallies callbacks by state for the panel.
+func callbackCounts(callbacks []any) map[string]int {
+	counts := map[string]int{"active": 0, "paused": 0}
+	for _, callback := range callbacks {
+		counts[callbackState(callback)]++
+	}
+	return counts
+}
+
 // dateAfter is the date field value for a day count from today, in UTC.
 func dateAfter(days int) string {
 	return time.Now().UTC().AddDate(0, 0, days).Format("2006-01-02")
 }
 
 var supportedMethods = []string{
-	"supportedmethods", "stats", "getpolicy", "setpolicy", "listaudit", "listviews", "listmembers", "listpeople", "setmember", "allowpubkey", "unrulepubkey", "removemember", "createinvite", "listinvites", "revokeinvite", "listclaims", "createclaim", "deleteclaim", "removesubtree", "listbannedpubkeys", "listallowedpubkeys", "banpubkey", "listreports", "resolvereport", "banevent", "allowevent", "listeventsneedingmoderation", "blockip", "unblockip", "listblockedips", "exportconfig", "importconfig", "planconfig", "listblobs", "deleteblob", "listbannedevents", "deleteevent", "listrecentevents", "searchevents", "pinevent", "unpinevent", "listpins", "allowkind", "disallowkind", "unrulekind", "storagestats", "gitstorage", "setretention", "listretention", "purgekind", "listallowedkinds", "listblockedkinds", "notifytest", "resetrules", "listpresets", "listconnectiontemplates", "listconnections", "setconnections", "applypreset", "forkrelay", "pullfrom", "pullstatus", "listjobs", "deliverystatus", "addjob", "removejob", "runjob", "backfill", "transferowner", "listdumps", "deletedump", "dumpnow", "backupnow", "listbackups", "deletebackup", "changerelayname", "changerelaydescription", "changerelayicon", "adddomain", "setdomainsite", "checkdomain", "removedomain", "listdomains",
+	"supportedmethods", "stats", "getpolicy", "setpolicy", "listaudit", "listviews", "listmembers", "listpeople", "setmember", "allowpubkey", "unrulepubkey", "removemember", "createinvite", "listinvites", "revokeinvite", "listclaims", "createclaim", "deleteclaim", "removesubtree", "listbannedpubkeys", "listallowedpubkeys", "banpubkey", "listreports", "resolvereport", "banevent", "allowevent", "listeventsneedingmoderation", "blockip", "unblockip", "listblockedips", "exportconfig", "importconfig", "planconfig", "listblobs", "deleteblob", "listbannedevents", "deleteevent", "listrecentevents", "searchevents", "pinevent", "unpinevent", "listpins", "allowkind", "disallowkind", "unrulekind", "storagestats", "gitstorage", "setretention", "listretention", "purgekind", "listallowedkinds", "listblockedkinds", "notifytest", "resetrules", "listpresets", "listconnectiontemplates", "listconnections", "setconnections", "applypreset", "forkrelay", "pullfrom", "pullstatus", "listjobs", "deliverystatus", "addjob", "removejob", "runjob", "backfill", "transferowner", "listdumps", "deletedump", "dumpnow", "backupnow", "listbackups", "deletebackup", "changerelayname", "changerelaydescription", "changerelayicon", "adddomain", "setdomainsite", "checkdomain", "removedomain", "listdomains", "listcallbacks", "addcallback", "removecallback", "pausecallback", "resumecallback",
 }
 
 func (a *App) card(writer http.ResponseWriter) {

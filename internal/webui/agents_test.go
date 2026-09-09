@@ -44,6 +44,12 @@ func (b *agentsBackend) Query(_ context.Context, method string, params []json.Ra
 	switch method {
 	case "listagents":
 		return agents, nil
+	case "listcallbacks":
+		return []any{
+			map[string]any{"id": "cb-active", "owner": agentActive, "host": "hooks.example", "filter": map[string]any{"kinds": []int{1621, 1111}, "#p": []string{agentActive}}, "created": now - 3600, "lastDelivery": now - 60, "lastStatus": "ok", "failures": 0, "paused": false},
+			map[string]any{"id": "cb-paused", "owner": agentActive, "host": "worker.example:8443", "filter": map[string]any{"kinds": []int{9}}, "created": now - 3600, "lastDelivery": 0, "lastStatus": "paused after 20 failures: HTTP 500", "failures": 20, "paused": true},
+			map[string]any{"id": "cb-other", "owner": strings.Repeat("c", 64), "host": "elsewhere.example", "filter": map[string]any{"kinds": []int{1}}, "created": now, "lastDelivery": 0, "lastStatus": "", "failures": 0, "paused": false},
+		}, nil
 	case "browseagent":
 		var query struct {
 			Agent string `json:"agent"`
@@ -104,7 +110,11 @@ func TestAgentsPageRendersTableCardsActivityAndGrantForm(t *testing.T) {
 		`<select name="key"><option value="generate">generate here, show once</option><option value="paste">paste a public key</option></select>`,
 		`<textarea name="repos"`,
 		`<input name="expires" type="date" value="` + dateAfter(90) + `" required>`,
-		`<h4>Agents</h4><table><tr><th>active</th><td>1</td></tr><tr><th>paused</th><td>1</td></tr><tr><th>revoked</th><td>1</td></tr></table>`,
+		`<h4>Agents</h4><table><tr><th>active</th><td>1</td></tr><tr><th>paused</th><td>1</td></tr><tr><th>revoked</th><td>1</td></tr><tr><th>callbacks</th><td>2 active, 1 paused</td></tr></table>`,
+		`<tr><th>callbacks</th><td><agent-callback data-state="active"><code>hooks.example</code> kinds 1621, 1111 | <span data-state="active" title="ok">active</span> | delivered <time datetime="`,
+		`<rpc-form method="pausecallback" refresh><input type="hidden" name="param" value="&quot;cb-active&quot;"><button>Pause</button></rpc-form><rpc-form method="removecallback" refresh><input type="hidden" name="param" value="&quot;cb-active&quot;"><button>Remove</button></rpc-form></agent-callback>`,
+		`<agent-callback data-state="paused"><code>worker.example:8443</code> kinds 9 | <span data-state="paused" title="paused after 20 failures: HTTP 500">paused</span> <rpc-form method="resumecallback" refresh><input type="hidden" name="param" value="&quot;cb-paused&quot;"><button>Resume</button></rpc-form>`,
+		`<tr><th>callbacks</th><td>none</td></tr>`,
 		`<code>/mcp</code> 2026-07-28`,
 		`<rpc-form method="pauseallagents" refresh><button>Pause all agents</button></rpc-form>`,
 		`<rpc-form method="resumeallagents" refresh><button>Resume all agents</button></rpc-form>`,
@@ -119,7 +129,10 @@ func TestAgentsPageRendersTableCardsActivityAndGrantForm(t *testing.T) {
 	if strings.Contains(revokedCard, "<rpc-form") || !strings.Contains(revokedCard, `<span data-state="revoked">revoked</span>`) {
 		t.Errorf("revoked card should show state without controls: %s", revokedCard)
 	}
-	if got := strings.Join(backend.calls, " "); got != "listagents:"+backend.policy.Owner+" browseagent:"+backend.policy.Owner {
+	if strings.Contains(body, "elsewhere.example") {
+		t.Error("a callback of a key without a card was shown")
+	}
+	if got := strings.Join(backend.calls, " "); got != "listagents:"+backend.policy.Owner+" listcallbacks:"+backend.policy.Owner+" browseagent:"+backend.policy.Owner {
 		t.Fatalf("backend calls = %s", got)
 	}
 	if !strings.Contains(string(backend.params[0]), agentActive) {
@@ -155,7 +168,7 @@ func TestAgentsPageWithoutAgentsAndForGuests(t *testing.T) {
 	if recorder.Code != http.StatusOK || !strings.Contains(body, "No agents yet.") || !strings.Contains(body, "<agent-grant>") || strings.Contains(body, "<agent-card") {
 		t.Fatalf("empty agents page: %d %s", recorder.Code, body[:min(600, len(body))])
 	}
-	if backend.call != "listagents:"+backend.policy.Owner {
+	if backend.call != "listcallbacks:"+backend.policy.Owner {
 		t.Fatalf("empty list should not query an agent: %s", backend.call)
 	}
 
@@ -192,5 +205,16 @@ func TestAgentStateHelpers(t *testing.T) {
 	counts := agentCounts([]any{map[string]any{"expires": float64(now + 1)}, map[string]any{"expires": float64(now + 1), "paused": true}})
 	if counts["active"] != 1 || counts["paused"] != 1 || counts["revoked"] != 0 {
 		t.Errorf("counts = %v", counts)
+	}
+	callbacks := []any{
+		map[string]any{"owner": agentActive, "paused": false, "filter": map[string]any{"kinds": []any{float64(1621), float64(1111)}}},
+		map[string]any{"owner": agentActive, "paused": true, "filter": map[string]any{}},
+		map[string]any{"owner": agentPaused, "paused": false},
+	}
+	if mine := callbacksFor(callbacks, agentActive); len(mine) != 2 || callbackKinds(mine[0]) != "1621, 1111" || callbackKinds(mine[1]) != "" || callbackState(mine[1]) != "paused" {
+		t.Errorf("callbacksFor = %v", mine)
+	}
+	if counts := callbackCounts(callbacks); counts["active"] != 2 || counts["paused"] != 1 {
+		t.Errorf("callback counts = %v", counts)
 	}
 }
