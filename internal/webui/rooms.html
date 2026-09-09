@@ -43,7 +43,7 @@
 </section>
 {{else}}{{$data := asMap .Event}}{{$room := asMap (index $data "room")}}{{$id := str (index $room "id")}}{{$root := roomRoot .Event}}<section id="thread">
 <p id="crumbs"><a href="/rooms/{{$id}}">{{or (str (index $room "name")) $id}}</a></p>
-<h1>Thread <small>{{$root.Replies}} replies</small></h1>
+<h1>Thread <small>{{$root.Replies}} {{if eq $root.Replies 1}}reply{{else}}replies{{end}}</small></h1>
 <div id="root">{{template "roomMessage" $root}}</div>
 <div id="messages">{{range roomItems .Event "replies"}}
 {{template "roomMessage" .}}{{else}}<p id="empty">No replies yet.</p>{{end}}
@@ -60,5 +60,5 @@
 {{define "roomMessage"}}<room-message id="msg-{{.ID}}" data-id="{{.ID}}" data-kind="{{.Kind}}" data-pubkey="{{.PubKey}}"{{if .Agent}} data-agent{{end}}{{if .Notice}} data-notice{{end}}>
 <header><b>{{template "nostrKey" .PubKey}}</b>{{if .Role}} | {{.Role}}{{end}}<small><time datetime="{{datetime .CreatedAt}}" title="{{when .CreatedAt}}">{{clock .CreatedAt}}</time></small></header>
 <p>{{if .Notice}}{{.Notice}}{{else}}{{roomContent .Content}}{{end}}</p>
-{{if or .Mentions (and (not .InThread) (or (eq .Kind "11") .Root)) .Reactions}}<footer>{{if .Mentions}}<span>to {{range .Mentions}}{{template "nostrKey" .}} {{end}}</span>{{end}}{{if not .InThread}}{{if eq .Kind "11"}}<a href="/rooms/{{.Room}}/thread/{{.ID}}">thread{{if .Replies}} | {{.Replies}} replies{{end}}</a>{{else if .Root}}<a href="/rooms/{{.Room}}/thread/{{.Root}}">in thread</a>{{end}}{{end}}{{range .Reactions}}<span data-reaction="{{.Content}}">{{.Content}} {{.Count}}</span>{{end}}</footer>{{end}}
+{{if or .Mentions (and (not .InThread) (or (eq .Kind "11") .Root)) .Reactions}}<footer>{{if .Mentions}}<span>to {{range .Mentions}}{{template "nostrKey" .}} {{end}}</span>{{end}}{{if not .InThread}}{{if eq .Kind "11"}}<a href="/rooms/{{.Room}}/thread/{{.ID}}">thread{{if .Replies}} | {{.Replies}} {{if eq .Replies 1}}reply{{else}}replies{{end}}{{end}}</a>{{else if .Root}}<a href="/rooms/{{.Room}}/thread/{{.Root}}">in thread</a>{{end}}{{end}}{{range .Reactions}}<span data-reaction="{{.Content}}">{{.Content}} {{.Count}}</span>{{end}}</footer>{{end}}
 </room-message>{{end}}

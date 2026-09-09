@@ -146,7 +146,7 @@ func TestRoomPageRendersMessagesOldestFirstWithMarkers(t *testing.T) {
 		`&lt;script&gt;alert(1)&lt;/script&gt;`,
 		`<span>to <nostr-key hex="` + roomAgent + `"`,
 		`<span data-reaction="&#43;1">&#43;1 1</span>`,
-		`<a href="/rooms/general/thread/` + roomThread + `">thread | 1 replies</a>`,
+		`<a href="/rooms/general/thread/` + roomThread + `">thread | 1 reply</a>`,
 		`<a href="/rooms/general/thread/` + roomThread + `">in thread</a>`,
 		`<room-live room="general"></room-live>`,
 		`<room-compose room="general" pubkey="` + roomOwner + `">`,
@@ -197,7 +197,7 @@ func TestThreadPageRendersRootRepliesAndReplyCompose(t *testing.T) {
 	app, _ := roomsApp(t, roomOwner)
 	body := roomsPage(t, app, "/rooms/general/thread/"+roomThread)
 	for _, want := range []string{
-		`<p id="crumbs"><a href="/rooms/general">General</a></p>`, `<h1>Thread <small>1 replies</small></h1>`,
+		`<p id="crumbs"><a href="/rooms/general">General</a></p>`, `<h1>Thread <small>1 reply</small></h1>`,
 		`<div id="root"><room-message id="msg-` + roomThread + `"`, `<div id="messages">`, `id="msg-` + roomReply + `"`,
 		`<room-live room="general" root="` + roomThread + `"></room-live>`,
 		`<room-compose room="general" pubkey="` + roomOwner + `" kind="12" root="` + roomThread + `" root-pubkey="` + roomAgent + `">`,

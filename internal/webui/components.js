@@ -636,16 +636,16 @@
     if (footer.childNodes.length) node.append(footer);
     return node;
   };
-  const roomBox = () => document.getElementById("content");
+  // The timeline scrolls inside the content column on desktop and with the
+  // page body on phones; roomBox finds whichever holds the overflow.
+  const roomBox = () => [document.getElementById("content"), document.body, document.documentElement].find(node => node && node.scrollHeight > node.clientHeight + 1 && /auto|scroll/.test(getComputedStyle(node).overflowY)) || null;
   const roomNearBottom = () => {
     const box = roomBox();
-    if (box && box.scrollHeight > box.clientHeight + 1 && getComputedStyle(box).overflowY !== "visible") return box.scrollHeight - box.scrollTop - box.clientHeight < 120;
-    return document.documentElement.scrollHeight - window.scrollY - window.innerHeight < 120;
+    return !box || box.scrollHeight - box.scrollTop - box.clientHeight < 120;
   };
   const roomScroll = () => {
     const box = roomBox();
     if (box) box.scrollTop = box.scrollHeight;
-    window.scrollTo(0, document.documentElement.scrollHeight);
   };
   // roomAppend adds one message to the timeline unless it is already there,
   // keeps the list bounded and follows the newest message when the viewer
