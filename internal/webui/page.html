@@ -61,7 +61,7 @@
 {{end}}</div></td>
 <td id="aside"><div id="panel">{{template "panel" .}}</div></td>
 </tr></tbody></table>
-<footer id="footer"><table><tr><td><span id="prompt"><b>{{.Slug}}</b> &raquo; {{prompt .Path .Query}}</span></td><td><span id="who">{{if .Private}}private relay{{else if .Actor}}signed in as {{template "nostrKey" .Actor}} (<button id="session-logout" type="button">sign out</button>){{else}}browsing as guest (<a href="/signin">Sign in</a>){{end}}</span> <span id="session-status" role="status"></span><span id="navigation-status" role="status" aria-live="polite"></span><button id="theme" type="button" aria-label="Switch theme">theme</button></td></tr></table></footer>
+<footer id="footer"><table><tr><td><span id="prompt"><b>{{.Slug}}</b> &raquo; {{prompt .Path .Query}}</span></td><td><span id="who">{{if .Private}}private relay{{else if .Actor}}signed in as {{template "nostrKey" .Actor}} (<button id="session-logout" type="button">sign out</button>){{else}}browsing as guest (<a href="/signin">Sign in</a>){{end}}</span> <span id="session-status" role="status"></span><span id="navigation-status" role="status" aria-live="polite"></span></td></tr></table></footer>
 <script>{{script "tiny.js"}}</script>
 <script>{{script "bridge.js"}}</script>
 <script>{{script "blossom-encryption.js"}}</script>
@@ -87,7 +87,7 @@
 <p>&larr; <a href="/">relay</a></p>
 {{else}}<header><span><a id="mark" href="/" title="{{.Slug}}"><i>t</i><i>i</i><i>n</i><i>y</i></a></span></header>
 <nav>{{range $item := relayItems}}<a href="{{$item.Href}}"{{if eq $item.Tab $.Tab}} aria-current="page"{{end}}>{{$item.Label}}</a>{{end}}</nav>
-{{end}}{{end}}
+{{end}}<p id="rail-tools"><button id="theme" type="button" aria-label="Switch theme">theme</button></p>{{end}}
 
 {{/* The panel holds facts and filters for the current page. */}}
 {{define "panel"}}{{$kind := railKind .Tab}}{{if .Private}}{{template "panel-signin" .}}
