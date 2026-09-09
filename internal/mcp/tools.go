@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 )
 
@@ -168,11 +169,8 @@ func validate(schema map[string]any, value any, path string) error {
 			return fmt.Errorf("%s %s", where(), err)
 		}
 	}
-	if options, ok := schema["enum"].([]string); ok {
-		text, _ := value.(string)
-		if !contains(options, text) {
-			return fmt.Errorf("%s must be one of %s", where(), strings.Join(options, ", "))
-		}
+	if options := enumOptions(schema["enum"]); len(options) > 0 && !contains(options, scalar(value)) {
+		return fmt.Errorf("%s must be one of %s", where(), strings.Join(options, ", "))
 	}
 	if pattern, ok := schema["pattern"].(string); ok {
 		text, _ := value.(string)
@@ -284,6 +282,42 @@ func required(schema map[string]any) []string {
 		return out
 	}
 	return nil
+}
+
+// enumOptions renders enum members as strings so integer and string enums
+// compare the same way.
+func enumOptions(value any) []string {
+	switch list := value.(type) {
+	case []string:
+		return list
+	case []int:
+		out := make([]string, 0, len(list))
+		for _, item := range list {
+			out = append(out, strconv.Itoa(item))
+		}
+		return out
+	case []any:
+		out := make([]string, 0, len(list))
+		for _, item := range list {
+			out = append(out, scalar(item))
+		}
+		return out
+	}
+	return nil
+}
+
+func scalar(value any) string {
+	switch v := value.(type) {
+	case string:
+		return v
+	case float64:
+		return strconv.FormatFloat(v, 'f', -1, 64)
+	case int:
+		return strconv.Itoa(v)
+	case bool:
+		return strconv.FormatBool(v)
+	}
+	return ""
 }
 
 func number(value any) (float64, bool) {
