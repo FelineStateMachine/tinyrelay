@@ -154,7 +154,9 @@ func (t *Tenant) gitSyncPeer(ctx context.Context, repo gitrelay.Repository, targ
 		return err
 	}
 	var result error
+	cursors := make(map[string]struct{})
 	for _, filter := range gitEventFilters(repo) {
+		cursors[gitHistoryCursorKey(target, filter)] = struct{}{}
 		result = errors.Join(result, t.gitPullFilter(ctx, transport, target, filter))
 	}
 	events, err := t.gitConversationEvents(ctx, repo)
@@ -162,9 +164,12 @@ func (t *Tenant) gitSyncPeer(ctx context.Context, repo gitrelay.Repository, targ
 		return errors.Join(result, err)
 	}
 	for _, filter := range gitReplyFilters(events) {
+		cursors[gitHistoryCursorKey(target, filter)] = struct{}{}
 		result = errors.Join(result, t.gitPullFilter(ctx, transport, target, filter))
 	}
-	return result
+	// Reply filters are chunked by root ID, so their keys shift as roots
+	// arrive. Drop cursors for filters this pass no longer uses.
+	return errors.Join(result, t.store.PruneSettings(ctx, gitHistoryCursorPrefix(target), cursors))
 }
 
 func (t *Tenant) gitPullFilter(ctx context.Context, transport *replication.NostrTransport, target string, filter event.Filter) error {
@@ -216,7 +221,7 @@ func (t *Tenant) gitPullLargeFilter(ctx context.Context, transport *replication.
 	if olderErr == nil {
 		// Finished this sweep. The next pass starts another from the head,
 		// allowing older events newly acquired by the peer to be discovered.
-		result = errors.Join(result, t.store.PutSetting(ctx, key, storage.EventCursor{}))
+		result = errors.Join(result, t.store.DeleteSetting(ctx, key))
 	} else if errors.Is(olderErr, replication.ErrPullIncomplete) && len(older) > 0 {
 		result = errors.Join(result, t.store.PutSetting(ctx, key, oldestGitHistoryCursor(older)))
 	}
@@ -279,10 +284,12 @@ func oldestGitHistoryCursor(items []event.Event) storage.EventCursor {
 	return storage.EventCursor{CreatedAt: oldest.CreatedAt, ID: oldest.ID}
 }
 
+func gitHistoryCursorPrefix(target string) string { return "grasp02.history." + target + "." }
+
 func gitHistoryCursorKey(target string, filter event.Filter) string {
 	raw, _ := json.Marshal(filter)
 	sum := sha256.Sum256(raw)
-	return "grasp02.history." + target + "." + hex.EncodeToString(sum[:])
+	return gitHistoryCursorPrefix(target) + hex.EncodeToString(sum[:])
 }
 
 func (t *Tenant) gitHistoryWindow(ctx context.Context, target string, filter event.Filter) (event.Filter, bool, error) {

@@ -114,6 +114,42 @@ func (s *Store) PutSetting(ctx context.Context, key string, value any) error {
 	return s.WithTx(ctx, func(tx *sql.Tx) error { return PutSetting(ctx, tx, key, value) })
 }
 
+// DeleteSetting removes one settings row. A missing row is not an error.
+func (s *Store) DeleteSetting(ctx context.Context, key string) error {
+	_, err := s.db.ExecContext(ctx, "DELETE FROM settings WHERE key=?", key)
+	return err
+}
+
+// PruneSettings removes rows under prefix whose keys are not in keep, so
+// per-filter state cannot accumulate as filters come and go.
+func (s *Store) PruneSettings(ctx context.Context, prefix string, keep map[string]struct{}) error {
+	rows, err := s.db.QueryContext(ctx, "SELECT key FROM settings WHERE substr(key,1,?)=?", len(prefix), prefix)
+	if err != nil {
+		return err
+	}
+	var stale []string
+	for rows.Next() {
+		var key string
+		if err := rows.Scan(&key); err != nil {
+			rows.Close()
+			return err
+		}
+		if _, ok := keep[key]; !ok {
+			stale = append(stale, key)
+		}
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	for _, key := range stale {
+		if err := s.DeleteSetting(ctx, key); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func PutSetting(ctx context.Context, tx *sql.Tx, key string, value any) error {
 	raw, err := json.Marshal(value)
 	if err != nil {

@@ -2,6 +2,7 @@ package daemon
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -135,8 +136,11 @@ func TestGitPullFilterAdvancesBeyondBoundedLocalInventory(t *testing.T) {
 		t.Fatalf("older event count = %d, want 1", got)
 	}
 
-	if err := tenant.store.GetSetting(context.Background(), gitHistoryCursorKey("ws://cursor.test", filter), &cursor); err != nil {
-		t.Fatal(err)
+	// A completed sweep removes its cursor row so per-filter state cannot
+	// accumulate; the next pass seeds a new head window.
+	cursor = storage.EventCursor{}
+	if err := tenant.store.GetSetting(context.Background(), gitHistoryCursorKey("ws://cursor.test", filter), &cursor); !errors.Is(err, sql.ErrNoRows) {
+		t.Fatalf("completed sweep left cursor %#v, err %v", cursor, err)
 	}
 	before := cursor
 	ctx, cancel := context.WithCancel(context.Background())
@@ -145,7 +149,7 @@ func TestGitPullFilterAdvancesBeyondBoundedLocalInventory(t *testing.T) {
 		t.Fatal("canceled pull returned nil")
 	}
 	var after storage.EventCursor
-	if err := tenant.store.GetSetting(context.Background(), gitHistoryCursorKey("ws://cursor.test", filter), &after); err != nil {
+	if err := tenant.store.GetSetting(context.Background(), gitHistoryCursorKey("ws://cursor.test", filter), &after); err != nil && !errors.Is(err, sql.ErrNoRows) {
 		t.Fatal(err)
 	}
 	if after != before {
