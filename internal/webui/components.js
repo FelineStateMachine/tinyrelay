@@ -27,9 +27,11 @@
 //   <file-tools hash="…" type="…" size="…">
 //     Shares one stored file: copies its Blossom URI or share link, decrypts
 //     a share link fragment and sends a random-key file as a NIP-17 message.
-//   <nostr-compose kind="…" [coordinate="30617:…"] [root="…" root-pubkey="…" root-kind="…"] [parent="…" …]>
+//   <nostr-compose kind="…" [coordinate="30617:…"] [root="…" root-pubkey="…" root-kind="…"] [parent="…" …] [file="…" line="…" side="old|new"]>
 //     Signs a NIP-34 issue, pull request, NIP-22 reply or status event and
 //     posts it to the relay. A reply outside a repository omits the coordinate.
+//     A reply under a pull request or patch may name one diff line through
+//     the file, line and side attributes or hidden inputs of those names.
 //   <wiki-compose name="…" [author="…" coordinate="30818:…" event="…"]>
 //     Signs a NIP-54 article and posts it. Someone other than the author
 //     publishes a fork of the version in view; a "propose" button also signs
@@ -349,6 +351,15 @@
   // The relay receives the signed event directly, so the same control works
   // with NIP-07 and the existing NIP-46 bridge.
   class NostrCompose extends FormElement {
+    connectedCallback() {
+      super.connectedCallback();
+      // A comment link on a diff line opens the page at this compose.
+      if (this.id && globalThis.location?.hash === "#" + this.id) {
+        this.scrollIntoView?.({block: "center"});
+        this.form?.elements.content?.focus?.();
+      }
+    }
+
     async submit(form) {
       if (!window.nostr?.signEvent) throw Error("Connect a signer first.");
       const value = name => form.elements[name]?.value.trim() || "";
@@ -370,6 +381,13 @@
           const parentKind = this.getAttribute("parent-kind") || rootKind;
           if (!isHex64(parent) || !isHex64(parentPubkey) || !["1111", rootKind].includes(parentKind)) throw Error("The reply address is invalid.");
           tags.push(["E", root, "", pubkey], ["K", rootKind], ["P", pubkey], ["e", parent, "", parentPubkey], ["k", parentKind], ["p", parentPubkey]);
+          const anchor = name => value(name) || this.getAttribute(name) || "";
+          const file = anchor("file"), line = anchor("line"), side = anchor("side");
+          if (file || line || side) {
+            if (!["1617", "1618"].includes(rootKind)) throw Error("Line comments belong to a pull request or patch.");
+            if (!file || !/^[1-9]\d*$/.test(line) || !["old", "new"].includes(side)) throw Error("The line reference is incomplete: it needs a file, a line number and a side.");
+            tags.push(["file", file], ["line", line, side]);
+          }
         } else {
           tags.push(["e", root, "", "root"], ["p", pubkey]);
           if (coordinate.split(":")[1] !== pubkey) tags.push(["p", coordinate.split(":")[1]]);

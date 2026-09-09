@@ -47,6 +47,35 @@ test("nested NIP-22 replies preserve the root and address the immediate parent",
   assert.deepEqual(s.sent[0].event.tags, [["a", coordinate], ["E", root, "", author], ["K", "1621"], ["P", author], ["e", parent, "", parentAuthor], ["k", "1111"], ["p", parentAuthor]]);
 });
 
+test("review comments carry file and line tags from hidden inputs or attributes", async () => {
+  const pullAttrs = {coordinate, root, "root-pubkey": author, "root-kind": "1618"};
+  const fromInputs = setup({...pullAttrs, kind: "1111"}, {content: "Prefer two", file: "README", line: "2", side: "new"});
+  await fromInputs.component.submit(fromInputs.form);
+  assert.deepEqual(fromInputs.sent[0].event.tags.slice(-2), [["file", "README"], ["line", "2", "new"]]);
+  const fromAttributes = setup({...pullAttrs, kind: "1111", file: "src/app.js", line: "14", side: "old"}, {content: "Keep this"});
+  await fromAttributes.component.submit(fromAttributes.form);
+  assert.deepEqual(fromAttributes.sent[0].event.tags.slice(-2), [["file", "src/app.js"], ["line", "14", "old"]]);
+  const plain = setup({...pullAttrs, kind: "1111"}, {content: "General note"});
+  await plain.component.submit(plain.form);
+  assert.equal(plain.sent[0].event.tags.some(tag => tag[0] === "file" || tag[0] === "line"), false);
+});
+
+test("incomplete or misplaced line references are rejected before signing", async () => {
+  const pullAttrs = {coordinate, root, "root-pubkey": author, "root-kind": "1618"};
+  for (const [attrs, values] of [
+    [{...pullAttrs, kind: "1111"}, {content: "x", file: "README", line: "0", side: "new"}],
+    [{...pullAttrs, kind: "1111"}, {content: "x", file: "README", line: "2", side: "left"}],
+    [{...pullAttrs, kind: "1111"}, {content: "x", line: "2", side: "new"}],
+    [{...pullAttrs, kind: "1111"}, {content: "x", file: "README"}],
+    [{...rootAttrs, kind: "1111"}, {content: "x", file: "README", line: "2", side: "new"}]
+  ]) {
+    const s = setup(attrs, values);
+    await assert.rejects(s.component.submit(s.form), /line|pull request/);
+    assert.equal(s.signed.length, 0);
+    assert.equal(s.sent.length, 0);
+  }
+});
+
 test("status selector signs a NIP-34 root marker with an optional empty body", async () => {
   const s = setup({...rootAttrs, kind: "status"}, {status: "1632", content: ""});
   await s.component.submit(s.form);

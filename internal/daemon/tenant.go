@@ -178,6 +178,9 @@ func (t *Tenant) Publish(ctx context.Context, e event.Event, s relay.Session) (s
 	if err := t.validatePrivateRepositoryPlacement(ctx, e); err != nil {
 		return "", err
 	}
+	if err := validateReviewAnchor(e); err != nil {
+		return "", err
+	}
 	if err := t.validatePushRegistration(ctx, e, s); err != nil {
 		return "", err
 	}

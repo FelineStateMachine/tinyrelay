@@ -60,7 +60,7 @@ var (
 const (
 	mcpIssueShape       = `Expected a signed kind 1621 event with tags ["a","30617:<owner>:<repo>"], ["p","<owner>"], ["subject","<title>"] and optional ["t","<label>"] tags, with the Markdown description in content.`
 	mcpPullShape        = `Expected a signed kind 1618 event with tags ["a","30617:<owner>:<repo>"], ["p","<owner>"], ["subject","<title>"], ["c","<40-hex commit>"], ["clone","<http or https URL>"], optional ["merge-base","<40-hex commit>"] and optional ["t","<label>"] tags, with the description in content.`
-	mcpCommentShape     = `Expected a signed kind 1111 event with NIP-22 tags ["a","30617:<owner>:<repo>"], ["E","<root id>","","<root pubkey>"], ["K","<root kind>"], ["P","<root pubkey>"], ["e","<parent id>","","<parent pubkey>"], ["k","<parent kind>"], ["p","<parent pubkey>"], with the comment in content. The parent is the root for a top-level comment.`
+	mcpCommentShape     = `Expected a signed kind 1111 event with NIP-22 tags ["a","30617:<owner>:<repo>"], ["E","<root id>","","<root pubkey>"], ["K","<root kind>"], ["P","<root pubkey>"], ["e","<parent id>","","<parent pubkey>"], ["k","<parent kind>"], ["p","<parent pubkey>"], with the comment in content. The parent is the root for a top-level comment. A review comment under a pull request or patch may add ["file","<path>"] and ["line","<n>","old" or "new"] to name one diff line.`
 	mcpStatusShape      = `Expected a signed event of kind 1630 (open), 1631 (resolved or merged), 1632 (closed) or 1633 (draft) with tags ["a","30617:<owner>:<repo>"], ["e","<root id>","","root"] and ["p","<root pubkey>"].`
 	mcpMessageShape     = `Expected a signed kind 9 event with tag ["h","<room id>"] and optional ["p","<pubkey>"] mentions, with the message in content.`
 	mcpThreadShape      = `Expected a signed kind 11 event with tag ["h","<room id>"] and optional ["subject","<title>"], with the opening post in content.`
@@ -172,7 +172,7 @@ func (t *Tenant) mcpTools() (*mcp.Registry, error) {
 	add("publish_event", "Publish a signed Nostr event to this relay. The relay's access rules apply as they do for POST /events.", mcp.Object(map[string]any{"event": mcpEvent}, "event"), mcpPublishes, t.mcpWrite(nil, nil, "Expected a signed Nostr event."))
 	add("create_issue", "Open an issue on a hosted repository. Pass owner, repo, title and content to receive the unsigned kind 1621 event, sign it, then call again with the signed event.", mcp.Object(map[string]any{"event": mcpEvent, "owner": mcpPubKey, "repo": mcpID, "title": mcpText, "content": mcpText, "labels": map[string]any{"type": "array", "items": mcpText}}), mcpPublishes, t.mcpWrite(mcpBuildIssue, mcpCheckIssue, mcpIssueShape))
 	add("create_pull_request", "Open a pull request on a hosted repository. Pass owner, repo, title, commit and clone (plus optional content, merge_base and labels) to receive the unsigned kind 1618 event, sign it, then call again with the signed event.", mcp.Object(map[string]any{"event": mcpEvent, "owner": mcpPubKey, "repo": mcpID, "title": mcpText, "content": mcpText, "commit": mcpCommit, "clone": map[string]any{"type": "string", "description": "HTTP or HTTPS clone URL without credentials."}, "merge_base": mcpCommit, "labels": map[string]any{"type": "array", "items": mcpText}}), mcpPublishes, t.mcpWrite(mcpBuildPull, mcpCheckPull, mcpPullShape))
-	add("comment", "Reply to an issue, pull request or comment with a NIP-22 kind 1111 event. Pass owner, repo, root, root_kind, root_pubkey and content (plus parent, parent_kind and parent_pubkey to answer a comment) to receive the unsigned event, sign it, then call again with the signed event.", mcp.Object(map[string]any{"event": mcpEvent, "owner": mcpPubKey, "repo": mcpID, "root": mcpHash, "root_kind": mcpRootKind, "root_pubkey": mcpPubKey, "parent": mcpHash, "parent_kind": map[string]any{"type": "integer", "enum": []int{1111, 1617, 1618, 1621}}, "parent_pubkey": mcpPubKey, "content": mcpText}), mcpPublishes, t.mcpWrite(mcpBuildComment, mcpCheckComment, mcpCommentShape))
+	add("comment", "Reply to an issue, pull request or comment with a NIP-22 kind 1111 event. Pass owner, repo, root, root_kind, root_pubkey and content (plus parent, parent_kind and parent_pubkey to answer a comment) to receive the unsigned event, sign it, then call again with the signed event. To review one line of a pull request or patch diff, add file, line and side (old for the base, new for the change).", mcp.Object(map[string]any{"event": mcpEvent, "owner": mcpPubKey, "repo": mcpID, "root": mcpHash, "root_kind": mcpRootKind, "root_pubkey": mcpPubKey, "parent": mcpHash, "parent_kind": map[string]any{"type": "integer", "enum": []int{1111, 1617, 1618, 1621}}, "parent_pubkey": mcpPubKey, "content": mcpText, "file": map[string]any{"type": "string", "minLength": 1, "description": "Path of the diff file the comment is about."}, "line": map[string]any{"type": "integer", "minimum": 1, "description": "Line number on the chosen side of the diff."}, "side": map[string]any{"type": "string", "enum": []string{"old", "new"}}}), mcpPublishes, t.mcpWrite(mcpBuildComment, mcpCheckComment, mcpCommentShape))
 	add("set_status", "Change the status of an issue or pull request. The author, repository owner and maintainers may do this. Pass owner, repo, root, root_pubkey and status to receive the unsigned event, sign it, then call again with the signed event.", mcp.Object(map[string]any{"event": mcpEvent, "owner": mcpPubKey, "repo": mcpID, "root": mcpHash, "root_pubkey": mcpPubKey, "status": map[string]any{"type": "string", "enum": []string{"open", "resolved", "merged", "closed", "draft"}}}), mcpPublishes, t.mcpWrite(mcpBuildStatus, mcpCheckStatus, mcpStatusShape))
 	add("post_message", "Post a kind 9 chat message in a room. Pass room and content (plus mentions, a list of public keys) to receive the unsigned event, sign it, then call again with the signed event. Posting in an open room joins it.", mcp.Object(map[string]any{"event": mcpEvent, "room": mcpRoomID, "content": mcpText, "mentions": map[string]any{"type": "array", "items": mcpPubKey}}), mcpPublishes, t.mcpWrite(mcpBuildMessage, mcpCheckMessage, mcpMessageShape))
 	add("start_thread", "Start a kind 11 thread in a room. Pass room and content (plus an optional title) to receive the unsigned event, sign it, then call again with the signed event.", mcp.Object(map[string]any{"event": mcpEvent, "room": mcpRoomID, "title": mcpText, "content": mcpText}), mcpPublishes, t.mcpWrite(mcpBuildThread, mcpCheckThread, mcpThreadShape))
@@ -338,6 +338,16 @@ func mcpBuildComment(call mcp.Call) (mcpUnsigned, error) {
 		return mcpUnsigned{}, errors.New("parent needs parent_kind and parent_pubkey")
 	}
 	tags = append(tags, []string{"E", root, "", rootPubKey}, []string{"K", strconv.Itoa(rootKind)}, []string{"P", rootPubKey}, []string{"e", parent, "", parentPubKey}, []string{"k", strconv.Itoa(parentKind)}, []string{"p", parentPubKey})
+	file, line, side := call.String("file"), call.Int("line"), call.String("side")
+	if file != "" || line != 0 || side != "" {
+		if strings.TrimSpace(file) == "" || line < 1 || (side != "old" && side != "new") {
+			return mcpUnsigned{}, errors.New("file, line (a positive integer) and side (old or new) go together")
+		}
+		if rootKind != event.KIND_GIT_PR && rootKind != event.KIND_GIT_PATCH {
+			return mcpUnsigned{}, errors.New("file and line anchor a comment to a pull request or patch diff")
+		}
+		tags = append(tags, []string{"file", file}, []string{"line", strconv.Itoa(line), side})
+	}
 	return mcpUnsigned{Kind: 1111, CreatedAt: time.Now().Unix(), Tags: tags, Content: content}, nil
 }
 
@@ -419,6 +429,9 @@ func mcpCheckComment(e event.Event) error {
 	}
 	if strings.TrimSpace(e.Content) == "" {
 		return errors.New("content must not be empty")
+	}
+	if err := validateReviewAnchor(e); err != nil {
+		return errors.New(strings.TrimPrefix(err.Error(), "blocked: "))
 	}
 	return nil
 }

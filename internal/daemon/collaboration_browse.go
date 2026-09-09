@@ -27,17 +27,17 @@ type collaborationItem struct {
 }
 
 type collaborationDetail struct {
-	Repository      map[string]any    `json:"repository"`
-	Root            event.Event       `json:"root"`
-	Item            collaborationItem `json:"item"`
-	Replies         []event.Event     `json:"replies"`
-	Updates         []event.Event     `json:"updates"`
-	Statuses        []event.Event     `json:"statuses"`
-	Diff            string            `json:"diff,omitempty"`
-	CanStatus       bool              `json:"can_status"`
-	DiffUnavailable string            `json:"diff_unavailable,omitempty"`
-	DiffTruncated   bool              `json:"diff_truncated,omitempty"`
-	ReplyCursor     string            `json:"reply_cursor,omitempty"`
+	Repository      map[string]any       `json:"repository"`
+	Root            event.Event          `json:"root"`
+	Item            collaborationItem    `json:"item"`
+	Replies         []collaborationReply `json:"replies"`
+	Updates         []event.Event        `json:"updates"`
+	Statuses        []event.Event        `json:"statuses"`
+	Diff            string               `json:"diff,omitempty"`
+	CanStatus       bool                 `json:"can_status"`
+	DiffUnavailable string               `json:"diff_unavailable,omitempty"`
+	DiffTruncated   bool                 `json:"diff_truncated,omitempty"`
+	ReplyCursor     string               `json:"reply_cursor,omitempty"`
 }
 
 func (t *Tenant) collaborationRepository(ctx context.Context, repo gitrelay.Repository) map[string]any {
@@ -196,12 +196,11 @@ func (t *Tenant) browseCollaborationDetail(ctx context.Context, actor string, q 
 	if err != nil {
 		return nil, err
 	}
-	detail.Replies = replies
-	if len(detail.Replies) > replyLimit {
-		detail.Replies = detail.Replies[:replyLimit]
-		last := detail.Replies[replyLimit-1]
-		detail.ReplyCursor = collaborationCursor(collaborationItemFrom(last))
+	if len(replies) > replyLimit {
+		replies = replies[:replyLimit]
+		detail.ReplyCursor = collaborationCursor(collaborationItemFrom(replies[replyLimit-1]))
 	}
+	detail.Replies = collaborationReplies(replies)
 	if kind == event.KIND_GIT_PR {
 		detail.Updates, err = t.Query(ctx, []event.Filter{{Authors: []string{root.PubKey}, Kinds: []int{1619}, Tags: map[string][]string{"E": {root.ID}, "P": {root.PubKey}}, Limit: intPtr(100)}}, browseSession(t, actor))
 		if err != nil {

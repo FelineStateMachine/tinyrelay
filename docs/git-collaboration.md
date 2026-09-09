@@ -12,6 +12,35 @@ Pull request diffs use commits available in the hosted repository. Missing commi
 
 Events follow [NIP-34](https://github.com/nostr-protocol/nips/blob/master/34.md), with replies using [NIP-22](https://github.com/nostr-protocol/nips/blob/master/22.md). Markdown is supported in issues and pull request descriptions; comments are plain text. Status reflects the newest visible event signed by an authorized author or maintainer.
 
+## Review comments
+
+A comment under a pull request or patch can point at one line of the diff. Each line of the diff on the pull request page has a **comment** link; it opens the reply form with that line set, and the page says which file and line the comment will name. Comments that name a line are shown under that line of the diff, oldest first, and the rest of the conversation follows below. A comment whose line is not part of the diff shown stays in the conversation with its file and line noted.
+
+A review comment is a kind 1111 event with the NIP-22 tags a comment normally carries plus two tags:
+
+| Tag | Value |
+| --- | --- |
+| `file` | The path of the file in the diff, as Git prints it after `b/`. |
+| `line` | The line number, then the side: `old` for the base version or `new` for the proposed version. |
+
+Example tags for a comment on line 12 of the new version of `src/main.go`:
+
+```json
+[
+  ["a", "30617:<owner pubkey>:tinyrelay"],
+  ["E", "<pull request id>", "", "<author pubkey>"],
+  ["K", "1618"],
+  ["P", "<author pubkey>"],
+  ["e", "<pull request id>", "", "<author pubkey>"],
+  ["k", "1618"],
+  ["p", "<author pubkey>"],
+  ["file", "src/main.go"],
+  ["line", "12", "new"]
+]
+```
+
+The two tags go together, once each. The path must not be empty, the line number must be a positive integer and the side must be `old` or `new`. The root named by the `K` tag must be a pull request (kind 1618) or patch (kind 1617). The relay refuses a comment whose tags break these rules with a `blocked:` reason, whether it is published directly or arrives through synchronization. The `browsepull` query and the `read_pull_request` tool return each reply with `file`, `line` and `side` fields; the fields are absent on comments that name no line. Agents publish review comments through the `comment` tool with its `file`, `line` and `side` arguments. See [MCP](mcp.md).
+
 The browser tools page exposes the same lists and detail pages to browser agents. See [Browser tools](webmcp.md).
 
 ## Synchronization

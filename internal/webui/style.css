@@ -214,6 +214,10 @@ source-view b{font-weight:600}source-view i{font-style:normal;color:var(--muted)
 source-view tfoot td,diff-view tfoot td{white-space:normal;color:var(--muted);font-family:var(--sans)}
 diff-view ins,diff-view del{text-decoration:none}diff-view tr:has(ins){background:var(--add)}diff-view tr:has(del){background:var(--del)}diff-view b{color:var(--muted);font-weight:600}
 diff-view caption{text-align:left;font:13px var(--mono);padding:8px 12px;border-bottom:1px solid var(--line);caption-side:top}
+/* Review comments: the link that starts one on a diff line, and the comments placed under that line. */
+diff-view td>small{margin-left:12px;font:11px var(--sans)}diff-view td>small a{color:var(--muted);text-decoration:none}diff-view tr:hover td>small a,diff-view td>small a:focus{color:var(--fg);text-decoration:underline}
+diff-view td>nostr-event{white-space:normal;max-width:720px;border:0;padding:6px 0 4px}diff-view td>details{white-space:normal;font:12px var(--mono);margin:0 0 8px}diff-view td>details>summary{cursor:pointer;color:var(--muted)}diff-view td>details nostr-compose{border-bottom:0;padding:6px 0 0}
+#reply-anchor{font:13px var(--sans);color:var(--muted)}#events li>p{margin:-6px 0 8px;font:12px var(--mono);color:var(--muted)}
 
 /* Wiki: the page list, one article, the merge request bar and the editor. */
 #wiki-list #rows th{white-space:nowrap}#wiki-list #rows td:first-child{width:auto;font:14px var(--sans)}#wiki-list #rows td:nth-child(3),#wiki-list #rows td:nth-child(4){width:110px;font:12px var(--mono);color:var(--muted)}

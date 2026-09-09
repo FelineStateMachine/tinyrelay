@@ -178,6 +178,23 @@ func TestMCPWriteToolsBuildValidateAndPublish(t *testing.T) {
 	if w.Code != http.StatusOK || isError || unsigned["kind"] != float64(1111) || string(tags) != `[["a","30617:`+owner+`:tiny"],["E","`+rootID+`","","`+owner+`"],["K","1621"],["P","`+owner+`"],["e","`+rootID+`","","`+owner+`"],["k","1621"],["p","`+owner+`"]]` {
 		t.Fatalf("comment template: %d %s", w.Code, w.Body.String())
 	}
+	w, response = mcpCall{method: "tools/call", name: "comment", arguments: map[string]any{"owner": owner, "repo": "tiny", "root": rootID, "root_kind": 1621, "root_pubkey": owner, "content": "Here.", "file": "README", "line": 2, "side": "new"}, sign: true}.do(t, app, "/mcp")
+	result, isError = mcpToolResult(t, response)
+	if w.Code != http.StatusOK || !isError || !strings.Contains(result["content"].([]any)[0].(map[string]any)["text"].(string), "pull request or patch") {
+		t.Fatalf("comment anchor under an issue: %d %s", w.Code, w.Body.String())
+	}
+	w, response = mcpCall{method: "tools/call", name: "comment", arguments: map[string]any{"owner": owner, "repo": "tiny", "root": strings.Repeat("d", 64), "root_kind": 1618, "root_pubkey": owner, "content": "Here.", "file": "README", "line": 2, "side": "new"}, sign: true}.do(t, app, "/mcp")
+	result, isError = mcpToolResult(t, response)
+	unsigned, _ = result["structuredContent"].(map[string]any)["unsigned"].(map[string]any)
+	tags, _ = json.Marshal(unsigned["tags"])
+	if w.Code != http.StatusOK || isError || !strings.HasSuffix(string(tags), `["file","README"],["line","2","new"]]`) {
+		t.Fatalf("comment anchor template: %d %s", w.Code, w.Body.String())
+	}
+	w, response = mcpCall{method: "tools/call", name: "comment", arguments: map[string]any{"event": sign(1111, [][]string{{"a", "30617:" + owner + ":tiny"}, {"E", strings.Repeat("d", 64), "", owner}, {"K", "1618"}, {"P", owner}, {"e", strings.Repeat("d", 64), "", owner}, {"k", "1618"}, {"p", owner}, {"file", "README"}, {"line", "0", "new"}}, "Here.")}, sign: true}.do(t, app, "/mcp")
+	result, isError = mcpToolResult(t, response)
+	if w.Code != http.StatusOK || !isError || !strings.Contains(result["content"].([]any)[0].(map[string]any)["text"].(string), "positive integer") {
+		t.Fatalf("comment anchor check: %d %s", w.Code, w.Body.String())
+	}
 	w, response = mcpCall{method: "tools/call", name: "set_status", arguments: map[string]any{"owner": owner, "repo": "tiny", "root": rootID, "root_pubkey": owner, "status": "resolved"}, sign: true}.do(t, app, "/mcp")
 	result, isError = mcpToolResult(t, response)
 	unsigned, _ = result["structuredContent"].(map[string]any)["unsigned"].(map[string]any)

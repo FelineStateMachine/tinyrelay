@@ -631,6 +631,9 @@ func (t *Tenant) commitImported(ctx context.Context, e event.Event, origin repli
 	if err := t.validatePrivateRepositoryPlacement(ctx, e); err != nil {
 		return err
 	}
+	if err := validateReviewAnchor(e); err != nil {
+		return err
+	}
 	if t.sites != nil {
 		if err := sites.ValidateManifest(e); err != nil {
 			return err
