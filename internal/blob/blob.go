@@ -99,7 +99,7 @@ type Service struct {
 	multipartFinalizing map[string]bool
 	// verifyMultipartHook is used by package tests to pause finalization
 	// without allocating a GiB fixture. It is nil in production.
-	verifyMultipartHook func(string, string, int64) error
+	verifyMultipartHook func(context.Context, string, string, int64) error
 }
 
 var ErrBlocked = errors.New("blocked: this blob was removed by a moderator")

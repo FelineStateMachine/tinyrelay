@@ -114,10 +114,10 @@ func TestMultipartReviewStalledHashDoesNotBlockOrdinaryUpload(t *testing.T) {
 	sha := hex.EncodeToString(digest[:])
 	started := make(chan struct{})
 	release := make(chan struct{})
-	s.verifyMultipartHook = func(path, hash string, size int64) error {
+	s.verifyMultipartHook = func(ctx context.Context, path, hash string, size int64) error {
 		close(started)
 		<-release
-		return verifyMultipart(path, hash, size)
+		return verifyMultipart(ctx, path, hash, size)
 	}
 	result := make(chan *httptest.ResponseRecorder, 1)
 	r := multipartReviewRequest(sha, int64(len(body)), 0, body)
@@ -160,10 +160,10 @@ func TestMultipartReviewStalledHashDoesNotBlockAnotherSession(t *testing.T) {
 	release := make(chan struct{})
 	var unblock sync.Once
 	defer unblock.Do(func() { close(release) })
-	s.verifyMultipartHook = func(path, hash string, size int64) error {
+	s.verifyMultipartHook = func(ctx context.Context, path, hash string, size int64) error {
 		close(started)
 		<-release
-		return verifyMultipart(path, hash, size)
+		return verifyMultipart(ctx, path, hash, size)
 	}
 	first := make(chan *httptest.ResponseRecorder, 1)
 	go func() { first <- record(s.Handler(), multipartReviewRequest(sha, int64(len(body)), 0, body)) }()
@@ -207,10 +207,10 @@ func TestMultipartReviewFinalizingSessionRejectsConcurrentChunk(t *testing.T) {
 	sha := hex.EncodeToString(digest[:])
 	started := make(chan struct{})
 	release := make(chan struct{})
-	s.verifyMultipartHook = func(path, hash string, size int64) error {
+	s.verifyMultipartHook = func(ctx context.Context, path, hash string, size int64) error {
 		close(started)
 		<-release
-		return verifyMultipart(path, hash, size)
+		return verifyMultipart(ctx, path, hash, size)
 	}
 	first := make(chan *httptest.ResponseRecorder, 1)
 	go func() { first <- record(s.Handler(), multipartReviewRequest(sha, int64(len(body)), 0, body)) }()
@@ -236,10 +236,10 @@ func TestMultipartReviewCleanupDoesNotRemoveActiveFinalization(t *testing.T) {
 	sha := hex.EncodeToString(digest[:])
 	started := make(chan struct{})
 	release := make(chan struct{})
-	s.verifyMultipartHook = func(path, hash string, size int64) error {
+	s.verifyMultipartHook = func(ctx context.Context, path, hash string, size int64) error {
 		close(started)
 		<-release
-		return verifyMultipart(path, hash, size)
+		return verifyMultipart(ctx, path, hash, size)
 	}
 	result := make(chan *httptest.ResponseRecorder, 1)
 	go func() { result <- record(s.Handler(), multipartReviewRequest(sha, int64(len(body)), 0, body)) }()
@@ -278,10 +278,10 @@ func TestMultipartReviewPolicyRecheckedAfterHash(t *testing.T) {
 	sha := hex.EncodeToString(digest[:])
 	started := make(chan struct{})
 	release := make(chan struct{})
-	s.verifyMultipartHook = func(path, hash string, size int64) error {
+	s.verifyMultipartHook = func(ctx context.Context, path, hash string, size int64) error {
 		close(started)
 		<-release
-		return verifyMultipart(path, hash, size)
+		return verifyMultipart(ctx, path, hash, size)
 	}
 	s.config.Limits = func() Limits { return Limits{MaxFileBytes: int64(len(body))} }
 	result := make(chan *httptest.ResponseRecorder, 1)
@@ -304,10 +304,10 @@ func TestMultipartReviewCanceledHashCanBeRetried(t *testing.T) {
 	sha := hex.EncodeToString(digest[:])
 	started := make(chan struct{})
 	release := make(chan struct{})
-	s.verifyMultipartHook = func(path, hash string, size int64) error {
+	s.verifyMultipartHook = func(ctx context.Context, path, hash string, size int64) error {
 		close(started)
 		<-release
-		return verifyMultipart(path, hash, size)
+		return verifyMultipart(ctx, path, hash, size)
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	r := multipartReviewRequest(sha, int64(len(body)), 0, body).WithContext(ctx)

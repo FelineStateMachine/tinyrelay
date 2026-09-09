@@ -3,6 +3,10 @@ package gitrelay
 import (
 	"bufio"
 	"context"
+	"crypto/rand"
+	"crypto/subtle"
+	"encoding/base64"
+	"encoding/hex"
 	"errors"
 	"io"
 	"net"
@@ -29,7 +33,11 @@ func (b *byteBudget) take(wanted, limit int64) int64 {
 }
 
 type repairProxy struct {
-	listener    net.Listener
+	listener net.Listener
+	// credential is the Proxy-Authorization value Git presents. The listener
+	// is loopback only, but other local processes cannot borrow the tunnel.
+	credential  string
+	url         string
 	ctx         context.Context
 	cancel      context.CancelFunc
 	budget      *byteBudget
@@ -47,14 +55,22 @@ func newRepairProxy(ctx context.Context, targetIP, targetHost, targetPort string
 	if err != nil {
 		return nil, err
 	}
+	var secret [16]byte
+	if _, err := rand.Read(secret[:]); err != nil {
+		_ = listener.Close()
+		return nil, err
+	}
 	proxyCtx, cancel := context.WithCancel(ctx)
-	p := &repairProxy{listener: listener, ctx: proxyCtx, cancel: cancel, budget: budget, limit: limit, targetIP: targetIP, targetHost: targetHost, targetPort: targetPort, connections: make(map[net.Conn]struct{})}
+	token := hex.EncodeToString(secret[:])
+	credential := "Basic " + base64.StdEncoding.EncodeToString([]byte("tiny:"+token))
+	p := &repairProxy{listener: listener, credential: credential, ctx: proxyCtx, cancel: cancel, budget: budget, limit: limit, targetIP: targetIP, targetHost: targetHost, targetPort: targetPort, connections: make(map[net.Conn]struct{})}
+	p.url = "http://tiny:" + token + "@" + listener.Addr().String()
 	context.AfterFunc(proxyCtx, func() { _ = p.Close() })
 	go p.serve()
 	return p, nil
 }
 
-func (p *repairProxy) URL() string { return "http://" + p.listener.Addr().String() }
+func (p *repairProxy) URL() string { return p.url }
 
 func (p *repairProxy) Close() error {
 	p.closeOnce.Do(func() {
@@ -107,6 +123,10 @@ func (p *repairProxy) handle(client net.Conn) {
 		return
 	}
 	if request.Method != http.MethodConnect && request.Method != http.MethodGet && request.Method != http.MethodPost {
+		return
+	}
+	if subtle.ConstantTimeCompare([]byte(request.Header.Get("Proxy-Authorization")), []byte(p.credential)) != 1 {
+		_, _ = io.WriteString(client, "HTTP/1.1 407 Proxy Authentication Required\r\nProxy-Authenticate: Basic realm=\"tiny\"\r\nContent-Length: 0\r\nConnection: close\r\n\r\n")
 		return
 	}
 	host := request.URL.Hostname()

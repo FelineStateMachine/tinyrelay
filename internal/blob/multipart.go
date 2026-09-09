@@ -340,7 +340,7 @@ func (s *Service) commitMultipart(ctx context.Context, part multipartRequest, ch
 	if s.verifyMultipartHook != nil {
 		verify = s.verifyMultipartHook
 	}
-	if err := verify(candidate.path, part.hash, part.length); err != nil {
+	if err := verify(ctx, candidate.path, part.hash, part.length); err != nil {
 		s.multipartMu.Lock()
 		delete(s.multipartFinalizing, part.id)
 		// A canceled request must not throw away an otherwise complete session:
@@ -428,16 +428,34 @@ func (s *Service) recordMultipartRanges(ctx context.Context, id string, ranges [
 		return err
 	})
 }
-func verifyMultipart(path, hash string, size int64) error {
+
+// verifyMultipart hashes the assembled file outside the tenant lock. It checks
+// the request context between reads so a disconnected client stops a long
+// hash instead of holding the session until the hash completes.
+func verifyMultipart(ctx context.Context, path, hash string, size int64) error {
 	file, err := os.Open(path)
 	if err != nil {
 		return err
 	}
 	defer file.Close()
 	hasher := sha256.New()
-	count, err := io.Copy(hasher, file)
-	if err != nil {
-		return err
+	var count int64
+	buffer := make([]byte, 1<<20)
+	for {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		n, readErr := file.Read(buffer)
+		if n > 0 {
+			hasher.Write(buffer[:n])
+			count += int64(n)
+		}
+		if errors.Is(readErr, io.EOF) {
+			break
+		}
+		if readErr != nil {
+			return readErr
+		}
 	}
 	if count != size || hex.EncodeToString(hasher.Sum(nil)) != hash {
 		return ErrHashMismatch
