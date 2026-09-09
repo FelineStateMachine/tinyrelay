@@ -106,7 +106,7 @@ var relayNav = []navItem{{"/home", "/", "home", 0}, {"/search", "/search", "sear
 
 // manageNav: who is here, what they may do, what the relay is, what it does
 // over time, and how it is doing.
-var manageNav = []navItem{{"/people", "/manage/people", "people", 0}, {"/moderation", "/manage/moderation", "moderation", 1}, {"/rules", "/manage/rules", "rules", 1}, {"/identity", "/manage/identity", "identity", 2}, {"/connect", "/manage/connect", "connect", 2}, {"/owner", "/manage/owner", "owner", 2}, {"/sync", "/manage/sync", "sync", 3}, {"/data", "/manage/data", "data", 3}, {"/views", "/manage/views", "views", 3}, {"/health", "/manage/health", "health", 4}}
+var manageNav = []navItem{{"/people", "/manage/people", "people", 0}, {"/agents", "/manage/agents", "agents", 0}, {"/moderation", "/manage/moderation", "moderation", 1}, {"/rules", "/manage/rules", "rules", 1}, {"/identity", "/manage/identity", "identity", 2}, {"/connect", "/manage/connect", "connect", 2}, {"/owner", "/manage/owner", "owner", 2}, {"/sync", "/manage/sync", "sync", 3}, {"/data", "/manage/data", "data", 3}, {"/views", "/manage/views", "views", 3}, {"/health", "/manage/health", "health", 4}}
 
 // navGroups splits a rail list into its groups, in order.
 func navGroups(items []navItem) [][]navItem {
@@ -243,6 +243,13 @@ func parseTemplates() (*template.Template, error) {
 		"collabItems":     collaborationItems,
 		"collabReplies":   collaborationReplies,
 		"collabLabels":    collaborationLabels,
+		"agentState":      agentState,
+		"agentSince":      agentSince,
+		"agentScope":      agentScope,
+		"agentLabel":      agentLabel,
+		"agentCounts":     agentCounts,
+		"scopeList":       scopeList,
+		"dateAfter":       dateAfter,
 	}
 	tmpl, err := template.New("webui").Funcs(funcs).ParseFS(templateFS, "*.html")
 	if err != nil {

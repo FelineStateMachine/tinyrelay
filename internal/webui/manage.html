@@ -29,6 +29,55 @@
 </section>
 {{end}}
 
+{{define "agents"}}<section>
+<h1>Agents</h1>
+<p>Agents are members with their own keys. Each one acts under a grant you sign, and stays the author of everything it does.</p>
+{{template "alert" .Error}}
+<table id="rows"><thead><tr><th>agent</th><th>scope</th><th>owner</th><th>state</th></tr></thead><tbody>
+{{range .Feed}}{{$a := asMap .}}{{$pk := str (index $a "pubkey")}}<tr><td><a href="#agent-{{$pk}}">{{agentLabel $a}}</a></td><td title="{{agentScope $a}}">{{agentScope $a}}</td><td>{{template "nostrKey" (str (index $a "owner"))}}</td><td data-state="{{agentState $a}}">{{agentState $a}}{{with agentSince $a}} | {{.}}{{end}}</td></tr>
+{{else}}<tr><td colspan="4">No agents yet. Sign a grant below to add one.</td></tr>
+{{end}}</tbody></table>
+{{range .Feed}}{{$a := asMap .}}{{$pk := str (index $a "pubkey")}}{{$state := agentState $a}}{{$scope := asMap (index $a "scope")}}
+<agent-card id="agent-{{$pk}}">
+<h3>{{agentLabel $a}} <small><span data-state="{{$state}}">{{$state}}</span> | signed by {{if eq (str (index $a "owner")) $.Actor}}you{{else}}{{template "nostrKey" (str (index $a "owner"))}}{{end}} | expires {{short (index $a "expires")}}</small></h3>
+<table>
+<tr><th>key</th><td>{{template "nostrKey" $pk}} <code>{{$pk}}</code></td></tr>
+<tr><th>rooms</th><td>{{or (scopeList $a "rooms") "none"}}</td></tr>
+<tr><th>repositories</th><td>{{range $i, $r := index $scope "repos"}}{{$repo := asMap $r}}{{if $i}}<br>{{end}}<code>{{str (index $repo "identifier")}}</code> {{str (index $repo "level")}}, owner {{template "nostrKey" (str (index $repo "owner"))}}{{else}}none{{end}}</td></tr>
+<tr><th>wiki</th><td>{{or (str (index $scope "wiki")) "none"}}</td></tr>
+<tr><th>kinds</th><td>{{or (scopeList $a "kinds") "profile and relay list only"}}</td></tr>
+<tr><th>rate</th><td>{{str (index $scope "rate")}} events per minute</td></tr>
+<tr><th>expires</th><td><time datetime="{{datetime (index $a "expires")}}">{{when (index $a "expires")}}</time></td></tr>
+<tr><th>owner</th><td>{{template "nostrKey" (str (index $a "owner"))}}</td></tr>
+{{with index $a "lastEvent"}}{{if when .}}<tr><th>last event</th><td><time datetime="{{datetime .}}">{{when .}}</time></td></tr>{{end}}{{end}}
+</table>
+<p>{{if eq $state "paused"}}<rpc-form method="resumeagent" refresh><input type="hidden" name="param" value="&quot;{{$pk}}&quot;"><button>Resume</button></rpc-form>{{else if eq $state "active"}}<rpc-form method="pauseagent" refresh><input type="hidden" name="param" value="&quot;{{$pk}}&quot;"><button>Pause</button></rpc-form>{{end}}{{if ne $state "revoked"}}<rpc-form method="revokeagent" refresh><input type="hidden" name="param" value="&quot;{{$pk}}&quot;"><button>Revoke</button></rpc-form>{{end}}<a href="/manage/agents?agent={{$pk}}">recent activity</a></p>
+</agent-card>
+{{end}}{{with asMap .Event}}{{$agent := asMap (index . "agent")}}
+<h3>Recent activity of {{agentLabel $agent}}</h3>
+{{$events := index . "events"}}{{if $events}}<ol id="events">
+{{range $events}}<li>{{template "nostrEvent" .}}</li>
+{{end}}</ol>
+{{else}}<p>No events from this agent yet.</p>
+{{end}}{{end}}
+<h3>New agent</h3>
+<p>The grant is a kind 30392 event signed by your key. The agent's own key signs everything it publishes.</p>
+<agent-grant>
+<label>Name <input name="name" maxlength="64" required placeholder="release-notes"></label>
+<label>Key <select name="key"><option value="generate">generate here, show once</option><option value="paste">paste a public key</option></select></label>
+<label>Public key <input name="pubkey" pattern="[0-9a-f]{64}" placeholder="64 hex characters"></label>
+<label>Rooms <input name="rooms" placeholder="build, agents"></label>
+<label>Repositories <textarea name="repos" placeholder="owner pubkey:identifier:read&#10;owner pubkey:identifier:maintain"></textarea></label>
+<label>Wiki <select name="wiki"><option value="">none</option><option value="propose">propose</option><option value="edit">edit</option></select></label>
+<label>Kinds <input name="kinds" placeholder="1, 1111, 1621"></label>
+<label>Rate per minute <input name="rate" type="number" min="1" max="600" value="60"></label>
+<label>Expires <input name="expires" type="date" value="{{dateAfter 90}}" required></label>
+<button>Sign grant</button>
+<noscript><p>Signing a grant needs JavaScript and a connected signer. You can also publish the kind 30392 event from any client.</p></noscript>
+</agent-grant>
+</section>
+{{end}}
+
 {{define "moderation"}}<section>
 <h1>Moderation</h1>
 <h3>Reports</h3>

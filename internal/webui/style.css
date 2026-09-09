@@ -134,6 +134,21 @@ file-workspace-root button{background:transparent;border:0;padding:0;color:var(-
 connect-list{display:block}connect-list #rows td{height:auto;padding:8px 10px;white-space:normal;vertical-align:middle}connect-list #rows td:first-child{width:150px}connect-list #rows td:nth-child(2){color:var(--muted)}connect-list #rows td:nth-child(2) b{color:var(--ink);font-weight:normal}connect-list #rows td:nth-child(3){width:110px}connect-list #rows td:last-child{width:190px;white-space:nowrap}connect-list button,connect-list select{font-size:12px}connect-list output{display:block;font:12px var(--mono);color:var(--muted);margin-top:4px}connect-list output[data-error]{color:var(--alert)}
 relay-lists{display:block}relay-lists #rows td{height:auto;padding:8px 10px;white-space:normal;vertical-align:middle}relay-lists #rows td:last-child{width:230px;text-align:left;color:var(--ink);white-space:nowrap}relay-lists #rows td:first-child{width:170px;color:var(--ink);font-family:var(--sans)}relay-lists output{display:block;font:12px var(--mono);color:var(--muted);white-space:normal}relay-lists button{font-size:12px}
 
+/* agent-card: one grant's facts and controls. agent-grant signs a new one. */
+agent-card{display:block;border-bottom:1px solid var(--line);padding:10px 0;max-width:720px}
+agent-card h3{margin:0 0 4px;border:0;font-size:15px}agent-card h3 small{font:12px var(--mono);color:var(--muted)}
+agent-card table{border-collapse:collapse;font:13px var(--mono);width:auto;margin:0}
+agent-card th{text-align:left;font-weight:normal;color:var(--muted);width:9em;padding:3px 0;border:0;vertical-align:top}agent-card td{padding:3px 0;border:0;overflow-wrap:anywhere}
+agent-card td code{color:var(--muted)}
+agent-card p{margin:8px 0 0}agent-card rpc-form{display:inline-block;border:0;padding:0;margin:0 8px 0 0;vertical-align:top}agent-card rpc-form output:empty{display:none}
+agent-card p>a{font:12px var(--mono)}
+[data-state=active],#rows td[data-state=active]{color:var(--accent)}[data-state=paused],#rows td[data-state=paused]{color:var(--bark)}[data-state=revoked],#rows td[data-state=revoked]{color:var(--alert)}
+agent-grant{display:block;border-bottom:1px solid var(--line);padding:10px 0;max-width:720px}
+agent-grant label{display:inline-block;margin:0 10px 6px 0;vertical-align:top;font:13px var(--sans);color:var(--muted)}
+agent-grant label input,agent-grant label select{display:block;margin-top:2px;font:13px var(--mono);min-width:200px}
+agent-grant label:has(textarea),agent-grant label[data-secret]{display:block}agent-grant label[data-secret] input{width:100%}agent-grant label[hidden]{display:none}
+agent-grant output{display:block;font:12px var(--mono);color:var(--muted);margin-top:4px;overflow-wrap:anywhere}agent-grant output[data-error]{color:var(--alert)}
+#panel rpc-form{border:0;padding:4px 0}#panel rpc-form output:empty{display:none}
 connect-card{display:block;border-bottom:1px solid var(--line);padding:10px 0;max-width:720px}connect-card h3{margin:0 0 4px;border:0;font-size:15px}connect-card h3 small{font:12px var(--mono);color:var(--muted)}connect-card p{margin:0 0 6px;color:var(--muted)}connect-card label{display:inline-block;font:13px var(--sans);color:var(--muted);margin:0 10px 6px 0}connect-card label input{display:block;font:13px var(--mono);min-width:200px}connect-card a,connect-card button{margin-right:10px;font-size:13px}connect-card output{display:block;font:12px var(--mono);color:var(--muted);overflow-wrap:anywhere}connect-card details img{display:block;margin:6px 0;background:#fff;padding:6px;border:1px solid var(--line)}
 
 /* json-view: structured rendering of any JSON payload. */

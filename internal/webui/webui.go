@@ -820,10 +820,132 @@ func (a *App) page(writer http.ResponseWriter, request *http.Request) {
 			data.Connections = expandConnections(browseRows(result), PageData{URL: a.backend.URL(), Identity: a.backend.Identity(), Policy: a.backend.Policy(), Actor: actor})
 		}
 	}
+	if tab == "agents" && actor != "" {
+		a.agentsPage(request, actor, &data)
+	}
 	if tab != "" {
 		data.Title = tab + " | " + a.backend.Slug()
 	}
 	a.render(writer, request, data)
+}
+
+// agentsPage loads the agent list for the table and cards, then the grant
+// and recent events of one agent: the one named by ?agent=, else the first.
+// Both queries are gated for the owner and moderators by the backend.
+func (a *App) agentsPage(request *http.Request, actor string, data *PageData) {
+	result, err := a.backend.Query(request.Context(), "listagents", nil, actor)
+	if err != nil {
+		data.Error = err.Error()
+		return
+	}
+	data.Feed = browseRows(result)
+	selected := request.URL.Query().Get("agent")
+	if selected == "" && len(data.Feed) > 0 {
+		selected = plainString(valueMap(data.Feed[0])["pubkey"])
+	}
+	if selected == "" {
+		return
+	}
+	raw, _ := json.Marshal(map[string]any{"agent": selected})
+	detail, err := a.backend.Query(request.Context(), "browseagent", []json.RawMessage{raw}, actor)
+	if err != nil {
+		data.Error = err.Error()
+		return
+	}
+	data.Event = detail
+}
+
+// agentState folds a grant's marks into one word for data-state: revoked
+// covers expired grants too, since neither lets the agent publish again
+// without a new grant.
+func agentState(agent any) string {
+	values := valueMap(agent)
+	switch {
+	case unixSeconds(values["revoked"]) > 0:
+		return "revoked"
+	case unixSeconds(values["expires"]) > 0 && unixSeconds(values["expires"]) <= time.Now().Unix():
+		return "revoked"
+	case values["paused"] == true:
+		return "paused"
+	default:
+		return "active"
+	}
+}
+
+// agentSince is the short time shown beside the state: when the grant was
+// revoked or expired, else the agent's newest event.
+func agentSince(agent any) string {
+	values := valueMap(agent)
+	if revoked := unixSeconds(values["revoked"]); revoked > 0 {
+		return short(revoked)
+	}
+	if expires := unixSeconds(values["expires"]); expires > 0 && expires <= time.Now().Unix() {
+		return "expired " + short(expires)
+	}
+	if last := short(values["lastEvent"]); last != "" {
+		return last
+	}
+	return ""
+}
+
+// agentLabel is the grant's name, or the shortened key when it has none.
+func agentLabel(agent any) string {
+	values := valueMap(agent)
+	if name := plainString(values["name"]); name != "" {
+		return name
+	}
+	return shortID(plainString(values["pubkey"]))
+}
+
+// scopeList joins one list from the grant scope: rooms or kinds.
+func scopeList(agent any, key string) string {
+	items, _ := valueMap(valueMap(agent)["scope"])[key].([]any)
+	parts := make([]string, 0, len(items))
+	for _, item := range items {
+		parts = append(parts, plainString(item))
+	}
+	return strings.Join(parts, ", ")
+}
+
+// agentScope summarises a grant on one line for the agent table.
+func agentScope(agent any) string {
+	scope := valueMap(valueMap(agent)["scope"])
+	var parts []string
+	if rooms := scopeList(agent, "rooms"); rooms != "" {
+		parts = append(parts, "rooms: "+rooms)
+	}
+	if repos, _ := scope["repos"].([]any); len(repos) > 0 {
+		names := make([]string, 0, len(repos))
+		for _, repo := range repos {
+			values := valueMap(repo)
+			names = append(names, plainString(values["identifier"])+" ("+plainString(values["level"])+")")
+		}
+		parts = append(parts, "repos: "+strings.Join(names, ", "))
+	}
+	if wiki := plainString(scope["wiki"]); wiki != "" {
+		parts = append(parts, "wiki: "+wiki)
+	}
+	if kinds := scopeList(agent, "kinds"); kinds != "" {
+		parts = append(parts, "kinds: "+kinds)
+	}
+	if len(parts) == 0 {
+		return "profile and relay list only"
+	}
+	return strings.Join(parts, " | ")
+}
+
+// agentCounts tallies agents by state for the panel.
+func agentCounts(agents []any) map[string]int {
+	counts := map[string]int{"active": 0, "paused": 0, "revoked": 0}
+	for _, agent := range agents {
+		counts[agentState(agent)]++
+	}
+	return counts
+}
+
+// dateAfter is the date field value for a day count from today, in UTC.
+func dateAfter(days int) string {
+	return time.Now().UTC().AddDate(0, 0, days).Format("2006-01-02")
 }
 
 var supportedMethods = []string{
@@ -936,7 +1058,7 @@ func tabForPath(path string) string {
 		return "file"
 	case "signin", "sites":
 		return path
-	case "people", "moderation", "rules", "identity", "connect", "data", "sync", "views", "health", "owner":
+	case "people", "agents", "moderation", "rules", "identity", "connect", "data", "sync", "views", "health", "owner":
 		return path
 	case "inbox", "outbox", "private", "chat", "media", "search", "articles", "dm", "quiet", "site", "marmot", "grasp", "terms":
 		return path

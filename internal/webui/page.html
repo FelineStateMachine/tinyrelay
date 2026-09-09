@@ -38,6 +38,7 @@
 {{else if eq .Tab "grasp"}}{{template "grasp" .}}
 {{else if eq .Tab "terms"}}{{template "terms" .}}
 {{else if eq .Tab "people"}}{{template "people" .}}
+{{else if eq .Tab "agents"}}{{template "agents" .}}
 {{else if eq .Tab "moderation"}}{{template "moderation" .}}
 {{else if eq .Tab "rules"}}{{template "rules" .}}
 {{else if eq .Tab "identity"}}{{template "identity" .}}
@@ -88,6 +89,7 @@
 {{/* The panel holds facts and filters for the current page. */}}
 {{define "panel"}}{{$kind := railKind .Tab}}{{if .Private}}{{template "panel-signin" .}}
 {{else if eq .Tab "repo"}}{{template "panel-repo" .}}
+{{else if eq .Tab "agents"}}{{template "panel-agents" .}}
 {{else if eq $kind "manage"}}{{template "panel-manage" .}}
 {{else if or (eq .Tab "inbox") (eq .Tab "outbox") (eq .Tab "search") (eq .Tab "articles")}}{{template "panel-feed" .}}
 {{else if eq .Tab "repos"}}{{template "panel-repos" .}}
@@ -120,6 +122,11 @@
 {{define "panel-manage"}}<section><h4>Policy</h4><table><tr><th>name</th><td>{{.Policy.Name}}</td></tr><tr><th>reads</th><td>{{.Policy.Reads}}</td></tr><tr><th>writes</th><td>{{.Policy.Writes}}</td></tr><tr><th>owner</th><td>{{template "nostrKey" .Policy.Owner}}</td></tr></table></section>
 <section><h4>Session</h4><table><tr><th>you</th><td>{{if .Actor}}{{template "nostrKey" .Actor}}{{else}}guest{{end}}</td></tr><tr><th>role</th><td>{{if .Owner}}owner{{else if .Actor}}member{{else}}none{{end}}</td></tr></table></section>
 <section><h4>Result</h4><p><small>Each form shows its result below the form. Every call is signed by your connected signer.</small></p></section>{{end}}
+
+{{define "panel-agents"}}{{$counts := agentCounts .Feed}}<section><h4>Agents</h4><table><tr><th>active</th><td>{{index $counts "active"}}</td></tr><tr><th>paused</th><td>{{index $counts "paused"}}</td></tr><tr><th>revoked</th><td>{{index $counts "revoked"}}</td></tr></table></section>
+<section><h4>Machine access</h4><table><tr><th>mcp</th><td><code>/mcp</code> 2026-07-28, planned</td></tr><tr><th>auth</th><td>NIP-98 per request</td></tr><tr><th>rest</th><td><code>/events</code> <code>/query</code></td></tr></table></section>
+<section><h4>Kill switch</h4><rpc-form method="pauseallagents" refresh><button>Pause all agents</button></rpc-form><rpc-form method="resumeallagents" refresh><button>Resume all agents</button></rpc-form><p><small>Pausing keeps grants and rejects writes until resumed.</small></p></section>
+<section><h4>Session</h4><table><tr><th>you</th><td>{{if .Actor}}{{template "nostrKey" .Actor}}{{else}}guest{{end}}</td></tr><tr><th>role</th><td>{{if .Owner}}owner{{else if .Actor}}member{{else}}none{{end}}</td></tr></table></section>{{end}}
 
 {{/* Shared partials. */}}
 

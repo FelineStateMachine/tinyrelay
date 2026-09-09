@@ -2,9 +2,13 @@
 // light DOM with document APIs, takes plain lowercase attributes, and carries
 // no styling of its own; page CSS targets the element name directly.
 //
-//   <rpc-form method="…" [compose="…"] [action="…"] [terms="…"] [json-params]>
+//   <rpc-form method="…" [compose="…"] [action="…"] [terms="…"] [json-params] [refresh]>
 //     One signed NIP-86 management call. Children become the form body; the
 //     element appends an <output> status line and a <json-view> result.
+//     With refresh, the page reloads in place after the call succeeds.
+//   <agent-grant>
+//     Signs a kind 30392 agent grant from its fields. Generates the agent
+//     key here and shows the nsec once, or takes a pasted public key.
 //   <connect-list>
 //     The home page cards: lists, reorders, retargets and removes configured
 //     connections and adds from the catalog, saving with setconnections.
@@ -144,6 +148,10 @@
       this.report("Signing…");
       const result = await rpc(method, params, this.getAttribute("action"));
       this.report("Done.");
+      if (this.hasAttribute("refresh") && tiny.navigate) {
+        await tiny.navigate(globalThis.location?.href);
+        return;
+      }
       this.show(result);
     }
 
@@ -380,6 +388,122 @@
       // Refresh through the shared navigation so the thread shows the new
       // event without a full reload.
       await tiny.navigate?.(globalThis.location?.href);
+    }
+  }
+
+  // AgentGrant signs a kind 30392 agent grant: the agent's key, name, scope
+  // and expiry, signed by the owner or a moderator. The agent key is made
+  // here and its nsec shown once, or pasted as a public key. The secret never
+  // leaves the page; the relay only receives the signed grant.
+  class AgentGrant extends FormElement {
+    connectedCallback() {
+      super.connectedCallback();
+      if (this.toggled || !this.form) return;
+      this.toggled = true;
+      const mode = this.form.elements.key;
+      const toggle = () => { const label = this.form.elements.pubkey?.closest("label"); if (label) label.hidden = mode.value !== "paste"; };
+      mode?.addEventListener("change", toggle);
+      if (mode) toggle();
+    }
+
+    // tags builds the grant tags from the field values; it throws on any
+    // value the relay would refuse so nothing reaches the signer.
+    static tags(values, pubkey, now = Math.floor(Date.now() / 1000)) {
+      const text = name => String(values[name] ?? "").trim();
+      const split = name => text(name).split(/[\s,]+/).map(item => item.trim()).filter(Boolean);
+      if (!isHex64(pubkey)) throw Error("Enter the agent's public key as 64 lowercase hex characters.");
+      const name = text("name");
+      if (name.length > 64) throw Error("Keep the name to 64 characters.");
+      const tags = [["d", pubkey], ["p", pubkey]];
+      if (name) tags.push(["name", name]);
+      const expires = Math.floor(Date.parse(text("expires") + "T23:59:59Z") / 1000);
+      if (!Number.isFinite(expires) || expires <= now) throw Error("Choose an expiry date after today.");
+      if (expires > now + 365 * 86400) throw Error("Grants last at most 365 days.");
+      tags.push(["expiration", String(expires)]);
+      for (const room of [...new Set(split("rooms"))]) {
+        if (room.length > 128) throw Error("Room names are at most 128 characters.");
+        tags.push(["room", room]);
+      }
+      const seenRepos = new Set();
+      for (const line of text("repos").split(/\r?\n/).map(line => line.trim()).filter(Boolean)) {
+        const match = /^([0-9a-f]{64}):(.+):(read|maintain)$/.exec(line);
+        if (!match || match[2].length > 256) throw Error("Repositories are owner pubkey:identifier:read or maintain, one per line.");
+        if (seenRepos.has(match[1] + ":" + match[2])) continue;
+        seenRepos.add(match[1] + ":" + match[2]);
+        tags.push(["repo", line]);
+      }
+      for (const kind of [...new Set(split("kinds"))]) {
+        if (!/^\d{1,5}$/.test(kind) || Number(kind) > 65535) throw Error("Kinds are whole numbers from 0 to 65535.");
+        tags.push(["k", String(Number(kind))]);
+      }
+      const wiki = text("wiki");
+      if (wiki && wiki !== "propose" && wiki !== "edit") throw Error("Wiki access is propose or edit.");
+      if (wiki) tags.push(["wiki", wiki]);
+      const rate = text("rate");
+      if (rate) {
+        if (!/^\d+$/.test(rate) || Number(rate) < 1 || Number(rate) > 600) throw Error("Rate is 1 to 600 events per minute.");
+        tags.push(["rate", String(Number(rate))]);
+      }
+      return tags;
+    }
+
+    async submit(form) {
+      if (!window.nostr?.signEvent) throw Error("Connect a signer first.");
+      const value = name => form.elements[name]?.value ?? "";
+      const values = {name: value("name"), expires: value("expires"), rooms: value("rooms"), repos: value("repos"), kinds: value("kinds"), wiki: value("wiki"), rate: value("rate")};
+      let secret = null, pubkey = value("pubkey").trim().toLowerCase();
+      if (value("key") !== "paste") {
+        if (!window.NostrSigner?.generateSecretKey) throw Error("The signer bundle is still loading.");
+        secret = window.NostrSigner.generateSecretKey();
+        pubkey = window.NostrSigner.getPublicKey(secret);
+      }
+      const tags = AgentGrant.tags(values, pubkey);
+      const unsigned = {kind: 30392, created_at: Math.floor(Date.now() / 1000), tags, content: ""};
+      // Keep a separate copy: extensions may mutate their input while signing.
+      const expected = JSON.stringify(unsigned);
+      this.report("Signing…");
+      const event = await window.nostr.signEvent(JSON.parse(expected));
+      const actual = event && JSON.stringify({kind: event.kind, created_at: event.created_at, tags: event.tags, content: event.content});
+      if (actual !== expected || !window.NostrSigner?.verifyEvent(event)) throw Error("The signer returned an invalid or changed event.");
+      if (event.pubkey === pubkey) throw Error("The agent needs its own key, not yours.");
+      const response = await tiny.signedFetch("/events", "POST", JSON.stringify(event), {contentType: "application/json"});
+      const result = await response.json();
+      if (!response.ok || result.accepted !== true) throw Error(result.error || result.message || "The relay rejected the grant.");
+      this.report("Granted.");
+      if (secret) {
+        this.reveal(pubkey, secret);
+        return;
+      }
+      form.reset();
+      await tiny.navigate?.(globalThis.location?.href);
+    }
+
+    // reveal shows the generated secret once. The page is not reloaded so
+    // it stays on screen until the person leaves.
+    reveal(pubkey, secret) {
+      const nsec = tiny.util.bech32Encode("nsec", secret);
+      const warning = el("p", "Copy the agent's secret key now. It is not stored anywhere and will not be shown again.");
+      warning.setAttribute("role", "alert");
+      const secretLabel = el("label", "Agent secret key ");
+      secretLabel.setAttribute("data-secret", "");
+      const secretInput = el("input");
+      secretInput.readOnly = true;
+      secretInput.name = "nsec";
+      secretInput.value = nsec;
+      secretInput.addEventListener("focus", () => secretInput.select());
+      secretLabel.append(secretInput);
+      const keyLabel = el("label", "Agent public key ");
+      keyLabel.setAttribute("data-secret", "");
+      const keyInput = el("input");
+      keyInput.readOnly = true;
+      keyInput.name = "agent";
+      keyInput.value = pubkey;
+      keyLabel.append(keyInput);
+      const link = el("a", "Show the new agent");
+      link.href = (globalThis.location?.pathname || "") + "?agent=" + pubkey;
+      const note = el("p");
+      note.append(link);
+      this.append(warning, secretLabel, keyLabel, note);
     }
   }
 
@@ -872,6 +996,7 @@
   customElements.define("file-tools", FileTools);
   customElements.define("publish-list", PublishList);
   customElements.define("nostr-compose", NostrCompose);
+  customElements.define("agent-grant", AgentGrant);
   customElements.define("push-toggle", PushToggle);
   customElements.define("share-link", ShareLink);
   customElements.define("nostr-key", NostrKey);
@@ -902,7 +1027,7 @@
       if (root && !(url.pathname === root || url.pathname.startsWith(root + "/"))) return null;
       return root ? url.pathname.slice(root.length) || "/" : url.pathname;
     };
-    const allowedRoute = path => /^(?:\/(?:inbox|outbox|search|articles|private|chat|media|sites|marmot|grasp|terms|signin|connect|tools|repo|repos|file|files)?\/?|\/manage(?:\/(?:people|moderation|rules|identity|connect|data|sync|views|health|owner|status))?\/?|\/(?:invite|e|a)\/.+)$/.test(path || "");
+    const allowedRoute = path => /^(?:\/(?:inbox|outbox|search|articles|private|chat|media|sites|marmot|grasp|terms|signin|connect|tools|repo|repos|file|files)?\/?|\/manage(?:\/(?:people|agents|moderation|rules|identity|connect|data|sync|views|health|owner|status))?\/?|\/(?:invite|e|a)\/.+)$/.test(path || "");
     let navigationSerial = 0, activeAbort;
     const streams = new Set();
     const closeStreams = () => {
@@ -917,7 +1042,7 @@
     document.addEventListener("fx:sse:close", event => streams.delete(event.detail.cfg));
     window.addEventListener("pagehide", closeStreams);
     const repairComponents = () => {
-      document.querySelectorAll("rpc-form,signed-form,publish-list").forEach(node => {
+      document.querySelectorAll("rpc-form,signed-form,publish-list,agent-grant").forEach(node => {
         if (node.form?.isConnected) return;
         node.form = null;
         node.output = null;

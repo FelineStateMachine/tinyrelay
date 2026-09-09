@@ -45,7 +45,7 @@ func TestPagesUsePlainHTMLAndExposeAllManagementTabs(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, path := range []string{"/", "/inbox", "/outbox", "/manage/people", "/manage/moderation", "/manage/rules", "/manage/identity", "/manage/connect", "/manage/data", "/manage/sync", "/manage/views", "/manage/health", "/manage/owner"} {
+	for _, path := range []string{"/", "/inbox", "/outbox", "/manage/people", "/manage/agents", "/manage/moderation", "/manage/rules", "/manage/identity", "/manage/connect", "/manage/data", "/manage/sync", "/manage/views", "/manage/health", "/manage/owner"} {
 		request := httptest.NewRequest(http.MethodGet, path, nil)
 		recorder := httptest.NewRecorder()
 		app.ServeHTTP(recorder, request)

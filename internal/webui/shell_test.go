@@ -299,7 +299,7 @@ func TestGuestsSeeSignInInsteadOfManagementPages(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, path := range []string{"/manage/people", "/manage/owner", "/manage/health", "/manage/data"} {
+	for _, path := range []string{"/manage/people", "/manage/agents", "/manage/owner", "/manage/health", "/manage/data"} {
 		recorder := httptest.NewRecorder()
 		app.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, path, nil))
 		body := recorder.Body.String()
