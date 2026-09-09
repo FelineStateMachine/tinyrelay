@@ -255,3 +255,56 @@ func TestAgentManagementMethodsAndPermissions(t *testing.T) {
 		}
 	}
 }
+
+func TestBrowseAgentReturnsGrantAndRecentEventsForOperators(t *testing.T) {
+	_, tenant := testTenant(t)
+	ctx := context.Background()
+	owner := tenant.Policy().Owner
+	agent, _ := event.PublicKey(testAgentSecret)
+	member, _ := event.PublicKey(testMemberSecret)
+	moderator, _ := event.PublicKey(testModSecret)
+	now := time.Now().Unix()
+	for _, target := range []struct {
+		pubkey, role string
+	}{{member, "member"}, {moderator, "moderator"}} {
+		raw, _ := json.Marshal(map[string]string{"role": target.role})
+		if _, err := tenant.Execute(ctx, owner, "setmember", []json.RawMessage{json.RawMessage(strconv.Quote(target.pubkey)), raw}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := publishAs(t, tenant, agentGrantEvent(t, agent, now, now+3600, []string{"k", "1"}, []string{"room", "build"})); err != nil {
+		t.Fatal(err)
+	}
+	for i := int64(0); i < 12; i++ {
+		if err := publishAs(t, tenant, signedEvent(t, testAgentSecret, 1, now-20+i, nil, "note "+strconv.FormatInt(i, 10))); err != nil {
+			t.Fatal(err)
+		}
+	}
+	params := []json.RawMessage{json.RawMessage(`{"agent":"` + agent + `"}`)}
+	for _, actor := range []string{member, agent, ""} {
+		if _, err := tenant.Execute(ctx, actor, "browseagent", params); err == nil || !strings.HasPrefix(err.Error(), "restricted:") {
+			t.Fatalf("browseagent by %q: %v", actor, err)
+		}
+	}
+	for _, actor := range []string{owner, moderator} {
+		result, err := tenant.Execute(ctx, actor, "browseagent", params)
+		if err != nil {
+			t.Fatalf("browseagent by %s: %v", actor, err)
+		}
+		detail := result.(map[string]any)
+		summary := detail["agent"].(community.AgentSummary)
+		events := detail["events"].([]event.Event)
+		if summary.Agent != agent || summary.Name != "helper" || summary.Scope.Rooms[0] != "build" || summary.LastEvent != now-9 {
+			t.Fatalf("browseagent summary = %+v", summary)
+		}
+		if len(events) != 10 || events[0].CreatedAt != now-9 || events[9].CreatedAt != now-18 {
+			t.Fatalf("browseagent events = %d newest %d", len(events), events[0].CreatedAt)
+		}
+	}
+	if _, err := tenant.Execute(ctx, owner, "browseagent", []json.RawMessage{json.RawMessage(`{"agent":"` + strings.Repeat("e", 64) + `"}`)}); err == nil || !strings.HasPrefix(err.Error(), "not found:") {
+		t.Fatalf("unknown agent: %v", err)
+	}
+	if _, err := tenant.Execute(ctx, owner, "browseagent", []json.RawMessage{json.RawMessage(`{"agent":"nope"}`)}); err == nil || !strings.HasPrefix(err.Error(), "invalid:") {
+		t.Fatalf("bad agent key: %v", err)
+	}
+}

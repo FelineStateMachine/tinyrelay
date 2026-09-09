@@ -10,12 +10,15 @@ import (
 	"net/url"
 	"sort"
 	"strings"
+	"time"
 	"unicode/utf8"
 
 	"github.com/FelineStateMachine/tinyrelay/internal/blob"
+	"github.com/FelineStateMachine/tinyrelay/internal/community"
 	"github.com/FelineStateMachine/tinyrelay/internal/event"
 	"github.com/FelineStateMachine/tinyrelay/internal/gitrelay"
 	"github.com/FelineStateMachine/tinyrelay/internal/relay"
+	"github.com/FelineStateMachine/tinyrelay/internal/storage"
 )
 
 type clientBrowseRequest struct {
@@ -27,10 +30,11 @@ type clientBrowseRequest struct {
 	ID     string `json:"id"`
 	State  string `json:"state"`
 	Label  string `json:"label"`
+	Agent  string `json:"agent"`
 }
 
 func clientBrowseMethod(method string) bool {
-	return wikiBrowseMethod(method) || containsString([]string{"browserepos", "browserepo", "browsefiles", "browsefile", "browsestatus", "browseissues", "browsepulls", "browseissue", "browsepull"}, method)
+	return wikiBrowseMethod(method) || containsString([]string{"browserepos", "browserepo", "browsefiles", "browsefile", "browsestatus", "browseissues", "browsepulls", "browseissue", "browsepull", "browseagent"}, method)
 }
 
 func (t *Tenant) browseRead(ctx context.Context, actor string) error {
@@ -77,6 +81,8 @@ func (t *Tenant) executeBrowse(ctx context.Context, actor, method string, params
 		return t.browseFile(ctx, actor, q.Hash)
 	case "browsestatus":
 		return t.browseStatus(ctx, actor)
+	case "browseagent":
+		return t.browseAgent(ctx, actor, q.Agent)
 	case "browseissues":
 		return t.browseCollaboration(ctx, actor, q, event.KIND_GIT_ISSUE)
 	case "browsepulls":
@@ -354,6 +360,37 @@ func (t *Tenant) browseFile(ctx context.Context, actor, hash string) (any, error
 		result["content"] = strings.ToValidUTF8(string(data), "�")
 	}
 	return result, nil
+}
+
+// browseAgent returns one agent grant with the agent's newest events for the
+// Manage > Agents page. Like listagents, it is for the owner and moderators.
+func (t *Tenant) browseAgent(ctx context.Context, actor, agent string) (any, error) {
+	role, err := t.community.Role(ctx, actor)
+	if err != nil {
+		return nil, err
+	}
+	if role != "owner" && role != "moderator" {
+		return nil, errors.New("restricted: agent details")
+	}
+	if len(agent) != 64 || strings.Trim(agent, "0123456789abcdef") != "" {
+		return nil, errors.New("invalid: agent public key required")
+	}
+	grant, ok, err := t.community.AgentGrant(ctx, agent)
+	if err != nil {
+		return nil, err
+	}
+	if !ok {
+		return nil, errors.New("not found: no agent grant for this pubkey")
+	}
+	rows, err := t.store.Query(ctx, event.Filter{Authors: []string{agent}, Tags: map[string][]string{}}, storage.QueryOptions{Now: time.Now().Unix(), Access: storage.Access{All: true}, Limit: 10})
+	if err != nil {
+		return nil, err
+	}
+	summary := community.AgentSummary{AgentGrant: grant}
+	if len(rows.Events) > 0 {
+		summary.LastEvent = rows.Events[0].CreatedAt
+	}
+	return map[string]any{"agent": summary, "events": rows.Events}, nil
 }
 
 func (t *Tenant) browseStatus(ctx context.Context, actor string) (any, error) {
