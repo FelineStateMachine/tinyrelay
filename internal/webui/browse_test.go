@@ -158,3 +158,25 @@ func servedScript(t *testing.T, app *App, path string) string {
 	}
 	return recorder.Body.String()
 }
+
+func TestNostrNameBundleIsServedAndLoadedOnEveryPage(t *testing.T) {
+	b := &browseBackend{fakeBackend: fakeBackend{policy: policy.Defaults(strings.Repeat("a", 64))}}
+	app, err := New(b, Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	bundle := servedScript(t, app, "/scripts/nostr-name.js")
+	for _, marker := range []string{`customElements.define("nostr-name"`, "nostrSharedMetadataLoader", "tiny:names:v1"} {
+		if !strings.Contains(bundle, marker) {
+			t.Fatalf("nostr-name bundle missing %q", marker)
+		}
+	}
+	if strings.Contains(bundle, "cdn.jsdelivr.net") {
+		t.Fatal("nostr-name bundle reaches for a CDN")
+	}
+	recorder := httptest.NewRecorder()
+	app.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/repos", nil))
+	if body := recorder.Body.String(); !strings.Contains(body, `src="/scripts/nostr-name.js?v=`) {
+		t.Fatal("page does not load the nostr-name bundle")
+	}
+}

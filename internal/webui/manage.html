@@ -34,21 +34,21 @@
 <p>Agents are members with their own keys. Each one acts under a grant you sign, and stays the author of everything it does.</p>
 {{template "alert" .Error}}
 <table id="rows"><thead><tr><th>agent</th><th>scope</th><th>owner</th><th>state</th></tr></thead><tbody>
-{{range .Feed}}{{$a := asMap .}}{{$pk := str (index $a "pubkey")}}<tr><td><a href="#agent-{{$pk}}">{{agentLabel $a}}</a></td><td title="{{agentScope $a}}">{{agentScope $a}}</td><td>{{template "nostrKey" (str (index $a "owner"))}}</td><td data-state="{{agentState $a}}">{{agentState $a}}{{with agentSince $a}} | {{.}}{{end}}</td></tr>
+{{range .Feed}}{{$a := asMap .}}{{$pk := str (index $a "pubkey")}}<tr><td><a href="#agent-{{$pk}}">{{agentLabel $a}}</a></td><td title="{{agentScope $a}}">{{agentScope $a}}</td><td>{{template "nostrName" (str (index $a "owner"))}}</td><td data-state="{{agentState $a}}">{{agentState $a}}{{with agentSince $a}} | {{.}}{{end}}</td></tr>
 {{else}}<tr><td colspan="4">No agents yet. Sign a grant below to add one.</td></tr>
 {{end}}</tbody></table>
 {{range .Feed}}{{$a := asMap .}}{{$pk := str (index $a "pubkey")}}{{$state := agentState $a}}{{$scope := asMap (index $a "scope")}}
 <agent-card id="agent-{{$pk}}">
-<h3>{{agentLabel $a}} <small><span data-state="{{$state}}">{{$state}}</span> | signed by {{if eq (str (index $a "owner")) $.Actor}}you{{else}}{{template "nostrKey" (str (index $a "owner"))}}{{end}} | expires {{short (index $a "expires")}}</small></h3>
+<h3>{{agentLabel $a}} <small><span data-state="{{$state}}">{{$state}}</span> | signed by {{if eq (str (index $a "owner")) $.Actor}}you{{else}}{{template "nostrName" (str (index $a "owner"))}}{{end}} | expires {{short (index $a "expires")}}</small></h3>
 <table>
 <tr><th>key</th><td><nostr-key hex="{{$pk}}" title="{{$pk}}">{{$pk}}</nostr-key> <small>click to copy</small></td></tr>
 <tr><th>rooms</th><td>{{or (scopeList $a "rooms") "none"}}</td></tr>
-<tr><th>repositories</th><td>{{range $i, $r := index $scope "repos"}}{{$repo := asMap $r}}{{if $i}}<br>{{end}}<code>{{str (index $repo "identifier")}}</code> {{str (index $repo "level")}}, owner {{template "nostrKey" (str (index $repo "owner"))}}{{else}}none{{end}}</td></tr>
+<tr><th>repositories</th><td>{{range $i, $r := index $scope "repos"}}{{$repo := asMap $r}}{{if $i}}<br>{{end}}<code>{{str (index $repo "identifier")}}</code> {{str (index $repo "level")}}, owner {{template "nostrName" (str (index $repo "owner"))}}{{else}}none{{end}}</td></tr>
 <tr><th>wiki</th><td>{{or (str (index $scope "wiki")) "none"}}</td></tr>
 <tr><th>kinds</th><td>{{or (scopeList $a "kinds") "profile and relay list only"}}</td></tr>
 <tr><th>rate</th><td>{{str (index $scope "rate")}} events per minute</td></tr>
 <tr><th>expires</th><td><time datetime="{{datetime (index $a "expires")}}">{{when (index $a "expires")}}</time></td></tr>
-<tr><th>owner</th><td>{{template "nostrKey" (str (index $a "owner"))}}</td></tr>
+<tr><th>owner</th><td>{{template "nostrName" (str (index $a "owner"))}}</td></tr>
 {{with index $a "lastEvent"}}{{if when .}}<tr><th>last event</th><td><time datetime="{{datetime .}}">{{when .}}</time></td></tr>{{end}}{{end}}
 <tr><th>callbacks</th><td>{{range $c := callbacksFor $.Callbacks $pk}}{{$cm := asMap $c}}{{$cs := callbackState $c}}{{$cid := str (index $cm "id")}}<agent-callback data-state="{{$cs}}"><code>{{str (index $cm "host")}}</code> kinds {{callbackKinds $c}} | <span data-state="{{$cs}}" title="{{str (index $cm "lastStatus")}}">{{$cs}}</span>{{with index $cm "lastDelivery"}}{{if when .}} | delivered <time datetime="{{datetime .}}">{{when .}}</time>{{end}}{{end}} {{if eq $cs "paused"}}<rpc-form method="resumecallback" refresh><input type="hidden" name="param" value="&quot;{{$cid}}&quot;"><button>Resume</button></rpc-form>{{else}}<rpc-form method="pausecallback" refresh><input type="hidden" name="param" value="&quot;{{$cid}}&quot;"><button>Pause</button></rpc-form>{{end}}<rpc-form method="removecallback" refresh><input type="hidden" name="param" value="&quot;{{$cid}}&quot;"><button>Remove</button></rpc-form></agent-callback>{{else}}none{{end}}</td></tr>
 </table>

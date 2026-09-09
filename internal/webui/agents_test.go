@@ -97,7 +97,7 @@ func TestAgentsPageRendersTableCardsActivityAndGrantForm(t *testing.T) {
 		`<a href="#agent-` + agentRevoked + `">` + shortID(agentRevoked) + `</a>`,
 		`<agent-card id="agent-` + agentActive + `">`,
 		`<h3>hermes <small><span data-state="active">active</span> | signed by you | expires `,
-		`<code>tinyrelay</code> maintain, owner <nostr-key hex="` + backend.policy.Owner + `"`,
+		`<code>tinyrelay</code> maintain, owner <nostr-name pubkey="` + backend.policy.Owner + `"`,
 		`<th>rate</th><td>60 events per minute</td>`,
 		`<rpc-form method="pauseagent" refresh><input type="hidden" name="param" value="&quot;` + agentActive + `&quot;"><button>Pause</button></rpc-form>`,
 		`<rpc-form method="revokeagent" refresh><input type="hidden" name="param" value="&quot;` + agentActive + `&quot;"><button>Revoke</button></rpc-form>`,

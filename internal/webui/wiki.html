@@ -6,7 +6,7 @@
 {{else if .Feed}}<table id="rows">
 <thead><tr><th>page</th><th>author</th><th>versions</th><th>merge requests</th><th>updated</th></tr></thead>
 <tbody>
-{{range .Feed}}{{$p := asMap .}}{{$v := asMap (index $p "version")}}<tr><td><a href="{{wikiURL (str (index $p "d"))}}">{{str (index $p "title")}}</a></td><td>{{template "nostrKey" (str (index $v "author"))}}</td><td>{{str (index $p "versions")}}</td><td>{{str (index $p "open_merges")}} open</td><td>{{when (index $v "created_at")}}</td></tr>
+{{range .Feed}}{{$p := asMap .}}{{$v := asMap (index $p "version")}}<tr><td><a href="{{wikiURL (str (index $p "d"))}}">{{str (index $p "title")}}</a></td><td>{{template "nostrName" (str (index $v "author"))}}</td><td>{{str (index $p "versions")}}</td><td>{{str (index $p "open_merges")}} open</td><td>{{when (index $v "created_at")}}</td></tr>
 {{end}}</tbody>
 </table>
 {{else}}<p>No pages yet.</p>
@@ -23,11 +23,11 @@
 <h1>{{$w.Title}}</h1>
 {{template "alert" .Notice}}{{if not $w.Version}}<p>This name has no article of its own.</p>
 {{template "wikiRedirects" $w}}{{if .Actor}}{{template "wikiEditor" .}}{{end}}
-{{else}}{{range $m := $w.OpenMerges}}<merge-request>{{template "nostrKey" (str (index $m "author"))}} proposes a new version of this page | <a href="{{wikiURL $w.D "merge" (str (index $m "id"))}}">compare</a>{{if eq $.Actor (str (index $m "destination"))}}<nostr-react event="{{str (index $m "id")}}" pubkey="{{str (index $m "author")}}" kind="818"><button name="reaction" value="+">Accept</button><button name="reaction" value="-">Reject</button></nostr-react>{{end}}<a href="/e/{{str (index $m "id")}}">Reply</a></merge-request>
+{{else}}{{range $m := $w.OpenMerges}}<merge-request>{{template "nostrName" (str (index $m "author"))}} proposes a new version of this page | <a href="{{wikiURL $w.D "merge" (str (index $m "id"))}}">compare</a>{{if eq $.Actor (str (index $m "destination"))}}<nostr-react event="{{str (index $m "id")}}" pubkey="{{str (index $m "author")}}" kind="818"><button name="reaction" value="+">Accept</button><button name="reaction" value="-">Reject</button></nostr-react>{{end}}<a href="/e/{{str (index $m "id")}}">Reply</a></merge-request>
 {{end}}{{if .Query.Get "merge"}}{{template "wikiCompare" .}}
 {{else if .Query.Get "edit"}}{{template "wikiEditor" .}}
 {{else if .Query.Get "history"}}{{template "wikiHistory" $w}}
-{{else}}<wiki-article><header>wiki | {{$w.D}} | by {{template "nostrKey" $w.Author}} | version {{$w.Number}} of {{$w.Count}} | {{$w.Forks}} fork{{if ne $w.Forks 1}}s{{end}}</header>
+{{else}}<wiki-article><header>wiki | {{$w.D}} | by {{template "nostrName" $w.Author}} | version {{$w.Number}} of {{$w.Count}} | {{$w.Forks}} fork{{if ne $w.Forks 1}}s{{end}}</header>
 {{with asMap (index $w.Version "fork")}}<p><small>forked from <a href="{{wikiURL $w.D "version" (str (index . "e"))}}">{{shortID (index . "e")}}</a></small></p>
 {{end}}{{with asMap (index $w.Version "defer")}}<p><small>the author defers to <a href="{{wikiURL $w.D "version" (str (index . "e"))}}">{{shortID (index . "e")}}</a></small></p>
 {{end}}{{wikiHTML (index $w.Version "content")}}</wiki-article>
@@ -50,13 +50,13 @@
 {{/* wikiCompare shows the proposed version of a merge request above the current one. */}}
 {{define "wikiCompare"}}{{$w := wikiView .Event}}{{$m := asMap .Merge}}{{if not $m}}<p>The merge request could not be loaded.</p>
 {{else}}{{$r := asMap (index $m "merge")}}<div id="wiki-compare">
-<p id="merge-status">merge request <a href="/e/{{str (index $r "id")}}">{{shortID (index $r "id")}}</a> | from {{template "nostrKey" (str (index $r "author"))}} to {{template "nostrKey" (str (index $r "destination"))}} | {{str (index $r "status")}}{{with index $r "content"}} | {{.}}{{end}}</p>
+<p id="merge-status">merge request <a href="/e/{{str (index $r "id")}}">{{shortID (index $r "id")}}</a> | from {{template "nostrName" (str (index $r "author"))}} to {{template "nostrName" (str (index $r "destination"))}} | {{str (index $r "status")}}{{with index $r "content"}} | {{.}}{{end}}</p>
 {{with asMap (index $m "proposed")}}<h2>Proposed version</h2>
-<wiki-article><header>wiki | {{str (index . "d")}} | by {{template "nostrKey" (str (index . "author"))}} | {{when (index . "created_at")}}</header>
+<wiki-article><header>wiki | {{str (index . "d")}} | by {{template "nostrName" (str (index . "author"))}} | {{when (index . "created_at")}}</header>
 {{wikiHTML (index . "content")}}</wiki-article>
 {{else}}<p>The proposed version is not available.</p>
 {{end}}{{with asMap (index $m "target")}}<h2>Current version</h2>
-<wiki-article><header>wiki | {{str (index . "d")}} | by {{template "nostrKey" (str (index . "author"))}} | {{when (index . "created_at")}}</header>
+<wiki-article><header>wiki | {{str (index . "d")}} | by {{template "nostrName" (str (index . "author"))}} | {{when (index . "created_at")}}</header>
 {{wikiHTML (index . "content")}}</wiki-article>
 {{else}}<p>The destination author has no version of this page.</p>
 {{end}}<p><a href="{{wikiURL $w.D}}">back to the page</a></p></div>{{end}}{{end}}
@@ -65,7 +65,7 @@
 {{define "wikiHistory"}}<table id="rows">
 <thead><tr><th>author</th><th>version</th><th>notes</th><th>published</th></tr></thead>
 <tbody>
-{{range .Versions}}<tr><td>{{template "nostrKey" (str (index . "author"))}}</td><td><a href="{{wikiURL $.D "version" (str (index . "id"))}}">{{shortID (index . "id")}}</a></td><td>{{with asMap (index . "fork")}}fork of {{shortID (index . "e")}}{{end}}{{with asMap (index . "defer")}} defers to {{shortID (index . "e")}}{{end}}{{with index . "likes"}} | {{str .}} likes{{end}}</td><td>{{when (index . "created_at")}}</td></tr>
+{{range .Versions}}<tr><td>{{template "nostrName" (str (index . "author"))}}</td><td><a href="{{wikiURL $.D "version" (str (index . "id"))}}">{{shortID (index . "id")}}</a></td><td>{{with asMap (index . "fork")}}fork of {{shortID (index . "e")}}{{end}}{{with asMap (index . "defer")}} defers to {{shortID (index . "e")}}{{end}}{{with index . "likes"}} | {{str .}} likes{{end}}</td><td>{{when (index . "created_at")}}</td></tr>
 {{end}}</tbody>
 </table>
 <p><a href="{{wikiURL .D}}">back to the page</a></p>{{end}}

@@ -34,7 +34,7 @@ img{max-width:100%}
 #footer table{width:100%;border-collapse:collapse;height:27px}#footer td{border:0;padding:0;vertical-align:middle}
 #footer td:last-child{text-align:right}
 #prompt{color:var(--muted)}#prompt b{color:var(--ink);font-weight:500}
-#who{color:var(--muted)}#who b,#who nostr-key{color:var(--ink)}
+#who{color:var(--muted)}#who b,#who nostr-key,#who nostr-name{color:var(--ink)}
 #who button{border:0;background:none;padding:0;color:var(--accent);font:inherit}#who button:hover{text-decoration:underline}
 #railbox{box-sizing:border-box;padding-bottom:44px}
 #rail nav+nav{margin-top:14px}
@@ -90,8 +90,7 @@ share-link{display:inline-block}share-link:empty{display:none}
 /* Data tables inside content, including json-view results. */
 scroll-box{display:block;overflow-x:auto;max-width:100%}
 scroll-box table,json-view table{width:100%;border-collapse:collapse;margin:.5rem 0}
-scroll-box th,scroll-box td,json-view th,json-view td{padding:.35rem .5rem;border-bottom:1px solid var(--line);text-align:left;vertical-align:top;overflow-wrap:normal}
-scroll-box th,json-view th,scroll-box td code,scroll-box td nostr-key,scroll-box td time,json-view td code,json-view td nostr-key,json-view td time{white-space:nowrap}
+scroll-box th,scroll-box td,json-view th,json-view td{padding:.35rem .5rem;border-bottom:1px solid var(--line);text-align:left;vertical-align:top;overflow-wrap:normal}scroll-box th,json-view th,scroll-box td code,scroll-box td nostr-key,scroll-box td time,json-view td code,json-view td nostr-key,json-view td time,scroll-box td nostr-name,json-view td nostr-name{white-space:nowrap}
 dl{margin:.5rem 0}dt{font-weight:600}dd{margin:0 0 .35rem 1rem}
 #facts{border-collapse:collapse;font:13px var(--mono);width:auto}
 #facts th{text-align:left;font-weight:normal;color:var(--muted);width:9em;padding:3px 0;border:0}#facts td{padding:3px 0;border:0}
@@ -169,11 +168,11 @@ nostr-event>header{font:12px var(--mono);color:var(--muted);margin-bottom:4px}
 nostr-event>header small{float:right}
 nostr-event>pre{margin:0;white-space:pre-wrap;font:14px/1.45 var(--sans)}
 nostr-event>details{margin-top:6px;font:12px var(--mono)}nostr-event>details>summary{cursor:pointer;color:var(--muted)}
-nostr-key{font-family:var(--mono);cursor:copy}
+nostr-key{font-family:var(--mono);cursor:copy}nostr-name{font-family:var(--mono)}
 
 /* approval-item: one request that waits for a decision, in the open rhythm of nostr-event. */
 approval-item{display:block;border-bottom:1px solid var(--line);padding:10px 0;max-width:720px}
-approval-item>header{font:12px var(--mono);color:var(--muted)}approval-item>header nostr-key{color:var(--ink);font-weight:500}
+approval-item>header{font:12px var(--mono);color:var(--muted)}approval-item>header nostr-key,approval-item>header nostr-name{color:var(--ink);font-weight:500}
 approval-item>p{margin:4px 0 6px}
 approval-item>pre{background:var(--rail);border:1px solid var(--line);padding:8px 10px;font-size:12px;margin:6px 0}
 approval-item>footer{font:12px var(--mono);color:var(--muted)}approval-item>footer button{margin-right:6px;font-size:13px}
@@ -224,11 +223,10 @@ diff-view td>nostr-event{white-space:normal;max-width:720px;border:0;padding:6px
 
 /* Wiki: the page list, one article, the merge request bar and the editor. */
 #wiki-list #rows th{white-space:nowrap}#wiki-list #rows td:first-child{width:auto;font:14px var(--sans)}#wiki-list #rows td:nth-child(3),#wiki-list #rows td:nth-child(4){width:110px;font:12px var(--mono);color:var(--muted)}
-wiki-article{display:block;max-width:720px;overflow-wrap:anywhere}wiki-article>header{font:12px var(--mono);color:var(--muted);margin-bottom:8px}wiki-article>header nostr-key{color:var(--ink)}
+wiki-article{display:block;max-width:720px;overflow-wrap:anywhere}wiki-article>header{font:12px var(--mono);color:var(--muted);margin-bottom:8px}wiki-article>header nostr-key,wiki-article>header nostr-name{color:var(--ink)}
 wiki-article h1{font-size:20px;margin:18px 0 8px}wiki-article h2{font-size:17px}wiki-article h3{font-size:15px}wiki-article p{margin:0 0 10px}
 wiki-article pre{background:var(--rail);border:1px solid var(--line);padding:10px 12px;overflow:auto;font-size:12.5px;line-height:1.5;white-space:pre}wiki-article ul,wiki-article ol{padding-left:20px;margin:0 0 10px}
-merge-request{display:block;border:1px solid var(--line);background:var(--soft);padding:8px 10px;margin:0 0 14px;max-width:720px;font:13px var(--sans)}
-merge-request nostr-key{color:var(--ink);font-weight:500}merge-request>a,merge-request button{margin-left:6px;font-size:12px}
+merge-request{display:block;border:1px solid var(--line);background:var(--soft);padding:8px 10px;margin:0 0 14px;max-width:720px;font:13px var(--sans)}merge-request nostr-key,merge-request nostr-name{color:var(--ink);font-weight:500}merge-request>a,merge-request button{margin-left:6px;font-size:12px}
 merge-request nostr-react,merge-request nostr-react form{display:inline}merge-request nostr-react output{display:inline-block;margin-left:6px;font:12px var(--mono);color:var(--muted)}merge-request nostr-react output[data-error]{color:var(--alert)}
 #merge-status{font:12px var(--mono);color:var(--muted)}#wiki-compare h2{margin-top:18px}#wiki-redirects{font:12px var(--mono);color:var(--muted)}
 wiki-compose{display:block;max-width:720px;border-bottom:1px solid var(--line);padding:10px 0}

@@ -66,7 +66,7 @@
 {{end}}</div></td>
 <td id="aside"><div id="panel">{{template "panel" .}}</div></td>
 </tr></tbody></table>
-<footer id="footer"><table><tr><td><span id="prompt"><b>{{.Slug}}</b> &raquo; {{prompt .Path .Query}}</span></td><td><span id="who">{{if .Private}}private relay{{else if .Actor}}signed in as {{template "nostrKey" .Actor}} (<button id="session-logout" type="button">sign out</button>){{else}}browsing as guest (<a href="/signin">Sign in</a>){{end}}</span> <span id="session-status" role="status"></span><span id="navigation-status" role="status" aria-live="polite"></span></td></tr></table><button id="install" type="button" hidden>install app</button></footer>
+<footer id="footer"><table><tr><td><span id="prompt"><b>{{.Slug}}</b> &raquo; {{prompt .Path .Query}}</span></td><td><span id="who">{{if .Private}}private relay{{else if .Actor}}signed in as {{template "nostrName" .Actor}} (<button id="session-logout" type="button">sign out</button>){{else}}browsing as guest (<a href="/signin">Sign in</a>){{end}}</span> <span id="session-status" role="status"></span><span id="navigation-status" role="status" aria-live="polite"></span></td></tr></table><button id="install" type="button" hidden>install app</button></footer>
 <script src="{{scriptURL "tiny.js"}}"></script>
 <script src="{{scriptURL "bridge.js"}}"></script>
 {{if or (eq .Tab "files") (eq .Tab "file")}}<script src="{{scriptURL "blossom-encryption.js"}}"></script>
@@ -75,6 +75,7 @@
 <script src="{{scriptURL "file-messages.js"}}"></script>
 <script src="{{scriptURL "file-workspace.js"}}"></script>
 {{end}}<script src="{{scriptURL "components.js"}}"></script>
+<script src="{{scriptURL "nostr-name.js"}}"></script>
 {{if eq .Tab "connect"}}<script src="{{scriptURL "private-services.js"}}"></script>
 {{end}}</body>
 </html>
@@ -132,7 +133,7 @@
 {{if and .Actor (eq .Tab "inbox")}}<section><h4>Notifications</h4><push-toggle></push-toggle><p><small>Relay notices for this key, on this device only.</small></p>{{if .Owner}}<rpc-form method="notifytest"><button>Send a test</button></rpc-form>{{end}}<noscript><p>Enabling notifications needs JavaScript.</p></noscript></section>{{end}}{{end}}
 
 {{define "panel-repo"}}{{$r := asMap .Event}}{{with index $r "repository"}}{{$r = asMap .}}{{end}}<section><h4>About</h4><table><tr><th>owner</th><td>{{template "nostrKey" (str (index $r "owner"))}}</td></tr><tr><th>visibility</th><td>{{if index $r "private"}}private{{else}}public{{end}}</td></tr>{{with index $r "commit"}}<tr><th>head</th><td><code title="{{.}}">{{shortID .}}</code></td></tr>{{end}}</table></section>
-{{with index $r "maintainers"}}<section><h4>Maintainers</h4><ul id="maintainers">{{range .}}{{$m := asMap .}}<li>{{template "nostrKey" (str (index $m "pubkey"))}}{{$role := str (index $m "role")}}{{if eq $role "agent"}} <small>agent{{with str (index $m "name")}} {{.}}{{end}}</small>{{else if eq $role "owner"}} <small>owner</small>{{end}}</li>{{end}}</ul></section>
+{{with index $r "maintainers"}}<section><h4>Maintainers</h4><ul id="maintainers">{{range .}}{{$m := asMap .}}<li>{{template "nostrName" (str (index $m "pubkey"))}}{{$role := str (index $m "role")}}{{if eq $role "agent"}} <small>agent{{with str (index $m "name")}} {{.}}{{end}}</small>{{else if eq $role "owner"}} <small>owner</small>{{end}}</li>{{end}}</ul></section>
 {{end}}<section><h4>Clone</h4><ul>{{range index $r "clone"}}<li><code>{{.}}</code></li>{{else}}<li>no clone URL advertised</li>{{end}}</ul></section>
 {{with index $r "refs"}}<section><h4>Refs</h4><form method="get" action="/repo"><input type="hidden" name="owner" value="{{$.Query.Get "owner"}}"><input type="hidden" name="repo" value="{{$.Query.Get "repo"}}"><input type="hidden" name="path" value="{{$.Query.Get "path"}}"><input type="hidden" name="id" value="{{$.Query.Get "id"}}"><input type="hidden" name="view" value="{{repoView $.Query}}"><label for="ref-select">branch or tag</label><select id="ref-select" name="ref"><option value="">default branch</option>{{range $name, $oid := .}}<option value="{{$name}}"{{if eq ($.Query.Get "ref") $name}} selected{{end}}>{{$name}}</option>{{end}}</select><button>go</button></form></section>{{end}}{{end}}
 
@@ -149,7 +150,7 @@
 {{else if .Error}}<section><h4>Room</h4><table><tr><th>id</th><td><code>{{.View}}</code></td></tr></table></section>
 {{else}}{{$data := asMap .Event}}{{$room := asMap (index $data "room")}}{{$id := str (index $room "id")}}{{$role := str (index $room "role")}}<section><h4>Room</h4><table><tr><th>id</th><td><code>{{$id}}</code></td></tr><tr><th>access</th><td>{{if eq (str (index $room "access")) "members"}}members only{{else}}open{{end}}</td></tr><tr><th>created</th><td>{{short (index $room "created_at")}}</td></tr>{{if $role}}<tr><th>you</th><td>{{$role}}</td></tr>{{end}}</table></section>
 {{if eq .Tab "thread"}}<section><h4>Actions</h4><ul><li><a href="/rooms/{{$id}}">open room</a></li></ul></section>
-{{else}}<section><h4>Members</h4><ul id="members">{{range roomMembers .Event}}{{$m := asMap .}}<li{{if index $m "agent"}} data-agent{{end}}>{{template "nostrKey" (str (index $m "pubkey"))}} <small>{{str (index $m "role")}}{{if index $m "agent"}} | agent{{end}}</small></li>{{else}}<li>{{str (index $room "members")}} members</li>{{end}}</ul></section>
+{{else}}<section><h4>Members</h4><ul id="members">{{range roomMembers .Event}}{{$m := asMap .}}<li{{if index $m "agent"}} data-agent{{end}}>{{template "nostrName" (str (index $m "pubkey"))}} <small>{{str (index $m "role")}}{{if index $m "agent"}} | agent{{end}}</small></li>{{else}}<li>{{str (index $room "members")}} members</li>{{end}}</ul></section>
 {{if .Actor}}<section><h4>Actions</h4>{{if roomAdmin $role}}<details><summary>invite member</summary><room-action room="{{$id}}" kind="9000"><label>pubkey <input name="pubkey" placeholder="npub or 64 hex" required></label><label>role <select name="role"><option value="member">member</option><option value="admin">admin</option>{{if eq $role "owner"}}<option value="owner">owner</option>{{end}}</select></label><button>Add member</button></room-action></details>
 <details><summary>room settings</summary><room-action room="{{$id}}" kind="9002"><label>name <input name="name" value="{{str (index $room "name")}}" required maxlength="200"></label><label>about <input name="about" value="{{str (index $room "about")}}" maxlength="2000"></label><label>picture <input name="picture" value="{{str (index $room "picture")}}" placeholder="https://"></label><label>access <select name="access"><option value="open"{{if ne (str (index $room "access")) "members"}} selected{{end}}>open</option><option value="members"{{if eq (str (index $room "access")) "members"}} selected{{end}}>members only</option></select></label><button>Save</button></room-action></details>
 {{end}}{{if $role}}<room-action room="{{$id}}" kind="9022"><button>Leave room</button></room-action>{{else}}<room-action room="{{$id}}" kind="9021"><button>Join room</button></room-action>{{end}}<noscript><p>Room actions need JavaScript and a connected signer.</p></noscript></section>
@@ -160,11 +161,13 @@
 {{define "alert"}}{{if .}}<p role="alert">{{.}}</p>{{end}}{{end}}
 
 {{define "nostrKey"}}<nostr-key hex="{{.}}" title="{{.}}">{{shortID .}}</nostr-key>{{end}}
+{{/* nostrName shows a person: the vendored nostr-name element swaps the short id for the profile name published on this relay. */}}
+{{define "nostrName"}}<nostr-name pubkey="{{.}}" title="{{.}}">{{shortID .}}</nostr-name>{{end}}
 
 {{define "jsonView"}}<json-view><pre>{{json .}}</pre></json-view>{{end}}
 
 {{define "nostrEvent"}}{{$e := asMap .}}<nostr-event id="event-{{str (index $e "id")}}">
-<header><a href="/e/{{str (index $e "id")}}">{{shortID (index $e "id")}}</a> | kind {{str (index $e "kind")}} | {{template "nostrKey" (str (index $e "pubkey"))}}<small><time datetime="{{datetime (index $e "created_at")}}">{{when (index $e "created_at")}}</time></small></header>
+<header><a href="/e/{{str (index $e "id")}}">{{shortID (index $e "id")}}</a> | kind {{str (index $e "kind")}} | {{template "nostrName" (str (index $e "pubkey"))}}<small><time datetime="{{datetime (index $e "created_at")}}">{{when (index $e "created_at")}}</time></small></header>
 {{if eq (str (index $e "kind")) "30023"}}<article>{{markdown (str (index $e "content"))}}</article>{{else}}<pre>{{str (index $e "content")}}</pre>{{end}}
 <details><summary>event JSON</summary>{{template "jsonView" .}}</details>
 </nostr-event>{{end}}

@@ -65,7 +65,7 @@
 <table id="rows">
 <thead><tr><th>asker</th><th>request</th><th>answer</th></tr></thead>
 <tbody>
-{{range $item := $done}}<tr id="approval-{{$item.ID}}" data-state="{{$item.State}}"><td>{{template "nostrKey" $item.Asker}}</td><td><a href="{{$item.Open}}">{{$item.Title}}</a>{{if eq $item.Decision "replied"}}{{with $item.AnswerContent}} <small>{{.}}</small>{{end}}{{end}}</td><td>{{if eq $item.State "expired"}}expired{{else}}{{$item.Decision}} | <time datetime="{{datetime $item.AnsweredAt}}">{{when $item.AnsweredAt}}</time>{{end}}</td></tr>
+{{range $item := $done}}<tr id="approval-{{$item.ID}}" data-state="{{$item.State}}"><td>{{template "nostrName" $item.Asker}}</td><td><a href="{{$item.Open}}">{{$item.Title}}</a>{{if eq $item.Decision "replied"}}{{with $item.AnswerContent}} <small>{{.}}</small>{{end}}{{end}}</td><td>{{if eq $item.State "expired"}}expired{{else}}{{$item.Decision}} | <time datetime="{{datetime $item.AnsweredAt}}">{{when $item.AnsweredAt}}</time>{{end}}</td></tr>
 {{end}}</tbody>
 </table>
 {{end}}{{with (asMap .Event).next_cursor}}<p id="pages"><a href="{{browsePageURL "/approvals" $.Query "cursor" .}}">next page</a></p>

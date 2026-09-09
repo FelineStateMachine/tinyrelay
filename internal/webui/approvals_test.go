@@ -62,7 +62,7 @@ func TestApprovalsPageRendersRequestsForTheOwner(t *testing.T) {
 	asker := strings.Repeat("c", 64)
 	for _, marker := range []string{
 		`<approval-item id="approval-` + strings.Repeat("1", 64) + `" data-type="approve" data-state="open">`,
-		`<nostr-key hex="` + asker + `"`, "in repository tinyrelay", "expires <time",
+		`<nostr-name pubkey="` + asker + `"`, "in repository tinyrelay", "expires <time",
 		"<p>Publish release notes 1.4</p>", "<p>Publish release notes 1.4 to the articles feed as drafted?</p>",
 		"<pre>about 30617:" + backend.policy.Owner + ":tinyrelay | kind 1621 dddddddddddd</pre>",
 		`<nostr-react event="` + strings.Repeat("1", 64) + `" pubkey="` + asker + `" kind="1111"><button name="reaction" value="+">Approve</button> <button name="reaction" value="-">Deny</button></nostr-react>`,

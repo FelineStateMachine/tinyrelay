@@ -74,7 +74,7 @@ func TestCollaborationPagesUseTypedResultsAndWorkingDetailLinks(t *testing.T) {
 	if w.Code != http.StatusOK || !strings.Contains(w.Body.String(), "Issue body") || !strings.Contains(w.Body.String(), `kind="status"`) || !strings.Contains(w.Body.String(), "https://git.example/test.git") || !strings.Contains(w.Body.String(), "<td>private</td>") {
 		t.Fatalf("detail failed: %d %s", w.Code, w.Body.String())
 	}
-	if body := w.Body.String(); !strings.Contains(body, `<ul id="maintainers">`) || !strings.Contains(body, `hex="`+strings.Repeat("d", 64)+`"`) || !strings.Contains(body, "<small>agent release-notes</small>") || strings.Count(body, "<small>owner</small>") != 1 || strings.Contains(body, "<small>maintainer</small>") {
+	if body := w.Body.String(); !strings.Contains(body, `<ul id="maintainers">`) || !strings.Contains(body, `pubkey="`+strings.Repeat("d", 64)+`"`) || !strings.Contains(body, "<small>agent release-notes</small>") || strings.Count(body, "<small>owner</small>") != 1 || strings.Contains(body, "<small>maintainer</small>") {
 		t.Fatalf("maintainer panel: %s", body)
 	}
 	var request map[string]any

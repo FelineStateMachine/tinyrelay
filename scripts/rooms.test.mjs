@@ -61,7 +61,7 @@ function setup({attributes = {}, result = {accepted: true}, change = false} = {}
   const list = new FakeNode("div"); list.id = "messages";
   const members = new FakeNode("ul"); members.id = "members";
   const agentRow = new FakeNode("li"); agentRow.dataset.agent = "";
-  const agentKey = new FakeNode("nostr-key"); agentKey.setAttribute("hex", "b".repeat(64));
+  const agentKey = new FakeNode("nostr-name"); agentKey.setAttribute("pubkey", "b".repeat(64));
   agentRow.append(agentKey, " ", Object.assign(new FakeNode("small"), {childNodes: ["member | agent"]}));
   members.append(agentRow);
   document.body.append(content, list, members);
@@ -183,11 +183,11 @@ test("room-live appends streamed messages once, summarizes reactions and reconne
   const node = s.list.children[0];
   assert.equal(node.id, "msg-" + message.id);
   assert.equal(node.dataset.kind, "9");
-  assert.equal(node.querySelector("header b nostr-key").getAttribute("hex"), message.pubkey);
+  assert.equal(node.querySelector("header b nostr-name").getAttribute("pubkey"), message.pubkey);
   const link = node.querySelector("p a");
   assert.equal(link.href, "https://example.com/x");
   assert.equal(node.querySelector("p").textContent, "see https://example.com/x, ok");
-  assert.equal(node.querySelector("footer span nostr-key").getAttribute("hex"), "c".repeat(64));
+  assert.equal(node.querySelector("footer span nostr-name").getAttribute("pubkey"), "c".repeat(64));
   source.emit("message", {data: "not json"});
   source.emit("message", {data: JSON.stringify({...message, id: "9".repeat(64), kind: 20001})});
   assert.equal(s.list.children.length, 1);

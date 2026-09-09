@@ -8,7 +8,7 @@
 </form>
 {{$items := collabItems .Event}}{{if $items}}<table id="rows">
 <thead><tr><th>status</th><th>title</th><th>author</th><th>opened</th></tr></thead>
-<tbody>{{range $item := $items}}{{$item := asMap $item}}<tr><td>{{index $item "status"}}</td><td><a href="{{if $issues}}{{repoURL $.Query "issue" (str (index $item "id"))}}{{else}}{{repoURL $.Query "pr" (str (index $item "id"))}}{{end}}">{{index $item "title"}}</a>{{with collabLabels $item}} <small>{{join . ", "}}</small>{{end}}</td><td>{{template "nostrKey" (str (index $item "author"))}}</td><td><time datetime="{{datetime (index $item "created_at")}}">{{when (index $item "created_at")}}</time></td></tr>
+<tbody>{{range $item := $items}}{{$item := asMap $item}}<tr><td>{{index $item "status"}}</td><td><a href="{{if $issues}}{{repoURL $.Query "issue" (str (index $item "id"))}}{{else}}{{repoURL $.Query "pr" (str (index $item "id"))}}{{end}}">{{index $item "title"}}</a>{{with collabLabels $item}} <small>{{join . ", "}}</small>{{end}}</td><td>{{template "nostrName" (str (index $item "author"))}}</td><td><time datetime="{{datetime (index $item "created_at")}}">{{when (index $item "created_at")}}</time></td></tr>
 {{end}}</tbody></table>{{else}}<p>No matching {{if $issues}}issues{{else}}pull requests{{end}}.</p>{{end}}
 {{with index $data "next_cursor"}}<p id="pages"><a href="{{browsePageURL "/repo" $.Query "cursor" .}}">next page</a></p>{{end}}
 {{if .Actor}}<details id="collaboration-new"><summary>{{if $issues}}New issue{{else}}New pull request{{end}}</summary>
@@ -21,7 +21,7 @@
 {{else}}{{$item := asMap (index $data "item")}}{{$diff := reviewDiff .Event .Query .Actor}}{{$anchor := reviewAnchor .Query}}<section id="collaboration-detail">
 <p><a href="{{if $issues}}{{repoURL .Query "issues" ""}}{{else}}{{repoURL .Query "prs" ""}}{{end}}">{{if $issues}}All issues{{else}}All pull requests{{end}}</a></p>
 <h1>{{index $item "title"}}</h1>
-<p>{{index $item "status"}} by {{template "nostrKey" (str (index $item "author"))}} <time datetime="{{datetime (index $item "created_at")}}">{{when (index $item "created_at")}}</time></p>
+<p>{{index $item "status"}} by {{template "nostrName" (str (index $item "author"))}} <time datetime="{{datetime (index $item "created_at")}}">{{when (index $item "created_at")}}</time></p>
 {{with collabLabels $item}}<p>Labels: {{join . ", "}}</p>{{end}}
 <article id="collaboration-body">{{markdown (str (index $item "content"))}}</article>
 {{if not $issues}}<h2>Changes</h2>{{if index $data "diff_unavailable"}}<p>{{index $data "diff_unavailable"}}. The diff will be available after the required commits have been synchronized.</p>{{else}}<diff-view><table><tbody>

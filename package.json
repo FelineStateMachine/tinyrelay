@@ -4,6 +4,7 @@
   "type": "module",
   "scripts": {
     "build:signer": "node scripts/build-signer.mjs",
+    "build:nostr-name": "node scripts/build-nostr-name.mjs",
     "test:conformance": "node scripts/conformance/run.mjs",
     "test:webmcp": "node --test scripts/webmcp.test.mjs",
     "test:signer": "node --test scripts/signer.test.mjs",
@@ -18,6 +19,7 @@
     "@noble/hashes": "2.4.0",
     "esbuild": "0.28.2",
     "nostr-tools": "2.25.1",
+    "nostr-web-components": "^0.2.2",
     "vitest": "4.1.0",
     "ws": "8.21.0"
   }

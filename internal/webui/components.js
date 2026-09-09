@@ -617,11 +617,14 @@
     return node;
   };
   const keyNode = hex => { const node = el("nostr-key", hex.slice(0, 12)); node.setAttribute("hex", hex); node.title = hex; return node; };
+  // nameNode shows a person: the vendored nostr-name element replaces the short
+  // id with the profile name published on this relay.
+  const nameNode = hex => { const node = el("nostr-name", hex.slice(0, 12)); node.setAttribute("pubkey", hex); node.title = hex; return node; };
   // panelMembers reads the members list in the panel: role and agent marker by key.
   const panelMembers = () => {
     const members = {};
     document.querySelectorAll("#members li").forEach(item => {
-      const hex = item.querySelector("nostr-key")?.getAttribute("hex");
+      const hex = item.querySelector("nostr-name")?.getAttribute("pubkey") || item.querySelector("nostr-key")?.getAttribute("hex");
       if (hex) members[hex] = {role: (item.querySelector("small")?.textContent || "").split("|")[0].trim(), agent: item.hasAttribute("data-agent")};
     });
     return members;
@@ -638,7 +641,7 @@
     if (member?.agent) node.dataset.agent = "";
     if (notice) node.dataset.notice = "";
     const header = el("header"), name = el("b"), time = el("time", clock(event.created_at)), small = el("small");
-    name.append(keyNode(pubkey));
+    name.append(nameNode(pubkey));
     time.dateTime = new Date(event.created_at * 1000).toISOString().replace(/\.\d+Z$/, "Z");
     time.title = time.dateTime.slice(0, 16).replace("T", " ") + " UTC";
     small.append(time);
@@ -647,7 +650,7 @@
     node.append(header, body);
     const footer = el("footer");
     const mentions = notice ? [] : (event.tags || []).filter(tag => tag[0] === "p" && isHex64(tag[1]) && tag[1] !== pubkey).map(tag => tag[1]);
-    if (mentions.length) { const span = el("span", "to "); mentions.forEach(key => span.append(keyNode(key), " ")); footer.append(span); }
+    if (mentions.length) { const span = el("span", "to "); mentions.forEach(key => span.append(nameNode(key), " ")); footer.append(span); }
     if (!inThread && room && event.kind === 11) { const link = el("a", "thread"); link.href = roomPath(room, "/thread/" + event.id); footer.append(link); }
     const root = tagValue(event, "e");
     if (!inThread && room && event.kind === 12 && isHex64(root)) { const link = el("a", "in thread"); link.href = roomPath(room, "/thread/" + root); footer.append(link); }

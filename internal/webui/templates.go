@@ -38,6 +38,12 @@ var tinyJS string
 //go:embed components.js
 var componentsJS string
 
+// nostr-name.js is the vendored <nostr-name> element with the relay-local
+// profile loader; rebuild it with npm run build:nostr-name.
+//
+//go:embed nostr-name.js
+var nostrNameJS string
+
 //go:embed blossom-encryption.js
 var blossomEncryptionJS string
 
@@ -185,7 +191,7 @@ func repoView(query url.Values) string {
 // scripts are served at /scripts/<name> and cached by the service worker.
 // One version stamp covers them all, so a change to any file refreshes every
 // cached copy together.
-var scripts = map[string]string{"bridge.js": bridgeJS, "tiny.js": tinyJS, "components.js": componentsJS, "blossom-encryption.js": blossomEncryptionJS, "blossom-manifests.js": blossomManifestsJS, "blossom-upload.js": blossomUploadJS, "file-messages.js": fileMessagesJS, "private-services.js": privateServicesJS, "file-workspace.js": fileWorkspaceJS}
+var scripts = map[string]string{"bridge.js": bridgeJS, "tiny.js": tinyJS, "components.js": componentsJS, "nostr-name.js": nostrNameJS, "blossom-encryption.js": blossomEncryptionJS, "blossom-manifests.js": blossomManifestsJS, "blossom-upload.js": blossomUploadJS, "file-messages.js": fileMessagesJS, "private-services.js": privateServicesJS, "file-workspace.js": fileWorkspaceJS}
 
 var scriptsVersion = func() string {
 	names := make([]string, 0, len(scripts))

@@ -113,7 +113,7 @@ func TestWikiListRendersPagesAndSearch(t *testing.T) {
 	}
 	wantAll(t, "/wiki", body,
 		`href="/wiki" aria-current="page"`, `id="wiki-search"`, `value="release"`,
-		`<a href="/wiki/release-notes-1-4">Release notes 1.4 &lt;b&gt;</a>`, `<nostr-key hex="`+wikiOwner+`"`,
+		`<a href="/wiki/release-notes-1-4">Release notes 1.4 &lt;b&gt;</a>`, `<nostr-name pubkey="`+wikiOwner+`"`,
 		`<td>2</td><td>1 open</td>`, `2026-09-08 14:00 UTC`, `href="/wiki?cursor=release-notes-1-4&amp;q=release"`,
 		`<b>demo</b> &raquo; wiki`, `<a href="/wiki?new=1">new page</a>`)
 	wantNone(t, "/wiki", body, "<wiki-compose")
@@ -131,10 +131,10 @@ func TestWikiPageRendersArticleMergeBarAndPanel(t *testing.T) {
 	}
 	wantAll(t, path, body,
 		`<title>Release notes 1.4 &lt;b&gt; | wiki | demo</title>`, `<h1>Release notes 1.4 &lt;b&gt;</h1>`,
-		`<merge-request><nostr-key hex="`+wikiOther+`"`, `proposes a new version of this page`, `href="/wiki/release-notes-1-4?merge=`+wikiMerge+`">compare</a>`,
+		`<merge-request><nostr-name pubkey="`+wikiOther+`"`, `proposes a new version of this page`, `href="/wiki/release-notes-1-4?merge=`+wikiMerge+`">compare</a>`,
 		`<nostr-react event="`+wikiMerge+`" pubkey="`+wikiOther+`" kind="818"><button name="reaction" value="+">Accept</button><button name="reaction" value="-">Reject</button></nostr-react>`,
 		`<a href="/e/`+wikiMerge+`">Reply</a>`,
-		`<wiki-article><header>wiki | release-notes-1-4 | by <nostr-key hex="`+wikiOwner+`"`, `version 1 of 2 | 1 fork</header>`,
+		`<wiki-article><header>wiki | release-notes-1-4 | by <nostr-name pubkey="`+wikiOwner+`"`, `version 1 of 2 | 1 fork</header>`,
 		`<h1>Highlights</h1>`, `<em>encrypted</em>`, `<a href="/wiki/files-and-private-repositories">Files and Private Repositories</a>`, `&lt;script&gt;alert(1)&lt;/script&gt;`,
 		`<h4>Page</h4>`, `<th>versions</th><td>2</td>`, `<th>merge requests</th><td>1 open</td>`, `<th>links</th><td>1</td>`,
 		`<h4>Other versions</h4>`, `href="/wiki/release-notes-1-4?version=`+wikiOtherV+`">222222222222</a> | fork`,
