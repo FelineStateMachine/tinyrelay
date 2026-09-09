@@ -41,15 +41,25 @@ type pushPayload struct {
 	Subject string `json:"subject"`
 	Text    string `json:"text"`
 	URL     string `json:"url,omitempty"`
+	// Actions are the answers the device offers on the notification.
+	Actions []pushAction `json:"actions,omitempty"`
+}
+
+// pushAction is one button on a notification. The service worker opens the
+// notification's url with answer=<action> when it is pressed.
+type pushAction struct {
+	Action string `json:"action"`
+	Title  string `json:"title"`
 }
 
 // pushMessage is what the service worker receives after decryption.
 type pushMessage struct {
-	Title string `json:"title"`
-	Body  string `json:"body"`
-	URL   string `json:"url"`
-	Tag   string `json:"tag"`
-	Badge int    `json:"badge"`
+	Title   string       `json:"title"`
+	Body    string       `json:"body"`
+	URL     string       `json:"url"`
+	Tag     string       `json:"tag"`
+	Badge   int          `json:"badge"`
+	Actions []pushAction `json:"actions,omitempty"`
 }
 
 // pushRegistration is the browser's subscription with its chosen categories.
@@ -374,5 +384,5 @@ func (t *Tenant) pushMessage(ctx context.Context, payload pushPayload) pushMessa
 	if url == "" {
 		url = strings.TrimRight(t.publicURL, "/") + "/inbox"
 	}
-	return pushMessage{Title: title, Body: body, URL: url, Tag: "tiny-" + payload.Kind, Badge: t.inboxUnread(ctx, payload.Recipient)}
+	return pushMessage{Title: title, Body: body, URL: url, Tag: "tiny-" + payload.Kind, Badge: t.inboxUnread(ctx, payload.Recipient), Actions: payload.Actions}
 }

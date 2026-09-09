@@ -1,9 +1,10 @@
 package daemon
 
 // Device notification triggers. Each stored event that addresses a member
-// with registered devices becomes a short summary in one of four categories,
+// with registered devices becomes a short summary in one of five categories,
 // which the person picks per device: private messages, replies to their own
-// posts and repositories, mentions, and relay notices.
+// posts and repositories, mentions, requests for a decision, and relay
+// notices.
 
 import (
 	"context"
@@ -20,15 +21,18 @@ const (
 	pushMessages   = "messages"
 	pushReplies    = "replies"
 	pushMentions   = "mentions"
+	pushApprovals  = "approvals"
 	pushRelay      = "relay"
 	pushCoalesce   = 30 * time.Second
 	pushExcerptMax = 120
 )
 
-var pushCategories = []string{pushMessages, pushReplies, pushMentions, pushRelay}
+var pushCategories = []string{pushMessages, pushReplies, pushMentions, pushApprovals, pushRelay}
 
 type pushNotice struct {
 	recipient, category, body, url string
+	// actions are the answers a device can give from the notification.
+	actions []pushAction
 }
 
 // notifyDevices runs after an event is stored. It never fails the publish:
@@ -75,13 +79,18 @@ func (t *Tenant) pushCoalesced(recipient, category string) bool {
 }
 
 func (t *Tenant) enqueuePushNotice(ctx context.Context, notice pushNotice) error {
-	return t.enqueuePushPayload(ctx, pushPayload{Recipient: notice.recipient, Kind: notice.category, Text: notice.body, URL: notice.url})
+	return t.enqueuePushPayload(ctx, pushPayload{Recipient: notice.recipient, Kind: notice.category, Text: notice.body, URL: notice.url, Actions: notice.actions})
 }
 
 // pushNotices decides who an event should wake and why.
 func (t *Tenant) pushNotices(ctx context.Context, e event.Event) []pushNotice {
 	base := strings.TrimRight(t.publicURL, "/")
 	var notices []pushNotice
+	// A request for a decision wakes the people asked in its own category
+	// and nowhere else, so one event yields one notification per device.
+	if kind, ok := approvalRequest(e); ok {
+		return t.approvalNotices(e, kind)
+	}
 	switch e.Kind {
 	case event.KIND_WRAP, 4:
 		for _, recipient := range pushRecipients(e) {
@@ -216,7 +225,9 @@ func (t *Tenant) markInboxSeen(ctx context.Context, pubkey string) error {
 }
 
 // inboxUnread counts events addressed to the key since it last opened the
-// inbox. It feeds the app badge; the page clears it on the next visit.
+// inbox, plus every request that still waits for the key's decision. It
+// feeds the app badge; the page clears the conversation part on the next
+// visit, and an answer clears the request.
 func (t *Tenant) inboxUnread(ctx context.Context, pubkey string) int {
 	since := t.inboxSeen(ctx, pubkey)
 	// Count conversation kinds only, so relay records addressed to the
@@ -228,6 +239,13 @@ func (t *Tenant) inboxUnread(ctx context.Context, pubkey string) int {
 	count, err := t.store.Count(ctx, []event.Filter{filter}, storage.QueryOptions{Now: time.Now().Unix(), Access: storage.Access{PubKeys: []string{pubkey}}})
 	if err != nil {
 		return 0
+	}
+	// An open request counts once: those newer than the last visit are
+	// already in the conversation count.
+	for _, item := range t.openApprovals(ctx, pubkey) {
+		if item.CreatedAt < since || !containsInt(filter.Kinds, item.Kind) {
+			count++
+		}
 	}
 	if count > 99 {
 		return 99
