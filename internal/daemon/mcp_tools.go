@@ -8,6 +8,7 @@ import (
 	"net"
 	"net/url"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -15,6 +16,7 @@ import (
 
 	"github.com/FelineStateMachine/tinyrelay/internal/community"
 	"github.com/FelineStateMachine/tinyrelay/internal/event"
+	"github.com/FelineStateMachine/tinyrelay/internal/gates"
 	"github.com/FelineStateMachine/tinyrelay/internal/mcp"
 	"github.com/FelineStateMachine/tinyrelay/internal/relay"
 	"github.com/FelineStateMachine/tinyrelay/internal/wiki"
@@ -38,6 +40,10 @@ var (
 	mcpRoomID    = map[string]any{"type": "string", "pattern": "^[a-z0-9_-]{1,64}$", "description": "Room id: 1 to 64 lowercase letters, digits, hyphen or underscore."}
 	mcpPageName  = map[string]any{"type": "string", "minLength": 1, "description": "Wiki page name or title. Names are normalized: lowercase, spaces to hyphens, punctuation dropped."}
 	mcpUnixTime  = map[string]any{"type": "integer", "minimum": 1, "description": "Unix time in seconds."}
+	mcpJobKind   = map[string]any{"type": "integer", "minimum": event.KIND_JOB_REQUEST_MIN, "maximum": event.KIND_JOB_REQUEST_MAX, "description": "NIP-90 job request kind, 5000 to 5999."}
+	mcpMsats     = map[string]any{"type": "integer", "minimum": 0, "description": "Amount in millisats."}
+	mcpJobStatus = map[string]any{"type": "string", "enum": event.JobFeedbackStatuses}
+	mcpJobInputs = map[string]any{"type": "array", "items": mcp.Object(map[string]any{"data": mcpText, "type": map[string]any{"type": "string", "enum": event.JobInputTypes}, "relay": mcpText, "marker": mcpText}, "data", "type"), "description": "Job inputs, each becoming an i tag."}
 	mcpReads     = map[string]any{"readOnlyHint": true, "openWorldHint": false}
 	mcpChanges   = map[string]any{"readOnlyHint": false, "destructiveHint": false, "idempotentHint": false, "openWorldHint": false}
 	mcpControls  = map[string]any{"readOnlyHint": false, "destructiveHint": false, "idempotentHint": true, "openWorldHint": false}
@@ -52,20 +58,23 @@ var (
 )
 
 const (
-	mcpIssueShape   = `Expected a signed kind 1621 event with tags ["a","30617:<owner>:<repo>"], ["p","<owner>"], ["subject","<title>"] and optional ["t","<label>"] tags, with the Markdown description in content.`
-	mcpPullShape    = `Expected a signed kind 1618 event with tags ["a","30617:<owner>:<repo>"], ["p","<owner>"], ["subject","<title>"], ["c","<40-hex commit>"], ["clone","<http or https URL>"], optional ["merge-base","<40-hex commit>"] and optional ["t","<label>"] tags, with the description in content.`
-	mcpCommentShape = `Expected a signed kind 1111 event with NIP-22 tags ["a","30617:<owner>:<repo>"], ["E","<root id>","","<root pubkey>"], ["K","<root kind>"], ["P","<root pubkey>"], ["e","<parent id>","","<parent pubkey>"], ["k","<parent kind>"], ["p","<parent pubkey>"], with the comment in content. The parent is the root for a top-level comment.`
-	mcpStatusShape  = `Expected a signed event of kind 1630 (open), 1631 (resolved or merged), 1632 (closed) or 1633 (draft) with tags ["a","30617:<owner>:<repo>"], ["e","<root id>","","root"] and ["p","<root pubkey>"].`
-	mcpMessageShape = `Expected a signed kind 9 event with tag ["h","<room id>"] and optional ["p","<pubkey>"] mentions, with the message in content.`
-	mcpThreadShape  = `Expected a signed kind 11 event with tag ["h","<room id>"] and optional ["subject","<title>"], with the opening post in content.`
-	mcpReplyShape   = `Expected a signed kind 12 event with tags ["h","<room id>"], ["e","<thread root id>"] and optional ["p","<root author>"], with the reply in content.`
-	mcpReactShape   = `Expected a signed kind 7 event with tags ["e","<event id>"], ["p","<event author>"] and, for a room message, ["h","<room id>"], with "+", "-" or one emoji in content.`
-	mcpWikiShape    = `Expected a signed kind 30818 event with tags ["d","<normalized page name>"], ["title","<title>"], optional ["summary","<summary>"] and, for a fork, ["a","30818:<author>:<page name>","","fork"] and ["e","<version id>","","fork"], with the Djot article in content.`
-	mcpMergeShape   = `Expected a signed kind 818 event with tags ["a","30818:<destination>:<page name>"], ["p","<destination>"], ["e","<proposed version id>","","source"] and optional ["e","<base version id>"], with the explanation in content.`
-	mcpRoomShape    = `Expected a signed kind 9007 event with tags ["h","<new room id>"], ["name","<name>"], optional ["about","<description>"] and ["visibility","open" or "members"].`
-	mcpRequestShape = `Expected a signed kind 9 event with ["h","<room id>"], or a signed kind 1111 event with NIP-22 tags ["E","<root id>","","<root pubkey>"], ["K","<root kind>"], ["P","<root pubkey>"], ["e","<root id>","","<root pubkey>"] and ["k","<root kind>"], carrying ["request","approve", "decide" or "question"], ["p","<asked pubkey>"] and optional ["expiration","<unix time>"] and ["subject","<subject>"], with the question in content.`
-	mcpSignNext     = "Sign this event with your Nostr key and call the tool again with the signed event as the event argument."
-	mcpAnswerNote   = " The answer arrives as a kind 7 reaction from the asked key on the published event: + approves, - declines, and any other content is the person's reply. Read the room or thread, or query kind 7 events with #e set to the event id, to collect it."
+	mcpIssueShape       = `Expected a signed kind 1621 event with tags ["a","30617:<owner>:<repo>"], ["p","<owner>"], ["subject","<title>"] and optional ["t","<label>"] tags, with the Markdown description in content.`
+	mcpPullShape        = `Expected a signed kind 1618 event with tags ["a","30617:<owner>:<repo>"], ["p","<owner>"], ["subject","<title>"], ["c","<40-hex commit>"], ["clone","<http or https URL>"], optional ["merge-base","<40-hex commit>"] and optional ["t","<label>"] tags, with the description in content.`
+	mcpCommentShape     = `Expected a signed kind 1111 event with NIP-22 tags ["a","30617:<owner>:<repo>"], ["E","<root id>","","<root pubkey>"], ["K","<root kind>"], ["P","<root pubkey>"], ["e","<parent id>","","<parent pubkey>"], ["k","<parent kind>"], ["p","<parent pubkey>"], with the comment in content. The parent is the root for a top-level comment.`
+	mcpStatusShape      = `Expected a signed event of kind 1630 (open), 1631 (resolved or merged), 1632 (closed) or 1633 (draft) with tags ["a","30617:<owner>:<repo>"], ["e","<root id>","","root"] and ["p","<root pubkey>"].`
+	mcpMessageShape     = `Expected a signed kind 9 event with tag ["h","<room id>"] and optional ["p","<pubkey>"] mentions, with the message in content.`
+	mcpThreadShape      = `Expected a signed kind 11 event with tag ["h","<room id>"] and optional ["subject","<title>"], with the opening post in content.`
+	mcpReplyShape       = `Expected a signed kind 12 event with tags ["h","<room id>"], ["e","<thread root id>"] and optional ["p","<root author>"], with the reply in content.`
+	mcpReactShape       = `Expected a signed kind 7 event with tags ["e","<event id>"], ["p","<event author>"] and, for a room message, ["h","<room id>"], with "+", "-" or one emoji in content.`
+	mcpWikiShape        = `Expected a signed kind 30818 event with tags ["d","<normalized page name>"], ["title","<title>"], optional ["summary","<summary>"] and, for a fork, ["a","30818:<author>:<page name>","","fork"] and ["e","<version id>","","fork"], with the Djot article in content.`
+	mcpMergeShape       = `Expected a signed kind 818 event with tags ["a","30818:<destination>:<page name>"], ["p","<destination>"], ["e","<proposed version id>","","source"] and optional ["e","<base version id>"], with the explanation in content.`
+	mcpRoomShape        = `Expected a signed kind 9007 event with tags ["h","<new room id>"], ["name","<name>"], optional ["about","<description>"] and ["visibility","open" or "members"].`
+	mcpRequestShape     = `Expected a signed kind 9 event with ["h","<room id>"], or a signed kind 1111 event with NIP-22 tags ["E","<root id>","","<root pubkey>"], ["K","<root kind>"], ["P","<root pubkey>"], ["e","<root id>","","<root pubkey>"] and ["k","<root kind>"], carrying ["request","approve", "decide" or "question"], ["p","<asked pubkey>"] and optional ["expiration","<unix time>"] and ["subject","<subject>"], with the question in content.`
+	mcpJobRequestShape  = `Expected a signed event of kind 5000 to 5999 with optional tags ["i","<data>","url" or "event" or "job" or "text","<relay>","<marker>"], ["output","<mime type>"], ["param","<key>","<value>"], ["bid","<millisats>"], ["relays","wss://..."], ["p","<provider pubkey>"] and ["expiration","<unix time>"], with content empty or the encrypted inputs.`
+	mcpJobFeedbackShape = `Expected a signed kind 7000 event with tags ["status","payment-required" or "processing" or "error" or "success" or "partial","<info>"], ["e","<request id>"], ["p","<requester pubkey>"] and optional ["amount","<millisats>","<bolt11>"], with content empty or a partial result.`
+	mcpJobResultShape   = `Expected a signed event of the request kind plus 1000 (6000 to 6999) with tags ["e","<request id>"], ["p","<requester pubkey>"], optional ["request","<request event JSON>"], the request's ["i",...] tags and optional ["amount","<millisats>","<bolt11>"], with the output in content.`
+	mcpSignNext         = "Sign this event with your Nostr key and call the tool again with the signed event as the event argument."
+	mcpAnswerNote       = " The answer arrives as a kind 7 reaction from the asked key on the published event: + approves, - declines, and any other content is the person's reply. Read the room or thread, or query kind 7 events with #e set to the event id, to collect it."
 )
 
 // mcpUnsigned is the event body a client signs before calling a write tool
@@ -117,6 +126,8 @@ func (t *Tenant) mcpTools() (*mcp.Registry, error) {
 	add("list_agents", "List granted agents with their name, key, owner, expiration, paused and revoked state, scope and last event. Requires an owner or moderator key.", mcp.Object(nil), mcpReads, func(ctx context.Context, call mcp.Call) (mcp.Result, error) {
 		return t.mcpManage(ctx, call, "listagents")
 	})
+	add("list_jobs", "List long task requests (NIP-90 job requests) visible to your key, each with its newest feedback status and its result when one exists. state narrows the list to open, done or all; mine lists only your own requests.", mcp.Object(map[string]any{"cursor": mcpText, "limit": mcpLimit, "state": map[string]any{"type": "string", "enum": jobStates}, "mine": map[string]any{"type": "boolean"}}), mcpReads, t.mcpBrowse("browsejobs"))
+	add("read_job", "Read one long task request by event id with its feedback timeline and results.", mcp.Object(map[string]any{"id": mcpHash}, "id"), mcpReads, t.mcpBrowse("browsejob"))
 
 	add("run_job", "Queue an existing job to run now. Read jobs through read_management to check its completion.", mcp.Object(map[string]any{"id": mcpID}, "id"), mcpChanges, func(ctx context.Context, call mcp.Call) (mcp.Result, error) {
 		return t.mcpManage(ctx, call, "runjob", call.String("id"))
@@ -171,6 +182,9 @@ func (t *Tenant) mcpTools() (*mcp.Registry, error) {
 	add("propose_wiki_merge", "Ask a wiki author to take in changes from another version with a kind 818 merge request. Pass d, destination (the author asked), source (the proposed version's event id) and content, plus an optional base version id, to receive the unsigned event, sign it, then call again with the signed event. The destination author answers with a + or - reaction.", mcp.Object(map[string]any{"event": mcpEvent, "d": mcpPageName, "destination": mcpPubKey, "source": mcpHash, "base": mcpHash, "content": mcpText}), mcpPublishes, t.mcpWrite(mcpBuildWikiMerge, mcpCheckWikiMerge, mcpMergeShape))
 	add("create_room", "Create a chat room with a kind 9007 event. Relay members may do this. Pass room (the new id), name and optional about and visibility (open or members) to receive the unsigned event, sign it, then call again with the signed event. The signer becomes the room owner.", mcp.Object(map[string]any{"event": mcpEvent, "room": mcpRoomID, "name": mcpText, "about": mcpText, "visibility": map[string]any{"type": "string", "enum": []string{"open", "members"}}}), mcpPublishes, t.mcpWrite(mcpBuildRoom, mcpCheckRoom, mcpRoomShape))
 	add("request_decision", "Ask a person for an approval, a decision or an answer. Pass pubkey (the person asked), request (approve, decide or question) and content, plus room for a kind 9 room message or root, root_kind and root_pubkey for a kind 1111 comment under an issue, pull request or other event, and optional expiration and subject, to receive the unsigned event carrying a request tag, sign it, then call again with the signed event."+mcpAnswerNote, mcp.Object(map[string]any{"event": mcpEvent, "pubkey": mcpPubKey, "request": map[string]any{"type": "string", "enum": mcpRequestKinds}, "content": mcpText, "room": mcpRoomID, "root": mcpHash, "root_kind": map[string]any{"type": "integer", "minimum": 0}, "root_pubkey": mcpPubKey, "expiration": mcpUnixTime, "subject": mcpText}), mcpPublishes, t.mcpWrite(mcpBuildRequest, mcpCheckRequest, mcpRequestShape))
+	add("request_job", "Ask for a long task with a NIP-90 job request. Pass kind (5000 to 5999) and inputs, plus optional output, params, bid in millisats, relays and expiration, to receive the unsigned event, sign it, then call again with the signed event. A serving agent answers with job feedback and a result naming the request; read them with read_job.", mcp.Object(map[string]any{"event": mcpEvent, "kind": mcpJobKind, "inputs": mcpJobInputs, "output": map[string]any{"type": "string", "description": "Expected output MIME type."}, "params": map[string]any{"type": "object", "description": "Job parameters as key and string value, each becoming a param tag."}, "bid": mcpMsats, "relays": map[string]any{"type": "array", "items": mcpText}, "expiration": mcpUnixTime}), mcpPublishes, t.mcpWrite(mcpBuildJobRequest, mcpCheckJobRequest, mcpJobRequestShape))
+	add("job_feedback", "Report progress on a long task with a kind 7000 job feedback event. Pass e (the request id), p (the requester) and status (payment-required, processing, error, success or partial), plus optional info, amount in millisats, invoice and content, to receive the unsigned event, sign it, then call again with the signed event.", mcp.Object(map[string]any{"event": mcpEvent, "e": mcpHash, "p": mcpPubKey, "status": mcpJobStatus, "info": mcpText, "amount": mcpMsats, "invoice": mcpText, "content": mcpText}), mcpPublishes, t.mcpWrite(mcpBuildJobFeedback, mcpCheckJobFeedback, mcpJobFeedbackShape))
+	add("job_result", "Deliver a long task's output with a NIP-90 job result. Pass request (the job request event) or kind, e and p, plus content and optional amount and invoice, to receive the unsigned event of the request kind plus 1000, sign it, then call again with the signed event.", mcp.Object(map[string]any{"event": mcpEvent, "request": map[string]any{"type": "object", "description": "The job request event being answered."}, "kind": map[string]any{"type": "integer", "minimum": event.KIND_JOB_RESULT_MIN, "maximum": event.KIND_JOB_RESULT_MAX}, "e": mcpHash, "p": mcpPubKey, "content": mcpText, "amount": mcpMsats, "invoice": mcpText}), mcpPublishes, t.mcpWrite(mcpBuildJobResult, mcpCheckJobResult, mcpJobResultShape))
 	return registry, err
 }
 
@@ -767,6 +781,213 @@ func mcpCheckRequest(e event.Event) error {
 		return errors.New("content must not be empty")
 	}
 	return nil
+}
+
+// Long task builders. A request carries its inputs and terms as NIP-90
+// tags; feedback and results name the request and the requester.
+
+func mcpBuildJobRequest(call mcp.Call) (mcpUnsigned, error) {
+	kind := call.Int("kind")
+	if !event.IsJobRequest(kind) {
+		return mcpUnsigned{}, errors.New("kind is required and must be 5000 to 5999")
+	}
+	tags := [][]string{}
+	if inputs, ok := call.Arguments["inputs"].([]any); ok {
+		for _, raw := range inputs {
+			input, _ := raw.(map[string]any)
+			data, _ := input["data"].(string)
+			kind, _ := input["type"].(string)
+			relayHint, _ := input["relay"].(string)
+			marker, _ := input["marker"].(string)
+			if data == "" || !event.IsJobInputType(kind) {
+				return mcpUnsigned{}, errors.New("each input needs data and a type of url, event, job or text")
+			}
+			if (kind == "event" || kind == "job") && !hex64(data) {
+				return mcpUnsigned{}, errors.New("an input of type event or job must name an event id")
+			}
+			tag := []string{"i", data, kind}
+			if relayHint != "" || marker != "" {
+				tag = append(tag, relayHint)
+			}
+			if marker != "" {
+				tag = append(tag, marker)
+			}
+			tags = append(tags, tag)
+		}
+	}
+	if output := strings.TrimSpace(call.String("output")); output != "" {
+		tags = append(tags, []string{"output", output})
+	}
+	if params, ok := call.Arguments["params"].(map[string]any); ok {
+		keys := make([]string, 0, len(params))
+		for key := range params {
+			keys = append(keys, key)
+		}
+		sort.Strings(keys)
+		for _, key := range keys {
+			value, ok := params[key].(string)
+			if key == "" || !ok {
+				return mcpUnsigned{}, errors.New("params must map names to string values")
+			}
+			tags = append(tags, []string{"param", key, value})
+		}
+	}
+	if _, present := call.Arguments["bid"]; present {
+		bid := call.Int("bid")
+		if bid < 0 {
+			return mcpUnsigned{}, errors.New("bid must be an amount in millisats")
+		}
+		tags = append(tags, []string{"bid", strconv.Itoa(bid)})
+	}
+	if relays, ok := call.Arguments["relays"].([]any); ok {
+		tag := []string{"relays"}
+		for _, value := range relays {
+			if text, _ := value.(string); strings.TrimSpace(text) != "" {
+				tag = append(tag, strings.TrimSpace(text))
+			}
+		}
+		if len(tag) > 1 {
+			tags = append(tags, tag)
+		}
+	}
+	if expiration := call.Int("expiration"); expiration > 0 {
+		if int64(expiration) <= time.Now().Unix() {
+			return mcpUnsigned{}, errors.New("expiration must be in the future")
+		}
+		tags = append(tags, []string{"expiration", strconv.Itoa(expiration)})
+	}
+	return mcpUnsigned{Kind: kind, CreatedAt: time.Now().Unix(), Tags: tags, Content: ""}, nil
+}
+
+// mcpJobAmount appends the amount tag a provider asks to be paid, with its
+// invoice when one is given.
+func mcpJobAmount(call mcp.Call, tags [][]string) ([][]string, error) {
+	if _, present := call.Arguments["amount"]; !present {
+		return tags, nil
+	}
+	amount := call.Int("amount")
+	if amount < 0 {
+		return nil, errors.New("amount must be in millisats")
+	}
+	tag := []string{"amount", strconv.Itoa(amount)}
+	if invoice := strings.TrimSpace(call.String("invoice")); invoice != "" {
+		tag = append(tag, invoice)
+	}
+	return append(tags, tag), nil
+}
+
+func mcpBuildJobFeedback(call mcp.Call) (mcpUnsigned, error) {
+	request, requester, status := call.String("e"), call.String("p"), call.String("status")
+	if !hex64(request) || !hex64(requester) || !event.IsJobFeedbackStatus(status) {
+		return mcpUnsigned{}, errors.New("e, p and status are required; status must be payment-required, processing, error, success or partial")
+	}
+	statusTag := []string{"status", status}
+	if info := strings.TrimSpace(call.String("info")); info != "" {
+		statusTag = append(statusTag, info)
+	}
+	tags, err := mcpJobAmount(call, [][]string{statusTag, {"e", request}, {"p", requester}})
+	if err != nil {
+		return mcpUnsigned{}, err
+	}
+	return mcpUnsigned{Kind: event.KIND_JOB_FEEDBACK, CreatedAt: time.Now().Unix(), Tags: tags, Content: call.String("content")}, nil
+}
+
+func mcpBuildJobResult(call mcp.Call) (mcpUnsigned, error) {
+	var request event.Event
+	hasRequest := false
+	if raw, ok := call.Arguments["request"].(map[string]any); ok {
+		encoded, err := json.Marshal(raw)
+		if err == nil {
+			err = json.Unmarshal(encoded, &request)
+		}
+		if err != nil || !event.IsJobRequest(request.Kind) || !hex64(request.ID) || !hex64(request.PubKey) {
+			return mcpUnsigned{}, errors.New("request must be a job request event with id, pubkey and a kind of 5000 to 5999")
+		}
+		hasRequest = true
+	}
+	kind, id, requester, content := call.Int("kind"), call.String("e"), call.String("p"), call.String("content")
+	if hasRequest {
+		if kind == 0 {
+			kind = event.JobResultKind(request.Kind)
+		}
+		if id == "" {
+			id = request.ID
+		}
+		if requester == "" {
+			requester = request.PubKey
+		}
+		if kind != event.JobResultKind(request.Kind) || id != request.ID || requester != request.PubKey {
+			return mcpUnsigned{}, errors.New("kind, e and p must match the request: its kind plus 1000, its id and its author")
+		}
+	}
+	if !event.IsJobResult(kind) || !hex64(id) || !hex64(requester) {
+		return mcpUnsigned{}, errors.New("request, or kind (the request kind plus 1000), e and p, are required")
+	}
+	if strings.TrimSpace(content) == "" {
+		return mcpUnsigned{}, errors.New("content is required")
+	}
+	tags := [][]string{}
+	if hasRequest {
+		canonical, err := event.Canonical(request)
+		if err != nil {
+			return mcpUnsigned{}, err
+		}
+		tags = append(tags, []string{"request", string(canonical)})
+	}
+	tags = append(tags, []string{"e", id})
+	if hasRequest {
+		for _, tag := range request.Tags {
+			if len(tag) > 1 && tag[0] == "i" {
+				tags = append(tags, append([]string(nil), tag...))
+			}
+		}
+	}
+	tags, err := mcpJobAmount(call, append(tags, []string{"p", requester}))
+	if err != nil {
+		return mcpUnsigned{}, err
+	}
+	return mcpUnsigned{Kind: kind, CreatedAt: time.Now().Unix(), Tags: tags, Content: content}, nil
+}
+
+// mcpJobShape reports the gate's shape check without its NIP-01 prefix, so
+// the tool's message reads as one sentence.
+func mcpJobShape(e event.Event) error {
+	if err := gates.JobShape(e); err != nil {
+		return errors.New(strings.TrimPrefix(err.Error(), "invalid: "))
+	}
+	return nil
+}
+
+func mcpCheckJobRequest(e event.Event) error {
+	if !event.IsJobRequest(e.Kind) {
+		return fmt.Errorf("kind %d is not a job request", e.Kind)
+	}
+	if expiration := event.Tag(e, "expiration"); expiration != "" {
+		if at, err := strconv.ParseInt(expiration, 10, 64); err != nil || at <= time.Now().Unix() {
+			return errors.New("the expiration tag must be a Unix time in the future")
+		}
+	}
+	return mcpJobShape(e)
+}
+
+func mcpCheckJobFeedback(e event.Event) error {
+	if e.Kind != event.KIND_JOB_FEEDBACK {
+		return fmt.Errorf("kind %d is not job feedback", e.Kind)
+	}
+	return mcpJobShape(e)
+}
+
+func mcpCheckJobResult(e event.Event) error {
+	if !event.IsJobResult(e.Kind) {
+		return fmt.Errorf("kind %d is not a job result", e.Kind)
+	}
+	if request := event.Tag(e, "request"); request != "" && (!json.Valid([]byte(request)) || !strings.HasPrefix(strings.TrimSpace(request), "{")) {
+		return errors.New("the request tag must carry the job request event as JSON")
+	}
+	if strings.TrimSpace(e.Content) == "" {
+		return errors.New("content must not be empty")
+	}
+	return mcpJobShape(e)
 }
 
 // mcpReaction accepts NIP-25 content: +, - or one emoji, which may be a

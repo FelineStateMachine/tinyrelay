@@ -3,6 +3,8 @@ package daemon
 import (
 	"context"
 	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"strconv"
 	"strings"
 	"testing"
@@ -28,6 +30,143 @@ func jobTenant(t *testing.T) (*App, *Tenant, string, string) {
 		t.Fatalf("grant rejected: %v", err)
 	}
 	return app, tenant, member, agent
+}
+
+func TestMCPJobToolsBuildValidateAndPublish(t *testing.T) {
+	app, _, member, _ := jobTenant(t)
+	now := time.Now().Unix()
+	call := func(name string, arguments map[string]any, secret string) (map[string]any, bool) {
+		t.Helper()
+		w, response := mcpCall{method: "tools/call", name: name, arguments: arguments, sign: true, secret: secret}.do(t, app, "/mcp")
+		if w.Code != http.StatusOK {
+			t.Fatalf("%s: %d %s", name, w.Code, w.Body.String())
+		}
+		return mcpToolResult(t, response)
+	}
+	structured := func(result map[string]any) map[string]any {
+		value, _ := result["structuredContent"].(map[string]any)
+		return value
+	}
+	text := func(result map[string]any) string {
+		content, _ := result["content"].([]any)
+		if len(content) == 0 {
+			return ""
+		}
+		return content[0].(map[string]any)["text"].(string)
+	}
+	_, response := mcpCall{method: "tools/list", sign: true}.do(t, app, "/mcp")
+	names := map[string]bool{}
+	for _, tool := range response.Result.(map[string]any)["tools"].([]any) {
+		names[tool.(map[string]any)["name"].(string)] = true
+	}
+	for _, want := range []string{"list_jobs", "read_job", "request_job", "job_feedback", "job_result"} {
+		if !names[want] {
+			t.Fatalf("missing tool %s", want)
+		}
+	}
+
+	// request_job: the template carries the NIP-90 tags in order, refuses
+	// bad inputs and kinds, and the signed request publishes.
+	source := strings.Repeat("d", 64)
+	expires := strconv.FormatInt(now+3600, 10)
+	result, isError := call("request_job", map[string]any{"kind": 5001, "inputs": []any{map[string]any{"data": "hello", "type": "text"}, map[string]any{"data": source, "type": "event", "relay": "wss://relay.example", "marker": "context"}}, "output": "text/plain", "params": map[string]any{"model": "small", "lang": "es"}, "bid": 1000, "relays": []any{"wss://a.example", " "}, "expiration": now + 3600}, testMemberSecret)
+	unsigned, _ := structured(result)["unsigned"].(map[string]any)
+	tags, _ := json.Marshal(unsigned["tags"])
+	if isError || unsigned["kind"] != float64(5001) || unsigned["content"] != "" || string(tags) != `[["i","hello","text"],["i","`+source+`","event","wss://relay.example","context"],["output","text/plain"],["param","lang","es"],["param","model","small"],["bid","1000"],["relays","wss://a.example"],["expiration","`+expires+`"]]` {
+		t.Fatalf("request_job template: %v %s", isError, text(result))
+	}
+	if result, isError = call("request_job", map[string]any{"kind": 5001, "inputs": []any{map[string]any{"data": "hello", "type": "voice"}}}, testMemberSecret); !isError || !strings.Contains(text(result), "url, event, job") {
+		t.Fatalf("request_job bad input: %s", text(result))
+	}
+	if result, isError = call("request_job", map[string]any{"kind": 1}, testMemberSecret); !isError {
+		t.Fatalf("request_job bad kind: %s", text(result))
+	}
+	if result, isError = call("request_job", map[string]any{"event": mcpSigned(t, testMemberSecret, 5001, [][]string{{"i", "hello"}}, "")}, testMemberSecret); !isError || !strings.Contains(text(result), "url, event, job or text") || !strings.Contains(text(result), "Expected a signed event of kind 5000 to 5999") {
+		t.Fatalf("request_job malformed signed: %s", text(result))
+	}
+	request := mcpSigned(t, testMemberSecret, 5001, [][]string{{"i", "hello", "text"}, {"output", "text/plain"}, {"bid", "1000"}}, "")
+	result, isError = call("request_job", map[string]any{"event": request}, testMemberSecret)
+	requestID, _ := structured(result)["event_id"].(string)
+	if isError || structured(result)["accepted"] != true || requestID == "" {
+		t.Fatalf("request_job publish: %s", text(result))
+	}
+
+	// job_feedback: the serving agent's template and signed publish, and
+	// the status vocabulary.
+	result, isError = call("job_feedback", map[string]any{"e": requestID, "p": member, "status": "processing", "info": "halfway", "amount": 500, "invoice": "lnbc1"}, testAgentSecret)
+	unsigned, _ = structured(result)["unsigned"].(map[string]any)
+	tags, _ = json.Marshal(unsigned["tags"])
+	if isError || unsigned["kind"] != float64(7000) || string(tags) != `[["status","processing","halfway"],["e","`+requestID+`"],["p","`+member+`"],["amount","500","lnbc1"]]` {
+		t.Fatalf("job_feedback template: %v %s", isError, text(result))
+	}
+	if result, isError = call("job_feedback", map[string]any{"e": requestID, "p": member, "status": "done"}, testAgentSecret); !isError || !strings.Contains(text(result), "status") {
+		t.Fatalf("job_feedback bad status: %s", text(result))
+	}
+	if result, isError = call("job_feedback", map[string]any{"event": mcpSigned(t, testAgentSecret, 7000, [][]string{{"e", requestID}, {"p", member}}, "")}, testAgentSecret); !isError || !strings.Contains(text(result), "payment-required, processing, error, success or partial") {
+		t.Fatalf("job_feedback malformed signed: %s", text(result))
+	}
+	result, isError = call("job_feedback", map[string]any{"event": mcpSigned(t, testAgentSecret, 7000, [][]string{{"status", "processing", "halfway"}, {"e", requestID}, {"p", member}}, "")}, testAgentSecret)
+	if isError || structured(result)["accepted"] != true {
+		t.Fatalf("job_feedback publish: %s", text(result))
+	}
+
+	// job_result: the template derives the kind, the request tag and the
+	// inputs from the request; the relay checks the answer against the
+	// request it holds.
+	result, isError = call("job_result", map[string]any{"request": request, "content": "hola", "amount": 700}, testAgentSecret)
+	unsigned, _ = structured(result)["unsigned"].(map[string]any)
+	resultTags, _ := unsigned["tags"].([]any)
+	if isError || unsigned["kind"] != float64(6001) || unsigned["content"] != "hola" || len(resultTags) != 5 {
+		t.Fatalf("job_result template: %v %s", isError, text(result))
+	}
+	requestTag := resultTags[0].([]any)
+	var embedded event.Event
+	if requestTag[0] != "request" || json.Unmarshal([]byte(requestTag[1].(string)), &embedded) != nil || embedded.ID != requestID {
+		t.Fatalf("job_result request tag %v", requestTag)
+	}
+	tags, _ = json.Marshal(resultTags[1:])
+	if string(tags) != `[["e","`+requestID+`"],["i","hello","text"],["p","`+member+`"],["amount","700"]]` {
+		t.Fatalf("job_result tags %s", tags)
+	}
+	if result, isError = call("job_result", map[string]any{"request": request, "kind": 6002, "content": "hola"}, testAgentSecret); !isError || !strings.Contains(text(result), "must match the request") {
+		t.Fatalf("job_result mismatched kind: %s", text(result))
+	}
+	if result, isError = call("job_result", map[string]any{"kind": 6001, "e": requestID, "p": member}, testAgentSecret); !isError || !strings.Contains(text(result), "content is required") {
+		t.Fatalf("job_result without content: %s", text(result))
+	}
+	if result, isError = call("job_result", map[string]any{"event": mcpSigned(t, testAgentSecret, 6002, [][]string{{"e", requestID}, {"p", member}}, "hola")}, testAgentSecret); !isError || !strings.Contains(text(result), "does not answer a kind 5001 request") {
+		t.Fatalf("job_result wrong kind rejected by relay: %s", text(result))
+	}
+	signedTags := [][]string{}
+	for _, tag := range resultTags {
+		values := []string{}
+		for _, value := range tag.([]any) {
+			values = append(values, value.(string))
+		}
+		signedTags = append(signedTags, values)
+	}
+	result, isError = call("job_result", map[string]any{"event": mcpSigned(t, testAgentSecret, 6001, signedTags, "hola")}, testAgentSecret)
+	resultID, _ := structured(result)["event_id"].(string)
+	if isError || structured(result)["accepted"] != true || resultID == "" {
+		t.Fatalf("job_result publish: %s", text(result))
+	}
+
+	// The reads show the settled request.
+	result, isError = call("list_jobs", map[string]any{"state": "done", "mine": true}, testMemberSecret)
+	items, _ := structured(result)["items"].([]any)
+	if isError || len(items) != 1 || items[0].(map[string]any)["id"] != requestID || items[0].(map[string]any)["status"] != "processing" || items[0].(map[string]any)["result"].(map[string]any)["id"] != resultID {
+		t.Fatalf("list_jobs: %s", text(result))
+	}
+	result, isError = call("read_job", map[string]any{"id": requestID}, testMemberSecret)
+	if isError || len(structured(result)["feedback"].([]any)) != 1 || len(structured(result)["results"].([]any)) != 1 {
+		t.Fatalf("read_job: %s", text(result))
+	}
+	r := httptest.NewRequest(http.MethodGet, "http://relay.test/llms.txt", nil)
+	w := httptest.NewRecorder()
+	app.ServeHTTP(w, r)
+	if !strings.Contains(w.Body.String(), "request_job, job_feedback and job_result") || !strings.Contains(w.Body.String(), "list_jobs and read_job") {
+		t.Fatalf("llms.txt: %s", w.Body.String())
+	}
 }
 
 func TestBrowseJobsListsRequestsWithStatusAndResults(t *testing.T) {
