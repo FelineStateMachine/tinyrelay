@@ -549,6 +549,299 @@
     }
   }
 
+  // Rooms: the compose bar, room creation, room administration and the live
+  // stream. Each signed event is built here, signed by the connected signer,
+  // verified unchanged and published once to /events. room-message markup
+  // matches the roomMessage template so streamed messages read the same.
+  const roomKinds = [9, 11, 12, 40002, 44100, 44101];
+  const mentionPattern = /(^|[\s(])@(npub1[02-9ac-hj-np-z]{58}|[0-9a-f]{64})\b/g;
+  const roomLinkPattern = /https?:\/\/[^\s<>"']+|(?:web\+)?nostr:[a-z0-9]+/g;
+  const now = () => Math.floor(Date.now() / 1000);
+  // keyHex accepts a hex key or an npub and returns the hex key, or null.
+  const keyHex = value => {
+    const text = String(value || "").trim().replace(/^nostr:/, "");
+    if (isHex64(text)) return text;
+    if (!/^npub1[02-9ac-hj-np-z]{58}$/.test(text)) return null;
+    try { const decoded = window.NostrSigner?.decodeNpub?.(text); return isHex64(decoded) ? decoded : null; } catch { return null; }
+  };
+  // roomMentions lists the keys named as @npub or @hex in a message, once each.
+  const roomMentions = text => {
+    const keys = [];
+    for (const match of String(text).matchAll(mentionPattern)) {
+      const key = keyHex(match[2]);
+      if (key && !keys.includes(key)) keys.push(key);
+    }
+    return keys;
+  };
+  // roomID derives a room id from a name: lowercase letters, digits, hyphen and underscore.
+  const roomID = name => String(name || "").toLowerCase().replace(/[^a-z0-9_-]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 64);
+  const tagValue = (event, name) => (event.tags || []).find(tag => tag[0] === name)?.[1] || "";
+  const clock = seconds => {
+    const stamp = new Date(seconds * 1000).toISOString();
+    if (stamp.slice(0, 10) === new Date().toISOString().slice(0, 10)) return stamp.slice(11, 16);
+    return ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"][Number(stamp.slice(5, 7)) - 1] + " " + Number(stamp.slice(8, 10)) + " " + stamp.slice(11, 16);
+  };
+  const roomPath = (room, rest = "") => tiny.localPath("/rooms/" + encodeURIComponent(room) + rest);
+  // linkify fills a node with escaped text, turning http(s) URLs and nostr
+  // links into anchors; nostr links open through /open.
+  const linkify = (node, text) => {
+    let last = 0;
+    for (const match of String(text).matchAll(roomLinkPattern)) {
+      node.append(text.slice(last, match.index));
+      const trimmed = match[0].replace(/[.,;:!?)]+$/, "");
+      const link = el("a", trimmed);
+      link.href = trimmed.startsWith("http") ? trimmed : tiny.localPath("/open?target=" + encodeURIComponent(trimmed));
+      if (trimmed.startsWith("http")) link.rel = "noopener";
+      node.append(link, match[0].slice(trimmed.length));
+      last = match.index + match[0].length;
+    }
+    node.append(text.slice(last));
+    return node;
+  };
+  const keyNode = hex => { const node = el("nostr-key", hex.slice(0, 12)); node.setAttribute("hex", hex); node.title = hex; return node; };
+  // panelMembers reads the members list in the panel: role and agent marker by key.
+  const panelMembers = () => {
+    const members = {};
+    document.querySelectorAll("#members li").forEach(item => {
+      const hex = item.querySelector("nostr-key")?.getAttribute("hex");
+      if (hex) members[hex] = {role: (item.querySelector("small")?.textContent || "").split("|")[0].trim(), agent: item.hasAttribute("data-agent")};
+    });
+    return members;
+  };
+  const messageNode = (event, {members = {}, room = "", inThread = false} = {}) => {
+    const node = el("room-message");
+    const notice = event.kind === 44100 ? "joined the room" : event.kind === 44101 ? "left the room" : "";
+    const pubkey = notice ? tagValue(event, "p") : event.pubkey;
+    node.id = "msg-" + event.id;
+    node.dataset.id = event.id;
+    node.dataset.kind = String(event.kind);
+    node.dataset.pubkey = pubkey;
+    const member = members[pubkey];
+    if (member?.agent) node.dataset.agent = "";
+    if (notice) node.dataset.notice = "";
+    const header = el("header"), name = el("b"), time = el("time", clock(event.created_at)), small = el("small");
+    name.append(keyNode(pubkey));
+    time.dateTime = new Date(event.created_at * 1000).toISOString().replace(/\.\d+Z$/, "Z");
+    time.title = time.dateTime.slice(0, 16).replace("T", " ") + " UTC";
+    small.append(time);
+    header.append(name, member?.role ? " | " + member.role : "", small);
+    const body = notice ? el("p", notice) : linkify(el("p"), event.content || "");
+    node.append(header, body);
+    const footer = el("footer");
+    const mentions = notice ? [] : (event.tags || []).filter(tag => tag[0] === "p" && isHex64(tag[1]) && tag[1] !== pubkey).map(tag => tag[1]);
+    if (mentions.length) { const span = el("span", "to "); mentions.forEach(key => span.append(keyNode(key), " ")); footer.append(span); }
+    if (!inThread && room && event.kind === 11) { const link = el("a", "thread"); link.href = roomPath(room, "/thread/" + event.id); footer.append(link); }
+    const root = tagValue(event, "e");
+    if (!inThread && room && event.kind === 12 && isHex64(root)) { const link = el("a", "in thread"); link.href = roomPath(room, "/thread/" + root); footer.append(link); }
+    if (footer.childNodes.length) node.append(footer);
+    return node;
+  };
+  const roomBox = () => document.getElementById("content");
+  const roomNearBottom = () => {
+    const box = roomBox();
+    if (box && box.scrollHeight > box.clientHeight + 1 && getComputedStyle(box).overflowY !== "visible") return box.scrollHeight - box.scrollTop - box.clientHeight < 120;
+    return document.documentElement.scrollHeight - window.scrollY - window.innerHeight < 120;
+  };
+  const roomScroll = () => {
+    const box = roomBox();
+    if (box) box.scrollTop = box.scrollHeight;
+    window.scrollTo(0, document.documentElement.scrollHeight);
+  };
+  // roomAppend adds one message to the timeline unless it is already there,
+  // keeps the list bounded and follows the newest message when the viewer
+  // is already reading the end of it.
+  const roomAppend = (event, {room = "", inThread = false, own = false} = {}) => {
+    const list = document.getElementById("messages");
+    if (!list || !isHex64(event?.id) || document.getElementById("msg-" + event.id)) return null;
+    const follow = own || roomNearBottom();
+    list.querySelector("#empty")?.remove();
+    const node = messageNode(event, {members: panelMembers(), room, inThread});
+    list.append(node);
+    while (list.children.length > 500) list.firstElementChild.remove();
+    const root = tagValue(event, "e");
+    if (event.kind === 12 && !inThread && isHex64(root)) {
+      const link = document.querySelector("#msg-" + root + " > footer > a");
+      if (link) { const count = Number((link.textContent.match(/(\d+) repl/) || [])[1] || 0) + 1; link.textContent = "thread | " + count + (count === 1 ? " reply" : " replies"); }
+    }
+    if (follow) roomScroll();
+    return node;
+  };
+  // roomReact adds a reaction to its target's summary line.
+  const roomReact = event => {
+    const targets = (event.tags || []).filter(tag => tag[0] === "e");
+    const target = targets.length && document.getElementById("msg-" + targets[targets.length - 1][1]);
+    if (!target) return;
+    let footer = target.querySelector(":scope > footer");
+    if (!footer) { footer = el("footer"); target.append(footer); }
+    const content = (event.content || "").trim() === "" || (event.content || "").trim() === "+" ? "+1" : event.content.trim();
+    let span = [...footer.querySelectorAll("span[data-reaction]")].find(node => node.dataset.reaction === content);
+    if (span) span.textContent = content + " " + (Number(span.textContent.slice(content.length)) + 1);
+    else { span = el("span", content + " 1"); span.dataset.reaction = content; footer.append(span); }
+  };
+  // signAndPublish signs one room event, checks it came back unchanged and
+  // valid, and publishes it once.
+  const signAndPublish = async unsigned => {
+    if (!window.nostr?.signEvent) throw Error("Connect a signer first.");
+    const expected = JSON.stringify(unsigned);
+    const event = await window.nostr.signEvent(JSON.parse(expected));
+    const actual = event && JSON.stringify({kind: event.kind, created_at: event.created_at, tags: event.tags, content: event.content});
+    if (actual !== expected || !window.NostrSigner?.verifyEvent(event)) throw Error("The signer returned an invalid or changed event.");
+    const response = await tiny.signedFetch("/events", "POST", JSON.stringify(event), {contentType: "application/json"});
+    const result = await response.json();
+    if (!response.ok || result.accepted !== true) throw Error(result.error || result.message || "The relay rejected the event.");
+    return event;
+  };
+
+  // RoomCompose sends a chat message (kind 9) or a thread reply (kind 12).
+  // Enter sends and Shift+Enter starts a new line.
+  class RoomCompose extends FormElement {
+    connectedCallback() {
+      super.connectedCallback();
+      if (this.keys) return;
+      this.keys = true;
+      this.addEventListener("keydown", event => {
+        if (event.key !== "Enter" || event.shiftKey || event.isComposing || !event.target.matches?.("textarea")) return;
+        event.preventDefault();
+        this.form?.requestSubmit();
+      });
+    }
+
+    event(content) {
+      const room = this.getAttribute("room") || "";
+      if (!/^[a-z0-9_-]{1,64}$/.test(room)) throw Error("The room id is missing.");
+      const kind = Number(this.getAttribute("kind") || 9);
+      if (kind !== 9 && kind !== 12) throw Error("Unsupported message kind.");
+      const tags = [["h", room]];
+      if (kind === 12) {
+        const root = this.getAttribute("root"), author = this.getAttribute("root-pubkey");
+        if (!isHex64(root)) throw Error("The thread root is missing.");
+        tags.push(["e", root]);
+        if (isHex64(author) && author !== this.getAttribute("pubkey")) tags.push(["p", author]);
+      }
+      roomMentions(content).forEach(key => { if (!tags.some(tag => tag[0] === "p" && tag[1] === key)) tags.push(["p", key]); });
+      return {kind, created_at: now(), tags, content};
+    }
+
+    async submit(form) {
+      const content = (form.elements.content?.value || "").trim();
+      if (!content) return;
+      this.report("Signing…");
+      const event = await signAndPublish(this.event(content));
+      form.reset();
+      this.report("");
+      roomAppend(event, {room: this.getAttribute("room"), inThread: event.kind === 12, own: true});
+    }
+  }
+
+  // RoomCreate signs a NIP-29 create (kind 9007) with an id derived from the
+  // name, then opens the new room.
+  class RoomCreate extends FormElement {
+    event({name = "", about = "", access = "open"} = {}) {
+      const title = String(name).trim(), id = roomID(title);
+      if (!id) throw Error("Enter a name with letters or digits.");
+      const tags = [["h", id], ["name", title]];
+      if (String(about).trim()) tags.push(["about", String(about).trim()]);
+      tags.push(["visibility", access === "members" ? "members" : "open"]);
+      return {id, event: {kind: 9007, created_at: now(), tags, content: ""}};
+    }
+
+    async submit(form) {
+      const value = name => form.elements[name]?.value || "";
+      const {id, event} = this.event({name: value("name"), about: value("about"), access: value("access")});
+      this.report("Signing…");
+      await signAndPublish(event);
+      this.report("Created #" + id + ".");
+      form.reset();
+      await tiny.navigate?.(roomPath(id), true);
+    }
+  }
+
+  // RoomAction signs one NIP-29 management event for a room: add a member
+  // (9000), remove one (9001), edit the room (9002), join (9021) or leave (9022).
+  class RoomAction extends FormElement {
+    event(values = {}) {
+      const room = this.getAttribute("room") || "";
+      if (!/^[a-z0-9_-]{1,64}$/.test(room)) throw Error("The room id is missing.");
+      const kind = Number(this.getAttribute("kind"));
+      const tags = [["h", room]];
+      switch (kind) {
+        case 9000: case 9001: {
+          const key = keyHex(values.pubkey);
+          if (!key) throw Error("Enter an npub or a 64-character hex key.");
+          const tag = ["p", key];
+          if (kind === 9000) tag.push(["owner", "admin"].includes(values.role) ? values.role : "member");
+          tags.push(tag);
+          break;
+        }
+        case 9002: {
+          const name = String(values.name || "").trim();
+          if (!name) throw Error("Enter a name.");
+          tags.push(["name", name], ["about", String(values.about || "").trim()], ["picture", String(values.picture || "").trim()], ["visibility", values.access === "members" ? "members" : "open"]);
+          break;
+        }
+        case 9021: case 9022: break;
+        default: throw Error("Unsupported room action.");
+      }
+      return {kind, created_at: now(), tags, content: ""};
+    }
+
+    async submit(form) {
+      const values = {};
+      for (const field of form.elements) if (field.name) values[field.name] = field.value;
+      this.report("Signing…");
+      await signAndPublish(this.event(values));
+      this.report("Done.");
+      await tiny.navigate?.(location.href);
+    }
+  }
+
+  // RoomLive follows a room's stream: new messages join the timeline, and
+  // reactions update their targets. It reconnects with backoff.
+  class RoomLive extends HTMLElement {
+    static get observedAttributes() { return ["room", "root"]; }
+    connectedCallback() { this.open(); roomScroll(); }
+    disconnectedCallback() { this.close(); }
+    attributeChangedCallback() { if (this.isConnected) { this.close(); this.open(); } }
+
+    open() {
+      const room = this.getAttribute("room");
+      if (!room || this.source || typeof EventSource !== "function") return;
+      this.delay = this.delay || 1000;
+      const source = new EventSource(roomPath(room, "/stream"), {withCredentials: true});
+      this.source = source;
+      source.addEventListener("open", () => { this.delay = 1000; this.textContent = ""; });
+      source.addEventListener("message", event => {
+        let parsed;
+        try { parsed = JSON.parse(event.data); } catch { return; }
+        this.receive(parsed);
+      });
+      source.addEventListener("error", () => {
+        if (this.source !== source) return;
+        this.close();
+        this.textContent = "reconnecting";
+        this.timer = setTimeout(() => { this.timer = null; this.open(); }, this.delay);
+        this.delay = Math.min(this.delay * 2, 30000);
+      });
+    }
+
+    close() {
+      this.source?.close();
+      this.source = null;
+      clearTimeout(this.timer);
+      this.timer = null;
+    }
+
+    receive(event) {
+      if (!event || typeof event !== "object") return;
+      if (event.kind === 7) { roomReact(event); return; }
+      if (!roomKinds.includes(event.kind)) return;
+      const root = this.getAttribute("root");
+      if (root && (event.kind !== 12 || tagValue(event, "e") !== root)) return;
+      roomAppend(event, {room: this.getAttribute("room"), inThread: Boolean(root)});
+    }
+  }
+  tiny.rooms = Object.freeze({keyHex, roomMentions, roomID, messageNode, roomAppend, roomReact, linkify});
+
   // JsonView renders any JSON value. Arrays of objects become tables, objects
   // become definition lists, scalar arrays become lists, and deep nesting
   // falls back to compact JSON so a response never explodes the page.
@@ -1174,6 +1467,10 @@
   customElements.define("nostr-react", NostrReact);
   customElements.define("approval-item", ApprovalItem);
   customElements.define("wiki-compose", WikiCompose);
+  customElements.define("room-compose", RoomCompose);
+  customElements.define("room-create", RoomCreate);
+  customElements.define("room-action", RoomAction);
+  customElements.define("room-live", RoomLive);
   customElements.define("push-toggle", PushToggle);
   customElements.define("share-link", ShareLink);
   customElements.define("nostr-key", NostrKey);
@@ -1204,7 +1501,7 @@
       if (root && !(url.pathname === root || url.pathname.startsWith(root + "/"))) return null;
       return root ? url.pathname.slice(root.length) || "/" : url.pathname;
     };
-    const allowedRoute = path => /^(?:\/(?:inbox|approvals|outbox|search|articles|private|chat|media|sites|marmot|grasp|terms|signin|connect|tools|repo|repos|file|files|wiki)?\/?|\/manage(?:\/(?:people|agents|moderation|rules|identity|connect|data|sync|views|health|owner|status))?\/?|\/(?:invite|e|a|wiki)\/.+)$/.test(path || "");
+    const allowedRoute = path => /^(?:\/(?:inbox|approvals|outbox|search|articles|private|chat|media|sites|marmot|grasp|terms|signin|connect|tools|repo|repos|file|files|wiki|rooms)?\/?|\/manage(?:\/(?:people|agents|moderation|rules|identity|connect|data|sync|views|health|owner|status))?\/?|\/(?:invite|e|a|wiki)\/.+|\/rooms\/[a-z0-9_-]{1,64}(?:\/thread\/[0-9a-f]{64})?\/?)$/.test(path || "");
     let navigationSerial = 0, activeAbort;
     const streams = new Set();
     const closeStreams = () => {
@@ -1219,7 +1516,7 @@
     document.addEventListener("fx:sse:close", event => streams.delete(event.detail.cfg));
     window.addEventListener("pagehide", closeStreams);
     const repairComponents = () => {
-      document.querySelectorAll("rpc-form,signed-form,publish-list,agent-grant,nostr-react,wiki-compose").forEach(node => {
+      document.querySelectorAll("rpc-form,signed-form,publish-list,agent-grant,nostr-react,wiki-compose,room-compose,room-create,room-action").forEach(node => {
         if (node.form?.isConnected) return;
         node.form = null;
         node.output = null;
@@ -1269,8 +1566,9 @@
         throw error;
       } finally { if (serial === navigationSerial) setBusy(false); }
     };
-    // navigate re-requests a page in place; components use it after a publish.
-    tiny.navigate = href => load(new URL(href, location.href), false);
+    // navigate re-requests a page in place; components use it after a
+    // publish. With push set it opens a new address as a history entry.
+    tiny.navigate = (href, push = false) => load(new URL(href, location.href), push);
     document.addEventListener("fx:config", event => {
       const cfg = event.detail.cfg, elt = cfg.trigger?.target?.closest?.("a[data-fixi-nav], form[data-fixi-nav]");
       if (!elt?.matches?.("a[data-fixi-nav], form[data-fixi-nav]")) return;

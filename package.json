@@ -11,7 +11,8 @@
     "test:collaboration": "node --test scripts/collaboration-compose.test.mjs",
     "test:agents": "node --test scripts/agent-grant.test.mjs",
     "test:approvals": "node --test scripts/approvals.test.mjs",
-    "test:wiki": "node --test scripts/wiki-compose.test.mjs"
+    "test:wiki": "node --test scripts/wiki-compose.test.mjs",
+    "test:rooms": "node --test scripts/rooms.test.mjs"
   },
   "devDependencies": {
     "@noble/hashes": "2.4.0",
