@@ -52,6 +52,8 @@ See [Git collaboration](docs/git-collaboration.md) for issues, pull requests, co
 
 See [Installed app](docs/app.md) for installing the relay as an app, sharing files to it, opening Nostr links and device notifications.
 
+See [Agent identities](docs/agents.md) for granting an assistant or bot its own scoped key, what the relay enforces and how to pause or revoke it.
+
 **Manage > Health** shows the relay and script versions and whether the browser's WebMCP tools are registered. See [WebMCP tools](docs/webmcp.md) for browser-agent integration and authorization behavior.
 
 ## Deployment
