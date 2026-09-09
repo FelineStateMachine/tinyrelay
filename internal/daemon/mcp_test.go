@@ -334,8 +334,16 @@ func TestMCPRoomWikiAndAgentTools(t *testing.T) {
 		t.Fatalf("post_message without room: %s", text(result))
 	}
 	result, isError = call("read_room", map[string]any{"id": "general"}, "")
-	messages, _ := structured(result)["messages"].([]any)
-	if isError || len(messages) != 1 || messages[0].(map[string]any)["id"] != messageID {
+	// The relay's own member notices (kind 44100) join the list whenever the
+	// room projection has run, so count chat messages only.
+	var chat []map[string]any
+	items, _ := structured(result)["messages"].([]any)
+	for _, item := range items {
+		if m, _ := item.(map[string]any); m["kind"] == float64(9) {
+			chat = append(chat, m)
+		}
+	}
+	if isError || len(chat) != 1 || chat[0]["id"] != messageID {
 		t.Fatalf("read_room: %s", text(result))
 	}
 	result, isError = call("reply_in_thread", map[string]any{"room": "general", "root": messageID, "root_pubkey": member, "content": "and back"}, "")
