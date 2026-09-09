@@ -20,7 +20,7 @@ pre{white-space:pre-wrap;overflow-wrap:anywhere}
 img{max-width:100%}
 
 /* Selection: chrome is not selectable, content and values are. */
-#rail,#footer,#topbar,#panel h4,#panel label,#panel th,#rows th,#grid,#gridhead,#tree header small,#tree li>span,#preview header,button,summary,rpc-form label,signed-form label,publish-list label,nostr-compose label,file-tools label,file-upload label,nostr-event>header,diff-view caption small{user-select:none;-webkit-user-select:none}
+#rail,#footer,#topbar,#panel h4,#panel label,#panel th,#rows th,#grid,#gridhead,#tree header small,#tree li>span,#preview header,button,summary,rpc-form label,signed-form label,publish-list label,nostr-compose label,file-tools label,file-upload label,nostr-event>header,approval-item>header,diff-view caption small{user-select:none;-webkit-user-select:none}
 
 /* Shell: a table with three columns; each column scrolls on its own. */
 #topbar{display:none}
@@ -167,6 +167,20 @@ nostr-event>header small{float:right}
 nostr-event>pre{margin:0;white-space:pre-wrap;font:14px/1.45 var(--sans)}
 nostr-event>details{margin-top:6px;font:12px var(--mono)}nostr-event>details>summary{cursor:pointer;color:var(--muted)}
 nostr-key{font-family:var(--mono);cursor:copy}
+
+/* approval-item: one request that waits for a decision, in the open rhythm of nostr-event. */
+approval-item{display:block;border-bottom:1px solid var(--line);padding:10px 0;max-width:720px}
+approval-item>header{font:12px var(--mono);color:var(--muted)}approval-item>header nostr-key{color:var(--ink);font-weight:500}
+approval-item>p{margin:4px 0 6px}
+approval-item>pre{background:var(--rail);border:1px solid var(--line);padding:8px 10px;font-size:12px;margin:6px 0}
+approval-item>footer{font:12px var(--mono);color:var(--muted)}approval-item>footer button{margin-right:6px;font-size:13px}
+approval-item>footer details{display:inline-block;vertical-align:top;margin-right:6px}approval-item>footer details>summary{cursor:pointer;color:var(--accent);font-size:13px}
+approval-item>footer details[open]{display:block;margin:6px 0}approval-item>footer nostr-compose{border-bottom:0;padding:6px 0 0}
+approval-item[data-focus]{background:var(--soft);padding-left:10px;padding-right:10px;border:1px solid var(--line)}
+nostr-react{display:inline-block;vertical-align:top}nostr-react form{display:inline}nostr-react output{display:block;font:12px var(--mono);color:var(--muted);margin-top:4px}nostr-react output[data-error]{color:var(--alert)}
+nostr-react output button{margin:0 6px 0 0;font-size:12px}
+#rows tr[data-state=expired] td:last-child{color:var(--bark)}
+#panel p i{display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--g3);margin-right:6px}
 
 /* Repository: tree with a preview pane. */
 #split{width:100%;border-collapse:collapse;table-layout:fixed;margin:0}

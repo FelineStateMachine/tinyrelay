@@ -158,7 +158,7 @@ func (a *App) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
 		http.Redirect(writer, request, requestPrefix(request)+"/manage/health", http.StatusMovedPermanently)
 		return
 	}
-	if request.Method == http.MethodGet && (request.URL.Path == "/repos" || request.URL.Path == "/repo" || request.URL.Path == "/files" || request.URL.Path == "/file" || request.URL.Path == "/manage/health") {
+	if request.Method == http.MethodGet && (request.URL.Path == "/repos" || request.URL.Path == "/repo" || request.URL.Path == "/files" || request.URL.Path == "/file" || request.URL.Path == "/approvals" || request.URL.Path == "/manage/health") {
 		a.browse(writer, request)
 		return
 	}
@@ -522,6 +522,8 @@ func (a *App) browse(writer http.ResponseWriter, request *http.Request) {
 		method = "browsefiles"
 	case "/file":
 		method = "browsefile"
+	case "/approvals":
+		method = "browseapprovals"
 	case "/manage/health":
 		method = "browsestatus"
 	}
@@ -569,6 +571,12 @@ func (a *App) browse(writer http.ResponseWriter, request *http.Request) {
 		if query["hash"] == "" {
 			query["hash"] = request.URL.Query().Get("sha")
 		}
+	case "browseapprovals":
+		state := request.URL.Query().Get("state")
+		if state == "" {
+			state = "all"
+		}
+		query = map[string]any{"cursor": query["cursor"], "limit": query["limit"], "state": state}
 	case "browsestatus":
 		query = map[string]any{}
 	}
@@ -587,6 +595,11 @@ func (a *App) browse(writer http.ResponseWriter, request *http.Request) {
 	if method == "browserepo" && pageQuery.Get("view") == "" {
 		pageQuery.Set("view", "tree")
 	}
+	if method == "browseapprovals" && pageQuery.Get("id") != "" {
+		// A notification opens one request; show it even when it has left
+		// the first page.
+		result = a.includeApproval(request.Context(), actor, result, pageQuery.Get("id"))
+	}
 	data := PageData{Tab: browseTab(path), Feed: browseRows(result), Event: result, Query: pageQuery}
 	data.Title = browseTitle(path, pageQuery, result, a.backend.Slug())
 	if method == "browserepo" && pageQuery.Get("view") == "home" {
@@ -597,7 +610,7 @@ func (a *App) browse(writer http.ResponseWriter, request *http.Request) {
 }
 
 func browseTitle(path string, query url.Values, result any, slug string) string {
-	label := map[string]string{"/repos": "Repositories", "/files": "Files", "/file": "File"}[path]
+	label := map[string]string{"/repos": "Repositories", "/files": "Files", "/file": "File", "/approvals": "Approvals"}[path]
 	if path == "/repo" {
 		label = query.Get("repo")
 		if label == "" {
@@ -659,6 +672,8 @@ func browseTab(path string) string {
 		return "files"
 	case "/file":
 		return "file"
+	case "/approvals":
+		return "approvals"
 	default:
 		return "health"
 	}
@@ -1064,6 +1079,8 @@ func tabForPath(path string) string {
 		return "files"
 	case "file":
 		return "file"
+	case "approvals":
+		return "approvals"
 	case "signin", "sites":
 		return path
 	case "people", "agents", "moderation", "rules", "identity", "connect", "data", "sync", "views", "health", "owner":

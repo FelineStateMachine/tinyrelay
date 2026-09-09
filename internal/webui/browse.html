@@ -50,6 +50,28 @@
 {{end}}{{if .Actor}}<details id="manage-file"><summary>Manage file</summary><rpc-form method="deleteblob"><input type="hidden" name="param" value="{{$hash}}"><button>Delete file</button></rpc-form></details>{{end}}</section>
 {{end}}{{end}}
 
+{{define "approvals"}}<section>
+<h1>Approvals</h1>
+<p>Requests that wait for your decision. Each answer is a signed reaction; a reply opens the thread.</p>
+{{if not .Actor}}<p><a href="/signin">Sign in</a> to see the requests addressed to your key.</p>
+{{else if .Error}}{{template "alert" .Error}}
+{{else}}{{$open := approvalViews .Event .URL "open"}}{{$done := approvalViews .Event .URL "answered" "expired"}}{{if $open}}{{range $item := $open}}<approval-item id="approval-{{$item.ID}}" data-type="{{$item.Type}}" data-state="{{$item.State}}">
+<header>{{template "nostrKey" $item.Asker}} in {{$item.Where}} | <time datetime="{{datetime $item.CreatedAt}}">{{when $item.CreatedAt}}</time>{{if $item.Expires}} | expires <time datetime="{{datetime $item.Expires}}">{{when $item.Expires}}</time>{{end}}</header>
+<p>{{$item.Title}}</p>{{with $item.Body}}<p>{{.}}</p>{{end}}{{with $item.About}}<pre>{{.}}</pre>{{end}}
+<footer>{{if ne $item.Type "question"}}<nostr-react event="{{$item.ID}}" pubkey="{{$item.Asker}}" kind="{{$item.Kind}}"><button name="answer" value="+">Approve</button> <button name="answer" value="-">Deny</button></nostr-react> {{end}}<details><summary>Reply</summary><nostr-compose kind="1111" root="{{$item.ID}}" root-pubkey="{{$item.Asker}}" root-kind="{{$item.Kind}}"{{with $item.Coordinate}} coordinate="{{.}}"{{end}}><label>Reply <textarea name="content" required></textarea></label><button>Sign and reply</button></nostr-compose></details> <a href="{{$item.Open}}">open</a></footer>
+</approval-item>
+{{end}}{{else}}<p>Nothing waits for your decision.</p>
+{{end}}{{if $done}}<h3>Answered</h3>
+<table id="rows">
+<thead><tr><th>asker</th><th>request</th><th>answer</th></tr></thead>
+<tbody>
+{{range $item := $done}}<tr id="approval-{{$item.ID}}" data-state="{{$item.State}}"><td>{{template "nostrKey" $item.Asker}}</td><td><a href="{{$item.Open}}">{{$item.Title}}</a>{{with $item.AnswerContent}} <small>{{.}}</small>{{end}}</td><td>{{if eq $item.State "expired"}}expired{{else}}{{$item.Decision}} | <time datetime="{{datetime $item.AnsweredAt}}">{{when $item.AnsweredAt}}</time>{{end}}</td></tr>
+{{end}}</tbody>
+</table>
+{{end}}{{with (asMap .Event).next_cursor}}<p id="pages"><a href="{{browsePageURL "/approvals" $.Query "cursor" .}}">next page</a></p>
+{{end}}<noscript><p>Approve and Deny need JavaScript and a connected signer.</p></noscript>{{end}}</section>
+{{end}}
+
 {{define "sites"}}<section>
 <h1>Sites</h1>
 <p>Static sites published to this relay as signed manifests. Each site is served on its own host.</p>

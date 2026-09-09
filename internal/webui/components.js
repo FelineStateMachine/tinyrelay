@@ -27,9 +27,16 @@
 //   <file-tools hash="…" type="…" size="…">
 //     Shares one stored file: copies its Blossom URI or share link, decrypts
 //     a share link fragment and sends a random-key file as a NIP-17 message.
-//   <nostr-compose kind="…" coordinate="30617:…" [root="…" root-pubkey="…" root-kind="…"] [parent="…" …]>
+//   <nostr-compose kind="…" [coordinate="30617:…"] [root="…" root-pubkey="…" root-kind="…"] [parent="…" …]>
 //     Signs a NIP-34 issue, pull request, NIP-22 reply or status event and
-//     posts it to the relay.
+//     posts it to the relay. A reply outside a repository omits the coordinate.
+//   <nostr-react event="…" pubkey="…" [kind="…"]>
+//     Answers a request for a decision with a signed kind 7 reaction: the
+//     Approve button sends +, Deny sends -. The prompt method asks for a
+//     visible confirmation first, which the answer link from a notification uses.
+//   <approval-item id="approval-…">
+//     One request on the Approvals page. When the page opens with the item's
+//     id and an answer in the query, it scrolls into view and offers that answer.
 //   <share-link [url="…"] [title="…"]>
 //     The device share sheet for the page; empty without browser support.
 //   <push-toggle>
@@ -341,12 +348,14 @@
       const kind = Number(mode === "status" ? value("status") : mode);
       if (![1621, 1618, 1111, 1630, 1631, 1632, 1633].includes(kind)) throw Error("Choose a valid event type.");
       const coordinate = this.getAttribute("coordinate") || "";
-      if (!/^30617:[0-9a-f]{64}:.+$/.test(coordinate)) throw Error("The repository address is missing.");
-      const tags = [["a", coordinate]];
+      // A reply to a request for a decision may sit outside any repository.
+      if (coordinate ? !/^30617:[0-9a-f]{64}:.+$/.test(coordinate) : kind !== 1111) throw Error("The repository address is missing.");
+      const tags = coordinate ? [["a", coordinate]] : [];
       if (kind === 1111 || kind >= 1630) {
         const root = this.getAttribute("root"), pubkey = this.getAttribute("root-pubkey");
         const rootKind = this.getAttribute("root-kind");
-        if (!isHex64(root) || !isHex64(pubkey) || !["1617", "1618", "1621"].includes(rootKind)) throw Error("The conversation address is missing.");
+        const rootKinds = coordinate ? ["1617", "1618", "1621"] : ["1111", "9", "11"];
+        if (!isHex64(root) || !isHex64(pubkey) || !rootKinds.includes(rootKind)) throw Error("The conversation address is missing.");
         if (kind === 1111) {
           const parent = this.getAttribute("parent") || root;
           const parentPubkey = this.getAttribute("parent-pubkey") || pubkey;
@@ -553,10 +562,102 @@
     }
   }
 
+  // NostrReact answers a request for a decision. The reaction names the
+  // request with e and the asker with p, so the asker's own subscription
+  // sees the answer. Nothing is signed without a press: the buttons submit
+  // the form, and prompt() asks once more before signing on behalf of a
+  // notification action.
+  const publishSigned = async unsigned => {
+    if (!window.nostr?.signEvent) throw Error("Connect a signer first.");
+    const expected = JSON.stringify(unsigned);
+    const event = await window.nostr.signEvent(JSON.parse(expected));
+    const actual = event && JSON.stringify({kind: event.kind, created_at: event.created_at, tags: event.tags, content: event.content});
+    if (actual !== expected || !window.NostrSigner?.verifyEvent(event)) throw Error("The signer returned an invalid or changed event.");
+    const response = await tiny.signedFetch("/events", "POST", JSON.stringify(event), {contentType: "application/json"});
+    const result = await response.json();
+    if (!response.ok || result.accepted !== true) throw Error(result.error || result.message || "The relay rejected the event.");
+    return event;
+  };
+  const decisions = {"+": "approve", "-": "deny"};
+  class NostrReact extends FormElement {
+    connectedCallback() {
+      if (this.form) return;
+      super.connectedCallback();
+      if (this.listening) return;
+      this.listening = true;
+      this.addEventListener("click", event => {
+        const button = event.target.closest("button[name=answer]");
+        if (button) this.choice = button.value;
+      });
+    }
+
+    async submit(form, choice = this.choice) {
+      const id = this.getAttribute("event"), pubkey = this.getAttribute("pubkey");
+      if (!isHex64(id) || !isHex64(pubkey)) throw Error("The request address is missing.");
+      if (!(choice in decisions)) throw Error("Choose Approve or Deny.");
+      const tags = [["e", id, "", pubkey], ["p", pubkey]];
+      const kind = this.getAttribute("kind");
+      if (/^\d+$/.test(kind || "")) tags.push(["k", kind]);
+      this.report("Signing…");
+      await publishSigned({kind: 7, created_at: Math.floor(Date.now() / 1000), tags, content: choice});
+      this.choice = null;
+      this.report(choice === "+" ? "Approved." : "Denied.");
+      await tiny.navigate?.((globalThis.location?.href || "").split("?", 1)[0]);
+    }
+
+    // prompt shows the confirmation for one answer; the signature waits for
+    // the confirm button. Without a signer it waits for one to connect.
+    prompt(answer) {
+      const choice = Object.keys(decisions).find(key => decisions[key] === answer);
+      if (!choice) return;
+      if (!window.nostr?.signEvent) {
+        this.report("Connect a signer to answer this request.");
+        document.addEventListener("tiny:signer", () => this.prompt(answer), {once: true});
+        return;
+      }
+      const question = el("span", (answer === "approve" ? "Approve" : "Deny") + " this request? ");
+      const confirm = el("button", "Confirm");
+      confirm.type = "button";
+      const cancel = el("button", "Cancel");
+      cancel.type = "button";
+      confirm.addEventListener("click", () => {
+        this.busy(true);
+        confirm.disabled = cancel.disabled = true;
+        this.submit(this.form, choice).catch(err => this.report("Error: " + err.message, true)).finally(() => this.busy(false));
+      });
+      cancel.addEventListener("click", () => this.report(""));
+      this.output.replaceChildren(question, confirm, " ", cancel);
+      delete this.output.dataset.error;
+      confirm.focus();
+    }
+  }
+
+  // ApprovalItem reacts to the query a notification action opens the page
+  // with: id names the request and answer is approve, deny or reply.
+  class ApprovalItem extends HTMLElement {
+    connectedCallback() {
+      if (this.bound) return;
+      this.bound = true;
+      const params = new URLSearchParams(location.search);
+      if (this.id !== "approval-" + params.get("id")) return;
+      this.setAttribute("data-focus", "");
+      this.scrollIntoView?.({block: "center"});
+      const answer = params.get("answer");
+      if (answer === "reply") {
+        const details = this.querySelector("details");
+        if (details) details.open = true;
+        this.querySelector("textarea")?.focus();
+      } else if (answer === "approve" || answer === "deny") {
+        // The reaction element must have wrapped its form first.
+        queueMicrotask(() => this.querySelector("nostr-react")?.prompt(answer));
+      }
+    }
+  }
+
   // PushToggle opts this browser into relay notifications. Nothing happens
   // until the button is pressed: permission is requested then, and the
   // device subscription is registered with a signed request.
-  const pushCategories = [["messages", "private messages"], ["replies", "replies to you"], ["mentions", "mentions"], ["relay", "relay notices"]];
+  const pushCategories = [["messages", "private messages"], ["replies", "replies to you"], ["mentions", "mentions"], ["approvals", "requests for a decision"], ["relay", "relay notices"]];
   class PushToggle extends HTMLElement {
     connectedCallback() {
       if (this.bound) return;
@@ -997,6 +1098,8 @@
   customElements.define("publish-list", PublishList);
   customElements.define("nostr-compose", NostrCompose);
   customElements.define("agent-grant", AgentGrant);
+  customElements.define("nostr-react", NostrReact);
+  customElements.define("approval-item", ApprovalItem);
   customElements.define("push-toggle", PushToggle);
   customElements.define("share-link", ShareLink);
   customElements.define("nostr-key", NostrKey);
@@ -1027,7 +1130,7 @@
       if (root && !(url.pathname === root || url.pathname.startsWith(root + "/"))) return null;
       return root ? url.pathname.slice(root.length) || "/" : url.pathname;
     };
-    const allowedRoute = path => /^(?:\/(?:inbox|outbox|search|articles|private|chat|media|sites|marmot|grasp|terms|signin|connect|tools|repo|repos|file|files)?\/?|\/manage(?:\/(?:people|agents|moderation|rules|identity|connect|data|sync|views|health|owner|status))?\/?|\/(?:invite|e|a)\/.+)$/.test(path || "");
+    const allowedRoute = path => /^(?:\/(?:inbox|approvals|outbox|search|articles|private|chat|media|sites|marmot|grasp|terms|signin|connect|tools|repo|repos|file|files)?\/?|\/manage(?:\/(?:people|agents|moderation|rules|identity|connect|data|sync|views|health|owner|status))?\/?|\/(?:invite|e|a)\/.+)$/.test(path || "");
     let navigationSerial = 0, activeAbort;
     const streams = new Set();
     const closeStreams = () => {
@@ -1042,7 +1145,7 @@
     document.addEventListener("fx:sse:close", event => streams.delete(event.detail.cfg));
     window.addEventListener("pagehide", closeStreams);
     const repairComponents = () => {
-      document.querySelectorAll("rpc-form,signed-form,publish-list,agent-grant").forEach(node => {
+      document.querySelectorAll("rpc-form,signed-form,publish-list,agent-grant,nostr-react").forEach(node => {
         if (node.form?.isConnected) return;
         node.form = null;
         node.output = null;
