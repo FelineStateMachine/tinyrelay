@@ -205,11 +205,14 @@ func (t *Tenant) checkCallbackURL(raw string) error {
 		return nil
 	}
 	host := strings.ToLower(parsed.Hostname())
+	if ip := net.ParseIP(host); ip != nil {
+		if privateAddress(ip) {
+			return errors.New("invalid: url must not name a private or loopback address")
+		}
+		return nil
+	}
 	if host == "localhost" || strings.HasSuffix(host, ".localhost") || strings.HasSuffix(host, ".local") || strings.HasSuffix(host, ".internal") || !strings.Contains(host, ".") {
 		return errors.New("invalid: url must name a public host")
-	}
-	if ip := net.ParseIP(host); ip != nil && privateAddress(ip) {
-		return errors.New("invalid: url must not name a private or loopback address")
 	}
 	return nil
 }

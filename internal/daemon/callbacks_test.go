@@ -100,6 +100,8 @@ func TestCallbackRegistrationValidatesURLFilterScopeAndCap(t *testing.T) {
 		{"credentials", member, "https://user:pw@hooks.example/wake", `{"kinds":[1]}`, "invalid: url must be https"},
 		{"private address", member, "https://10.0.0.1/wake", `{"kinds":[1]}`, "invalid: url must not name a private"},
 		{"loopback address", member, "https://127.0.0.1/wake", `{"kinds":[1]}`, "invalid: url must not name a private"},
+		{"loopback ipv6", member, "https://[::1]/wake", `{"kinds":[1]}`, "invalid: url must not name a private"},
+		{"shared address", member, "https://100.64.0.9/wake", `{"kinds":[1]}`, "invalid: url must not name a private"},
 		{"localhost", member, "https://localhost/wake", `{"kinds":[1]}`, "invalid: url must name a public host"},
 		{"bare host", member, "https://relay/wake", `{"kinds":[1]}`, "invalid: url must name a public host"},
 		{"no kinds", member, "https://hooks.example/wake", `{"#p":["` + member + `"]}`, "invalid: filter must name at least one kind"},
@@ -145,6 +147,8 @@ func TestCallbackRegistrationValidatesURLFilterScopeAndCap(t *testing.T) {
 	for i := 0; i < 6; i++ {
 		addCallback(t, tenant, owner, "https://hooks.example/owner/"+strconv.Itoa(i), `{"kinds":[1]}`)
 	}
+	// A public address literal is a host like any other.
+	addCallback(t, tenant, owner, "https://[2001:db8::10]/wake", `{"kinds":[1]}`)
 	// The secret shows once: listings and the table row never repeat it.
 	listed, err := tenant.Execute(ctx, agent, "listcallbacks", nil)
 	if err != nil {
