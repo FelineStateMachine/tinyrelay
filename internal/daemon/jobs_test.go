@@ -81,7 +81,7 @@ func TestMCPJobToolsBuildValidateAndPublish(t *testing.T) {
 	if result, isError = call("request_job", map[string]any{"kind": 1}, testMemberSecret); !isError {
 		t.Fatalf("request_job bad kind: %s", text(result))
 	}
-	if result, isError = call("request_job", map[string]any{"event": mcpSigned(t, testMemberSecret, 5001, [][]string{{"i", "hello"}}, "")}, testMemberSecret); !isError || !strings.Contains(text(result), "url, event, job or text") || !strings.Contains(text(result), "Expected a signed event of kind 5000 to 5999") {
+	if result, isError = call("request_job", map[string]any{"event": mcpSigned(t, testMemberSecret, 5001, [][]string{{"i", "hello"}}, "")}, testMemberSecret); !isError || !strings.Contains(text(result), "url, event, job or text") || !strings.Contains(text(result), "Expected a signed event of kind 5000 to 5127 or 5129 to 5999") {
 		t.Fatalf("request_job malformed signed: %s", text(result))
 	}
 	request := mcpSigned(t, testMemberSecret, 5001, [][]string{{"i", "hello", "text"}, {"output", "text/plain"}, {"bid", "1000"}}, "")

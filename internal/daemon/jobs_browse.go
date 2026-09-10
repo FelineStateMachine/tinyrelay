@@ -23,11 +23,13 @@ const jobScan = 1000
 
 var jobStates = []string{"open", "done", "all"}
 
-// jobRequestKinds lists every request kind, so one filter covers the range.
+// jobRequestKinds lists the kinds classified as long-task requests.
 var jobRequestKinds = func() []int {
 	kinds := make([]int, 0, event.KIND_JOB_REQUEST_MAX-event.KIND_JOB_REQUEST_MIN+1)
 	for kind := event.KIND_JOB_REQUEST_MIN; kind <= event.KIND_JOB_REQUEST_MAX; kind++ {
-		kinds = append(kinds, kind)
+		if event.IsJobRequest(kind) {
+			kinds = append(kinds, kind)
+		}
 	}
 	return kinds
 }()

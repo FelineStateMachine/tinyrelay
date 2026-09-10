@@ -64,8 +64,9 @@ const (
 	KIND_AGENT_GRANT   = 30392
 )
 
-// NIP-90 long tasks: a job request kind in 5000 to 5999 is answered by a
-// result kind 1000 higher and by feedback of kind 7000.
+// NIP-90 long tasks use request kinds 5000 to 5127 and 5129 to 5999.
+// Each request is answered by a result kind 1000 higher and by feedback
+// of kind 7000. Kind 5128 belongs to NIP-5A site snapshots.
 const (
 	KIND_JOB_REQUEST_MIN = 5000
 	KIND_JOB_REQUEST_MAX = 5999
@@ -80,8 +81,11 @@ var JobFeedbackStatuses = []string{"payment-required", "processing", "error", "s
 // JobInputTypes is the NIP-90 vocabulary of the i tag's input type.
 var JobInputTypes = []string{"url", "event", "job", "text"}
 
-// IsJobRequest reports whether kind is a NIP-90 request kind.
-func IsJobRequest(kind int) bool { return kind >= KIND_JOB_REQUEST_MIN && kind <= KIND_JOB_REQUEST_MAX }
+// IsJobRequest reports whether kind belongs to long-task requests.
+// NIP-5A site snapshots have their own admission and manifest rules.
+func IsJobRequest(kind int) bool {
+	return kind >= KIND_JOB_REQUEST_MIN && kind <= KIND_JOB_REQUEST_MAX && kind != KIND_SITE_SNAPSHOT
+}
 
 // IsJobResult reports whether kind is a NIP-90 result kind.
 func IsJobResult(kind int) bool { return kind >= KIND_JOB_RESULT_MIN && kind <= KIND_JOB_RESULT_MAX }

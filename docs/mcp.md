@@ -116,7 +116,7 @@ Write tools, which publish through the same path as `POST /events`:
 | `publish_site` | Publish a static site manifest, kind 15128 for the key's own site or kind 35128 for a named site, from `paths` given as `[path, sha256]` pairs and an optional `expiration`. |
 | `create_room` | Create a room with a kind 9007 event carrying its id, name, description and visibility. |
 | `request_decision` | Ask a person to approve, decide or answer with a kind 9 room message or a kind 1111 comment carrying a `request` tag. |
-| `request_job` | Ask for a long task with a NIP-90 job request of kind 5000 to 5999 carrying its inputs, output type, parameters, bid and relays. |
+| `request_job` | Ask for a long task with a NIP-90 job request of kind 5000 to 5127 or 5129 to 5999 carrying its inputs, output type, parameters, bid and relays. |
 | `job_feedback` | Report progress on a long task with a kind 7000 event naming the request, the requester and a status. |
 | `job_result` | Deliver a long task's output with an event of the request kind plus 1000, naming the request and the requester. |
 
@@ -136,7 +136,7 @@ The person answers with a kind 7 reaction to the published event from the asked 
 
 ### Static sites
 
-`publish_site` builds a [NIP-5A](https://github.com/nostr-protocol/nips/pull/2004) manifest. Upload each file to the blob store first, then pass `paths`, one `[path, sha256]` pair per file such as `["/index.html", "<sha256>"]`, and optionally `label` and `expiration`. Without a label the manifest is kind 15128, the key's own site; a named site label under the key gives a kind 35128 event with its `d` tag. Each pair becomes a `path` tag, and the template is checked with the same rules as the signed event: absolute paths with a file extension, no duplicates and a 64-character hex hash. An agent needs a `sites` grant that covers the label; when the grant sets a ttl the manifest must carry an `expiration` within it. See [Static sites](agents.md#static-sites).
+`publish_site` builds a [NIP-5A](https://github.com/nostr-protocol/nips/blob/master/5A.md) manifest. Upload each file to the blob store first, then pass `paths`, one `[path, sha256]` pair per file such as `["/index.html", "<sha256>"]`, and optionally `label` and `expiration`. Without a label the manifest is kind 15128, the key's own site; a named site label under the key gives a kind 35128 event with its `d` tag. Each pair becomes a `path` tag, and the template is checked with the same rules as the signed event: absolute paths with a file extension, no duplicates and a 64-character hex hash. An agent needs a `sites` grant that covers the label; when the grant sets a ttl the manifest must carry an `expiration` within it. See [Static sites](agents.md#static-sites).
 
 ### Room attachments
 
@@ -152,7 +152,7 @@ Room uploads use `/media/<hash>.<extension>` URLs compatible with Buzz. Reads fo
 
 ### Long tasks
 
-`request_job` builds a [NIP-90](https://github.com/nostr-protocol/nips/blob/master/90.md) job request. Pass `kind` (5000 to 5999) and `inputs`, each with `data` and a `type` of `url`, `event`, `job` or `text` plus an optional `relay` and `marker`, and any of `output`, `params`, `bid` in millisats, `relays` and `expiration`. Each input becomes an `i` tag and each parameter a `param` tag.
+`request_job` builds a [NIP-90](https://github.com/nostr-protocol/nips/blob/master/90.md) job request. Pass `kind` (5000 to 5127 or 5129 to 5999) and `inputs`, each with `data` and a `type` of `url`, `event`, `job` or `text` plus an optional `relay` and `marker`, and any of `output`, `params`, `bid` in millisats, `relays` and `expiration`. Each input becomes an `i` tag and each parameter a `param` tag.
 
 A serving agent answers with `job_feedback`, which takes `e` (the request id), `p` (the requester) and `status` (`payment-required`, `processing`, `error`, `success` or `partial`) plus optional `info`, `amount`, `invoice` and `content`, and then with `job_result`, which takes the `request` event and `content` plus optional `amount` and `invoice`. The result's kind is the request kind plus 1000 and carries the request as JSON in its `request` tag with the request's inputs. The relay accepts feedback and results only when they name the request and the requester; from an agent, only when the relay holds the request. `list_jobs` and `read_job` follow the work. See [Long tasks](agents.md#long-tasks).
 

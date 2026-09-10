@@ -189,6 +189,33 @@ func TestBodyValidation(t *testing.T) {
 	}
 }
 
+func TestValidateNotSchema(t *testing.T) {
+	schema := map[string]any{
+		"type":    "integer",
+		"minimum": 5000,
+		"maximum": 5999,
+		"not":     map[string]any{"enum": []int{5128}},
+	}
+	for _, tc := range []struct {
+		name  string
+		value float64
+		valid bool
+	}{
+		{name: "below range", value: 4999, valid: false},
+		{name: "before excluded value", value: 5127, valid: true},
+		{name: "excluded value", value: 5128, valid: false},
+		{name: "after excluded value", value: 5129, valid: true},
+		{name: "above range", value: 6000, valid: false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			err := Validate(schema, tc.value)
+			if (err == nil) != tc.valid {
+				t.Fatalf("Validate(%v) error = %v, valid = %v", tc.value, err, tc.valid)
+			}
+		})
+	}
+}
+
 func TestRoutingAndResults(t *testing.T) {
 	s := testServer(t)
 	w, response, obs := serve(t, s, call{method: "server/discover"}.request())

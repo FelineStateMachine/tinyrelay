@@ -1,7 +1,7 @@
 package gates
 
 // Long tasks follow NIP-90: a member or agent publishes a job request
-// (kind 5000 to 5999), and a serving agent or member answers it with
+// (kind 5000 to 5127 or 5129 to 5999), and a serving agent or member answers it with
 // feedback (kind 7000) and a result (the request kind plus 1000). The relay
 // keeps every event signed by its author; it only checks that requests,
 // feedback and results carry the tags the protocol needs, that they are
@@ -21,7 +21,7 @@ import (
 )
 
 // JobShape checks the tags of a job request, result or feedback event. It
-// returns nil for kinds outside the job ranges.
+// returns nil for other event kinds.
 func JobShape(e event.Event) error {
 	switch {
 	case event.IsJobRequest(e.Kind):

@@ -153,7 +153,7 @@ func Object(properties map[string]any, required ...string) map[string]any {
 }
 
 // Validate checks a value against the subset of JSON Schema 2020-12 the tool
-// tables use: type, properties, required, additionalProperties, enum,
+// tables use: type, properties, required, additionalProperties, enum, not,
 // pattern, minimum, maximum, minLength, maxLength, minProperties and items.
 func Validate(schema map[string]any, value any) error {
 	return validate(schema, value, "")
@@ -173,6 +173,11 @@ func validate(schema map[string]any, value any, path string) error {
 	}
 	if options := enumOptions(schema["enum"]); len(options) > 0 && !contains(options, scalar(value)) {
 		return fmt.Errorf("%s must be one of %s", where(), strings.Join(options, ", "))
+	}
+	if excluded, ok := schema["not"].(map[string]any); ok {
+		if validate(excluded, value, path) == nil {
+			return fmt.Errorf("%s matches an excluded value", where())
+		}
 	}
 	if pattern, ok := schema["pattern"].(string); ok {
 		text, _ := value.(string)
