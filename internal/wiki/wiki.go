@@ -1,6 +1,3 @@
-// Package wiki implements the NIP-54 rules that do not depend on storage:
-// article name normalization, link discovery and a conservative Djot
-// renderer for article content.
 package wiki
 
 import (

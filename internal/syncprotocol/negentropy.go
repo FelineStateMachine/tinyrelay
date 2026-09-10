@@ -8,11 +8,14 @@ import (
 	"fiatjaf.com/nostr/nip77/negentropy/storage/vector"
 )
 
+// Item identifies one event in a reconciliation index.
 type Item struct {
 	ID        string
 	Timestamp int64
 }
 
+// Result contains one negentropy response and the IDs discovered by the
+// initiator when reconciliation completes.
 type Result struct {
 	Response string
 	Have     []string
@@ -20,11 +23,16 @@ type Result struct {
 	Done     bool
 }
 
+// Session holds one stateful negentropy exchange. A session is used by one
+// initiator or responder for the lifetime of that exchange.
 type Session struct {
 	neg       *negentropy.Negentropy
 	initiator bool
 }
 
+// NewSession builds a sealed negentropy index from the relay's event IDs and
+// timestamps. The initiator flag selects the side that starts the exchange
+// and receives Have and Need IDs.
 func NewSession(items []Item, initiator bool) (*Session, error) {
 	vec := vector.New()
 	for _, item := range items {
@@ -38,6 +46,7 @@ func NewSession(items []Item, initiator bool) (*Session, error) {
 	return &Session{neg: negentropy.New(vec, 60_000, initiator, initiator), initiator: initiator}, nil
 }
 
+// Start begins an initiator session and returns its protocol message.
 func (s *Session) Start() (string, error) {
 	if !s.initiator {
 		return "", fmt.Errorf("only the initiator can start a negentropy session")
@@ -45,6 +54,8 @@ func (s *Session) Start() (string, error) {
 	return s.neg.Start(), nil
 }
 
+// Reconcile consumes one peer message and returns the next response. An
+// initiator receives IDs present on each side once the exchange is complete.
 func (s *Session) Reconcile(message string) (Result, error) {
 	if message == "" {
 		return Result{}, fmt.Errorf("empty negentropy message")

@@ -11,10 +11,16 @@ import (
 	"github.com/FelineStateMachine/tinyrelay/internal/event"
 )
 
+// Access controls which private and callback events a query may return. All
+// bypasses recipient filtering but still excludes hidden, pending and expired
+// rows.
 type Access struct {
 	PubKeys []string
 	All     bool
 }
+
+// QueryOptions supplies query time, access principals, an optional result
+// limit and a cursor from a prior Query result.
 type QueryOptions struct {
 	Now    int64
 	Access Access
@@ -27,6 +33,9 @@ type EventCursor struct {
 	CreatedAt int64
 	ID        string
 }
+
+// QueryResult contains the matching events and whether the limit hid more
+// rows.
 type QueryResult struct {
 	Events []event.Event
 	More   bool

@@ -31,8 +31,9 @@ import (
 )
 
 // customViewService owns custom view definitions, transform execution and
-// artifact storage. Tenant supplies the narrow lifecycle callbacks when it
-// constructs the service.
+// artifact storage. It borrows tenant dependencies and serializes transforms
+// per view. Git is bound after repository initialization and before workers
+// start; Records supplies the signing identity for generated artifacts.
 type customViewService struct {
 	store        *storage.Store
 	community    *community.Service

@@ -1,7 +1,10 @@
-// BUD-16 and BUD-17 MessagePack manifests. This is maintained browser source,
-// embedded directly by the Go templates; it is intentionally not bundled.
+// BUD-16 and BUD-17 MessagePack manifests. Go templates embed this browser
+// source directly so the same codec serves pages and file controls.
 (() => {
   "use strict";
+  // Manifest codec and tree reader. The API encodes and validates file and
+  // directory manifests, builds chunked trees and reads them through caller
+  // supplied fetch functions.
   const CHUNK_SIZE = 2 * 1024 * 1024;
   const MAX_LINKS = 174;
   const MAX_DEPTH = 64;

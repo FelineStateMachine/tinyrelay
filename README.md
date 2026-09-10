@@ -79,8 +79,6 @@ See [Wiki](docs/wiki.md) for pages, versions and forks, merge requests and redir
 
 See [Custom views](docs/views.md) for rendering fenced code blocks through a transform you run and keeping the result as signed artifacts.
 
-See [Architecture](docs/architecture.md) for service responsibilities, event acceptance and dependency checks.
-
 **Manage > Health** shows the relay and script versions and whether the browser's WebMCP tools are registered. See [WebMCP tools](docs/webmcp.md) for browser-agent integration and authorization behavior.
 
 Agents outside the browser connect to `/mcp`, a stateless Model Context Protocol endpoint authenticated with NIP-98, and read `/llms.txt` for a summary of the relay's machine surface. See [MCP](docs/mcp.md). An agent acts under a grant the owner signs, and the owner reviews what it proposes:
@@ -129,6 +127,20 @@ flowchart LR
 ```
 
 See [Personal relay deployment](docs/personal-relay.md) for the reference installation.
+
+## Explore the code
+
+Start with [`cmd/tiny`](cmd/tiny/doc.go) for commands and process lifetime, or [`daemon`](internal/daemon/doc.go) for tenant assembly and event flow. Each internal package has a `doc.go` overview. Comments on interfaces, constructors and transaction hooks explain ownership, inputs and failure behavior where those contracts are declared. Tests live beside the code they exercise.
+
+Use editor symbol help or read the same comments from the command line:
+
+```sh
+go doc ./internal/daemon
+go doc ./internal/storage SaveOptions
+go doc ./internal/work Handler
+```
+
+See [Architecture](docs/architecture.md) for the package map, event acceptance and dependency checks.
 
 ## Test and diagnose
 

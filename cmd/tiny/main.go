@@ -33,6 +33,8 @@ func main() {
 	}
 }
 
+// run dispatches arguments after the executable name and writes command output
+// to out. Returning errors to main keeps process exit at the command boundary.
 func run(ctx context.Context, args []string, out io.Writer) error {
 	if len(args) == 0 || args[0] == "help" || args[0] == "--help" || args[0] == "-h" {
 		_, err := fmt.Fprintln(out, "tiny serve [--data-dir PATH] [--listen :7447]\ntiny tenant create --name NAME --owner PUBKEY [--template default]\ntiny tenant list|enable|disable|host [options]\ntiny git-token --repo URL [--key-env TINY_AGENT_KEY] [--format header|value|git]\ntiny templates\ntiny version")
@@ -215,6 +217,8 @@ func hexOwner(value string) bool {
 	return true
 }
 
+// serve owns listeners and peer monitoring around the App lifecycle. Shutdown
+// drains the servers and joins peer monitoring before deferred App cleanup.
 func serve(ctx context.Context, args []string, out io.Writer) error {
 	opts, err := parseServe(args)
 	if err != nil {
@@ -297,6 +301,9 @@ func serve(ctx context.Context, args []string, out io.Writer) error {
 	return serverErr
 }
 
+// awaitServers starts shutdown when ctx ends or a server returns. Each server
+// must report once to results; all reports are drained before returning the
+// joined shutdown and serving errors.
 func awaitServers(ctx context.Context, servers []*http.Server, results <-chan error) error {
 	var first error
 	received := 0

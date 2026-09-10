@@ -1,5 +1,5 @@
-// PrivateServices edits the encrypted GRASP-08 kind 10318 list. The relay
-// only sees the signed event; NIP-44 encryption stays with the user's signer.
+// PrivateServices edits the encrypted kind 10318 relay list. NIP-44 encryption
+// and event signing stay with the user's signer.
 (() => {
   "use strict";
 

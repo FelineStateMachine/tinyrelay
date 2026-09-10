@@ -27,6 +27,9 @@ type lifecycleState struct {
 	done        chan struct{}
 }
 
+// AcquireProcessLock exclusively locks dataDir for a serving process. Lock
+// acquisition fails immediately when another process holds it. The caller
+// retains the lock until every tenant using the directory has closed.
 func AcquireProcessLock(dataDir string) (*ProcessLock, error) {
 	if dataDir == "" {
 		return nil, errors.New("daemon: data directory is required")
@@ -45,6 +48,7 @@ func AcquireProcessLock(dataDir string) (*ProcessLock, error) {
 	return &ProcessLock{file: file}, nil
 }
 
+// Close releases the process lock and closes its file handle.
 func (l *ProcessLock) Close() error {
 	if l == nil || l.file == nil {
 		return nil
@@ -52,8 +56,9 @@ func (l *ProcessLock) Close() error {
 	return errors.Join(syscall.Flock(int(l.file.Fd()), syscall.LOCK_UN), l.file.Close())
 }
 
-// Start eagerly opens permanent ready tenants, so jobs resume after restart
-// without waiting for the first browser or websocket request.
+// Start acquires the process lock, opens ready tenants and starts catalog
+// reconciliation. baseURL supplies their public address. ctx bounds startup;
+// App.Close ends the running lifecycle. Calls on a started App return nil.
 func (a *App) Start(ctx context.Context, baseURL string) error {
 	a.lifecycle.mu.Lock()
 	defer a.lifecycle.mu.Unlock()

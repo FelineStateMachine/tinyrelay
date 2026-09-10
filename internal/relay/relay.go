@@ -1,6 +1,3 @@
-// Package relay owns the websocket protocol boundary.  It deliberately keeps
-// storage and policy behind Backend so the wire protocol cannot accidentally
-// become the tenant's data model.
 package relay
 
 import (
@@ -23,56 +20,80 @@ import (
 )
 
 type Session struct {
-	PubKeys  []string
+	// PubKeys contains public keys established by the connection's AUTH flow.
+	PubKeys []string
+	// RelayURL is the relay identity used when authenticating and publishing.
 	RelayURL string
+	// RemoteIP is the peer address observed by the HTTP server.
 	RemoteIP string
 }
 
-// Backend publishes while the Router's write gate is held. Publish must make
-// the event and any delivery intent durable before returning nil.
+// Backend publishes while the Router's write gate is held. Publish performs
+// the backend's admission, persistence, duplicate handling or control action
+// before returning. A nil error allows Router to fan out the event unless the
+// returned reason identifies a duplicate. Persistence and delivery planning
+// remain backend responsibilities for event kinds that require them.
 type Backend interface {
-	Publish(context.Context, event.Event, Session) (string, error)
-	Query(context.Context, []event.Filter, Session) ([]event.Event, error)
-	Count(context.Context, []event.Filter, Session) (any, error)
+	Publish(ctx context.Context, event event.Event, session Session) (reason string, err error)
+	Query(ctx context.Context, filters []event.Filter, session Session) ([]event.Event, error)
+	Count(ctx context.Context, filters []event.Filter, session Session) (any, error)
 }
 
 // Reader-side privacy can be stricter than the query filter. It is checked for
 // both historical and live delivery, including encrypted signer traffic.
 type Reader interface {
-	CanRead(event.Event, Session) bool
+	CanRead(event event.Event, session Session) bool
 }
 
+// FilterReader applies reader privacy with the subscription filter available
+// to the policy decision.
 type FilterReader interface {
-	CanReadFilter(event.Event, Session, *event.Filter) bool
+	CanReadFilter(event event.Event, session Session, filter *event.Filter) bool
 }
 
+// QueryHints can return query results together with completion hints. Router
+// places these values in the EOSE response; the relay backend uses values such
+// as "finish", "more" and "auth".
 type QueryHints interface {
-	QueryHints(context.Context, []event.Filter, Session) ([]event.Event, []string, error)
+	QueryHints(ctx context.Context, filters []event.Filter, session Session) ([]event.Event, []string, error)
 }
 
-// Policy changes can invalidate subscriptions. The Router removes them from
-// clients immediately; the optional callback lets storage invalidate caches.
-type PolicyChanges interface{ CloseSubscriptions(Session) }
+// PolicyChanges can invalidate subscriptions in storage after an access
+// policy revision. Router removes client state before invoking the callback.
+type PolicyChanges interface {
+	CloseSubscriptions(session Session)
+}
 
 // SyncBackend supplies the authorized event snapshot for a NIP-77 session.
 // The Router holds its read gate while calling Sync, so a concurrent Publish
 // cannot create an opening between snapshot selection and NEG-OPEN.
 type SyncBackend interface {
-	Sync(context.Context, event.Filter, Session) ([]syncprotocol.Item, error)
+	Sync(ctx context.Context, filter event.Filter, session Session) ([]syncprotocol.Item, error)
 }
 
 type Config struct {
-	RelayURL        string
+	// RelayURL is the default relay identity included in sessions.
+	RelayURL string
+	// RequestRelayURL optionally derives the relay identity from each request.
 	RequestRelayURL func(*http.Request) string
-	OnAuthenticate  func(context.Context, Session) error
+	// OnAuthenticate checks the authenticated session candidate and may persist
+	// authentication bookkeeping. The Session argument is a value snapshot;
+	// Router records the newly authenticated public key after this callback.
+	OnAuthenticate func(context.Context, Session) error
+	// MaxMessageBytes limits websocket text messages. Zero leaves the limit
+	// unlimited; a negative value selects the 512 KiB default.
 	MaxMessageBytes int64
+	// MaxPendingBytes bounds queued output per connection.
 	MaxPendingBytes int
-	ReadLimit       time.Duration
-	WriteLimit      time.Duration
-	PingInterval    time.Duration
-	OriginPatterns  []string
-	OnConnection    func(int)
-	OnSubscription  func(int)
+	// ReadLimit, WriteLimit and PingInterval control websocket liveness.
+	ReadLimit    time.Duration
+	WriteLimit   time.Duration
+	PingInterval time.Duration
+	// OriginPatterns is passed to the websocket origin check.
+	OriginPatterns []string
+	// OnConnection and OnSubscription receive +1 and -1 lifecycle deltas.
+	OnConnection   func(int)
+	OnSubscription func(int)
 }
 
 func (c Config) withDefaults() Config {

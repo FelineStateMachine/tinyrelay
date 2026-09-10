@@ -23,19 +23,34 @@ import (
 	"github.com/FelineStateMachine/tinyrelay/internal/storage"
 )
 
+// Blob is a fetched site file and its declared content metadata.
 type Blob struct {
 	Body io.ReadCloser
 	Type string
 	Size int64
 }
 
-type BlobGet func(context.Context, string) (Blob, error)
-type BlobPut func(context.Context, string, string, io.Reader) error
-type Fetch func(context.Context, *http.Request) (*http.Response, error)
-type ResolveIP func(context.Context, string) ([]net.IP, error)
-type ResolveHost func(context.Context, string) (string, error)
-type ReadAccess func(*http.Request) bool
+// BlobGet opens a local blob by its SHA-256 hash. The caller closes Blob.Body.
+type BlobGet func(ctx context.Context, blobSHA string) (Blob, error)
 
+// BlobPut stores bytes under blobSHA with the supplied content type. The
+// callback consumes the reader before returning.
+type BlobPut func(ctx context.Context, blobSHA string, contentType string, body io.Reader) error
+
+// Fetch performs an outbound site file request. The caller closes the
+// returned response body.
+type Fetch func(ctx context.Context, request *http.Request) (*http.Response, error)
+
+// ResolveIP resolves a host before an outbound site request is allowed.
+type ResolveIP func(ctx context.Context, host string) ([]net.IP, error)
+
+// ResolveHost resolves a request host to a site label.
+type ResolveHost func(ctx context.Context, host string) (label string, err error)
+
+// ReadAccess authorizes a request for site content.
+type ReadAccess func(request *http.Request) bool
+
+// Config supplies storage, blob, network and request policy dependencies.
 type Config struct {
 	Store         *storage.Store
 	GetBlob       BlobGet

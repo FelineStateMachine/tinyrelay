@@ -28,6 +28,7 @@ var (
 	pathPattern = regexp.MustCompile(`^/(?:[^/]+/)*[^/.]+\.[^/.]+$`)
 )
 
+// Site identifies a manifest family and its addressable key.
 type Site struct {
 	Kind   int
 	PubKey string
@@ -35,6 +36,7 @@ type Site struct {
 	ID     string
 }
 
+// Base36 encodes a lowercase 32-byte hexadecimal key as a fixed-width label.
 func Base36(value string) (string, error) {
 	if !hexPattern.MatchString(value) {
 		return "", errors.New("expected lowercase 32-byte hex")
@@ -47,6 +49,7 @@ func Base36(value string) (string, error) {
 	return strings.Repeat("0", 50-len(value36)) + value36, nil
 }
 
+// Unbase36 decodes a fixed-width site label into lowercase hexadecimal.
 func Unbase36(value string) (string, bool) {
 	if len(value) != 50 || !regexp.MustCompile(`^[0-9a-z]+$`).MatchString(value) {
 		return "", false
@@ -58,6 +61,7 @@ func Unbase36(value string) (string, bool) {
 	return fmt.Sprintf("%064x", n), true
 }
 
+// ParseSite parses an npub, named-site or snapshot label.
 func ParseSite(label string) (Site, bool) {
 	if strings.HasPrefix(label, "npub1") {
 		key, ok := decodeNpub(label)
@@ -81,6 +85,7 @@ func ParseSite(label string) (Site, bool) {
 	return Site{Kind: KindNamedSite, PubKey: key, D: label[50:]}, true
 }
 
+// SiteLabel returns the host label represented by a manifest event.
 func SiteLabel(e event.Event) string {
 	switch e.Kind {
 	case KindSite:
@@ -106,6 +111,7 @@ func SiteLabel(e event.Event) string {
 	}
 }
 
+// SitePaths returns the path tags in manifest order.
 func SitePaths(e event.Event) [][]string {
 	paths := make([][]string, 0)
 	for _, tag := range e.Tags {
@@ -116,6 +122,7 @@ func SitePaths(e event.Event) [][]string {
 	return paths
 }
 
+// Aggregate hashes the canonical path and blob mappings in a manifest.
 func Aggregate(paths [][]string) string {
 	lines := make([]string, 0, len(paths))
 	for _, tag := range paths {
@@ -128,6 +135,7 @@ func Aggregate(paths [][]string) string {
 	return hex.EncodeToString(sum[:])
 }
 
+// ValidateManifest checks a site manifest's paths, aggregate and lineage.
 func ValidateManifest(e event.Event) error {
 	if e.Kind != KindSite && e.Kind != KindNamedSite && e.Kind != KindSiteSnapshot {
 		return nil

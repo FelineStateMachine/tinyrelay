@@ -33,9 +33,9 @@ import (
 	"github.com/FelineStateMachine/tinyrelay/internal/work"
 )
 
-// initServices constructs the doors around a tenant's single durable store.
-// Each service receives the same policy snapshot function so policy changes
-// take effect without reopening the tenant.
+// initServices constructs feature services around the tenant store and policy
+// reader. Custom-view storage is initialized before Git can promote events;
+// the resulting Git service is bound before handlers and workers start.
 func (t *Tenant) initServices(ctx context.Context) error {
 	var err error
 	if err := t.initSessions(ctx); err != nil {
@@ -224,6 +224,9 @@ func (b backend) ReadAllowed(ctx context.Context, actor string) error {
 	return b.tenant.requirePrivateAccess(ctx, actor)
 }
 
+// closeServices cancels and joins the tenant's worker, scheduler and Git
+// loops, then returns the worker's terminal queue error, if any. Store and
+// relay connection cleanup belong to Tenant.Close.
 func (t *Tenant) closeServices(ctx context.Context) error {
 	if t.workCancel != nil {
 		t.workCancel()
@@ -614,6 +617,10 @@ func (t *Tenant) workHandlers() map[string]work.Handler {
 	return handlers
 }
 
+// releaseGit publishes a repository state after Git verifies its objects. It
+// removes the pending marker and persists optional planning in one transaction
+// under the router's publication lock. Push planning retains the registrations
+// captured at client acceptance; webhook and view matching occurs at release.
 func (t *Tenant) releaseGit(ctx context.Context, id string) error {
 	var followup *storage.Intent
 	if t.followups != nil {
@@ -741,6 +748,10 @@ func (t *Tenant) ingest(ctx context.Context, e event.Event, _ replication.Origin
 	return err
 }
 
+// commitImported applies import admission and commits the shared projections
+// and optional planning for an event. It returns persistence errors to the
+// caller, which decides how to handle duplicate and superseded imports.
+// origin supplies the replication source for planning.
 func (t *Tenant) commitImported(ctx context.Context, e event.Event, origin replication.Origin) error {
 	if err := t.gate.Import(ctx, e, time.Now().Unix()); err != nil {
 		return err

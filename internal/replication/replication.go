@@ -1,7 +1,3 @@
-// Package replication contains durable self-hosted relay fanout and job
-// planning. Network I/O is deliberately behind small interfaces so a relay
-// can use local test transports, a normal websocket client, or an operator's
-// proxy without changing queue semantics.
 package replication
 
 import (
@@ -16,6 +12,8 @@ import (
 	"github.com/FelineStateMachine/tinyrelay/internal/storage"
 )
 
+// Origin identifies how an event entered the relay and controls whether it is
+// eligible for outbound fanout.
 type Origin string
 
 const (
@@ -26,8 +24,8 @@ const (
 	OriginBackupRestore Origin = "backup_restore"
 )
 
-// Policy contains only routing decisions. It has no lease, fuel, or product
-// quota fields; the host controls process capacity independently.
+// Policy supplies current fanout decisions and relay identity. The host
+// controls process capacity independently.
 type Policy struct {
 	Enabled         bool
 	ReadMembersOnly bool
@@ -35,26 +33,31 @@ type Policy struct {
 	SelfRelayURL    string
 }
 
+// RelayDirectory returns write relays for an author and read relays for a
+// recipient. Returned URLs are filtered by PrepareIntents.
 type RelayDirectory interface {
 	WriteRelays(pubkey string) []string
 	ReadRelays(pubkey string) []string
 }
 
-// RelayListDiscovery preserves the source order of all NIP-65 relay tags for
+// RelayListDiscovery returns the source-ordered NIP-65 relay list used by
 // owner backfill. RelayDirectory's directional methods remain sufficient for
 // delivery planning.
 type RelayListDiscovery interface {
 	RelayList(pubkey string) []string
 }
 
+// Discovery resolves write relays for an author.
 type Discovery interface {
 	DiscoverRelays(ctx context.Context, pubkey string) ([]string, error)
 }
 
+// ReadDiscovery resolves read relays for a recipient.
 type ReadDiscovery interface {
 	DiscoverReadRelays(ctx context.Context, pubkey string) ([]string, error)
 }
 
+// IntentPayload records the event origin in a delivery intent.
 type IntentPayload struct {
 	Origin Origin `json:"origin"`
 }
@@ -173,10 +176,14 @@ func canonicalRelayURL(raw string) string {
 	return scheme + "://" + host + path + "?" + u.RawQuery
 }
 
+// DeliveryTransport sends one event to a relay target. The implementation
+// owns connection reuse, request deadlines and transport shutdown.
 type DeliveryTransport interface {
 	Send(ctx context.Context, target string, e event.Event) (DeliveryResult, error)
 }
 
+// DeliveryResult reports the relay's acceptance response. Duplicate
+// acknowledgments are treated as successful delivery by the handlers.
 type DeliveryResult struct {
 	Accepted bool
 	Message  string

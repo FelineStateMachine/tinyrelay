@@ -18,20 +18,28 @@ import (
 	"github.com/coder/websocket"
 )
 
+// Socket is the message-oriented connection used by NostrTransport. The
+// caller that receives a Socket owns it and closes it when the exchange ends.
 type Socket interface {
-	Read(context.Context) ([]byte, error)
-	Write(context.Context, []byte) error
-	Close(error) error
+	Read(ctx context.Context) ([]byte, error)
+	Write(ctx context.Context, message []byte) error
+	Close(cause error) error
 }
 
+// Dialer opens a Socket for one relay target and returns its HTTP handshake.
 type Dialer interface {
-	Dial(context.Context, string) (Socket, *http.Response, error)
+	Dial(ctx context.Context, target string) (Socket, *http.Response, error)
 }
 
+// IPResolver resolves relay hostnames for address-policy checks and dialing.
 type IPResolver interface {
-	LookupIPAddr(context.Context, string) ([]net.IPAddr, error)
+	LookupIPAddr(ctx context.Context, host string) ([]net.IPAddr, error)
 }
 
+// WebsocketDialer validates websocket targets, blocks private addresses unless
+// AllowPrivate is set and optionally answers NIP-42 authentication challenges.
+// HTTPClient and Resolver are caller-supplied dependencies and remain owned by
+// the caller.
 type WebsocketDialer struct {
 	AllowPrivate    bool
 	MaxMessageBytes int64
@@ -250,6 +258,9 @@ func (s coderSocket) Close(err error) error {
 	return s.conn.Close(code, "replication complete")
 }
 
+// NostrTransport implements PullTransport and PushTransport over Nostr
+// websocket protocols. Dialer defaults to WebsocketDialer when unset, and
+// Timeout defaults to 20 seconds.
 type NostrTransport struct {
 	Dialer   Dialer
 	Timeout  time.Duration

@@ -604,8 +604,8 @@ func (s *callbackService) callbackOwnerCanSee(ctx context.Context, owner string,
 	return s.gate.CanSee(ctx, e, relay.Session{PubKeys: []string{owner}, RelayURL: s.relayURL}, nil)
 }
 
-// Prepare preserves the original planning API for callers that do not yet
-// persist captured candidate IDs alongside the event.
+// Prepare matches current callback registrations and rechecks their access
+// before returning delivery intents. The caller persists the returned work.
 func (s *callbackService) Prepare(ctx context.Context, e event.Event) ([]storage.Intent, error) {
 	ids, err := s.CandidateIDs(ctx, e)
 	if err != nil {
@@ -614,8 +614,9 @@ func (s *callbackService) Prepare(ctx context.Context, e event.Event) ([]storage
 	return s.PrepareFor(ctx, e, ids)
 }
 
-// notifyCallbacks runs after an event is stored. It preserves the legacy
-// best-effort queueing path for callers that do not share the event tx.
+// notifyCallbacks plans and queues delivery in its own transaction, logging
+// planning or storage failures. Ephemeral publication uses this path because
+// its event is carried by the delivery payload.
 func (s *callbackService) notifyCallbacks(ctx context.Context, e event.Event) {
 	intents, err := s.Prepare(ctx, e)
 	if err != nil {

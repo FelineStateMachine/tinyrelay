@@ -1,4 +1,3 @@
-// Package community owns tenant membership, moderation, invitations and audit.
 package community
 
 import (

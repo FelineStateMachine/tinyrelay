@@ -1,9 +1,9 @@
-// BUD-14 draft multipart uploads.
-// https://github.com/hzrd149/blossom/pull/102
-// Upload state is deliberately held by the caller. It does not survive a page
-// navigation because BUD-14 has no offset discovery protocol.
+// BUD-14 multipart uploads. Upload state belongs to the caller and supports
+// retry, progress and cancellation for the active page.
 (() => {
   "use strict";
+  // Upload transport. plan describes signed requests for a payload; upload
+  // executes that plan with retry, progress and cancellation support.
 
   const {sha256, hex} = globalThis.tiny.util;
   const asBytes = async value => {

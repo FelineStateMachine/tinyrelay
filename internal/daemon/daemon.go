@@ -1,4 +1,3 @@
-// Package daemon composes the self-hosted services and owns their lifetimes.
 package daemon
 
 import (
@@ -21,6 +20,10 @@ import (
 	"github.com/FelineStateMachine/tinyrelay/internal/templates"
 )
 
+// Config supplies process-level paths, public addresses, transport limits and
+// operator permissions. Tenant policy supplies each relay's access rules.
+// DataDir is required; DefaultTenant defaults to "main". PublicURL, when set,
+// is an absolute HTTP or HTTPS address used for externally visible URLs.
 type Config struct {
 	DataDir            string
 	PublicURL          string
@@ -39,13 +42,15 @@ type Config struct {
 	// host-wide push registrations. Tenant policy PushCallbacks is a separate
 	// owner-controlled allowlist; both approvals are required.
 	PushCallbackOrigins []string
-	// PeerMonitor configures optional NIP-66 liveness probes for explicitly
-	// configured peers. It never discovers or crawls public relays.
+	// PeerMonitor configures NIP-66 liveness probes for its listed peers.
 	PeerMonitor *PeerMonitorConfig
 }
 
 type CreateOptions = catalog.CreateOptions
 
+// App owns the catalog, active tenants and process-wide service lifecycle.
+// New constructs it, Start starts serving work, and Close releases resources.
+// An HTTP server uses App as its handler.
 type App struct {
 	cfg         Config
 	catalog     *catalog.Catalog
@@ -57,6 +62,9 @@ type App struct {
 	lifecycle   lifecycleState
 }
 
+// New opens catalog and telemetry resources and attempts to resume incomplete
+// tenant creation. The caller owns the returned App and calls Close to release
+// it. Start begins the serving lifecycle.
 func New(ctx context.Context, cfg Config) (*App, error) {
 	if cfg.DataDir == "" {
 		return nil, errors.New("data directory is required")
@@ -143,6 +151,10 @@ func (a *App) PeerMonitorRun(ctx context.Context) error {
 	return a.peerMonitor.Run(ctx)
 }
 
+// Create provisions a tenant from a template, initializes its durable state
+// and marks it ready. A running App also starts its services. The returned
+// metadata identifies the creation record even if a later setup step fails;
+// RecoverCreating resumes incomplete creation from that durable record.
 func (a *App) Create(ctx context.Context, opts CreateOptions) (catalog.Tenant, error) {
 	if template, ok := templates.Find(opts.Template); ok && template.Source == "required" && strings.TrimSpace(opts.Source) == "" {
 		return catalog.Tenant{}, fmt.Errorf("template %q requires a source relay", opts.Template)
@@ -271,6 +283,9 @@ func (a *App) tenant(ctx context.Context, meta catalog.Tenant, publicURL string)
 	return t, nil
 }
 
+// Close stops catalog reconciliation and tenant services, then closes shared
+// resources and releases the process lock. It joins cleanup errors and returns
+// nil on subsequent calls. The caller shuts down its HTTP servers separately.
 func (a *App) Close(ctx context.Context) error {
 	a.mu.Lock()
 	if a.closed {
@@ -294,6 +309,8 @@ func (a *App) Close(ctx context.Context) error {
 	return errors.Join(errs...)
 }
 
+// ServeHTTP resolves the request's tenant or hosted site and delegates to its
+// handler. Health and relay discovery routes are served at the process level.
 func (a *App) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if r.URL.Path == "/relays" && a.ServeLanding(w, r) {
 		return

@@ -1,4 +1,5 @@
-// Draft BUD-16/17 trees. Every object written here is encrypted with BUD-15.
+// File workspace controls. Selected files and folders become encrypted
+// Blossom chunks and manifests; references are read back in the browser.
 (() => {
   "use strict";
 

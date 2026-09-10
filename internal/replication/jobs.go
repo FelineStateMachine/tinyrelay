@@ -13,6 +13,7 @@ import (
 	"github.com/FelineStateMachine/tinyrelay/internal/work"
 )
 
+// JobKind selects the durable replication operation.
 type JobKind string
 
 const (
@@ -24,6 +25,8 @@ const (
 	JobBackup JobKind = "backup"
 )
 
+// JobSpec describes one immediate or recurring replication job. Every is an
+// interval in hours; zero runs once.
 type JobSpec struct {
 	ID             string   `json:"id"`
 	Kind           JobKind  `json:"kind"`
@@ -33,10 +36,12 @@ type JobSpec struct {
 	DiscoverPubKey string   `json:"discoverPubKey,omitempty"`
 }
 
+// JobRunner executes a validated job specification.
 type JobRunner interface {
 	Run(ctx context.Context, spec JobSpec) error
 }
 
+// JobHandler decodes and validates durable job intents before delegating them.
 type JobHandler struct {
 	runner JobRunner
 }

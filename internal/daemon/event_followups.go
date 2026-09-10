@@ -20,9 +20,9 @@ const (
 	followupMaxAttempts = 3
 )
 
-// eventFollowups plans optional work without depending on a remote service.
-// Its outbox record commits with the source event; delivery and transforms
-// retain their own bounded retry policies and deterministic intent IDs.
+// eventFollowups turns accepted events into optional callback and transform
+// intents using local state. Its planning record commits with the source
+// event; feature handlers perform remote work using their own retry policies.
 type eventFollowups struct {
 	store     *storage.Store
 	callbacks *callbackService
@@ -31,6 +31,10 @@ type eventFollowups struct {
 	push      func(context.Context, replicationPushFollowupPayload) ([]storage.Intent, error)
 }
 
+// eventFollowupPayload captures the signed event and matching registrations.
+// Discovery flags retain failed local lookups for retry. Released identifies
+// repository state whose objects are available, and RecoverPush requests the
+// client registration snapshot saved before Git promotion.
 type eventFollowupPayload struct {
 	Event             event.Event                     `json:"event"`
 	AcceptedAt        int64                           `json:"accepted_at"`
@@ -47,6 +51,10 @@ func (f *eventFollowups) prepare(ctx context.Context, e event.Event, now int64, 
 	return f.prepareWithPush(ctx, e, now, released, nil)
 }
 
+// prepareWithPush captures eligible targets or lookup failures in an intent
+// for the event transaction. It returns nil for ephemeral events and events
+// with no eligible work. Repository webhook and view discovery starts when
+// released is true.
 func (f *eventFollowups) prepareWithPush(ctx context.Context, e event.Event, now int64, released bool, push *replicationPushFollowupPayload) *storage.Intent {
 	if event.IsEphemeral(e.Kind) {
 		return nil
@@ -80,9 +88,9 @@ func (f *eventFollowups) prepareWithPush(ctx context.Context, e event.Event, now
 	return &storage.Intent{Kind: eventFollowupKind, EventID: e.ID, Target: target, Payload: string(raw)}
 }
 
-// try runs only local planning after commit. A failure leaves the outbox
-// pending for the worker; success marks planning complete with its derived
-// intents, so a later retry never replays already planned remote work.
+// try runs local planning after commit. A planning failure leaves the parent
+// pending for the worker. Success commits its derived intents and parent
+// completion together. Stable child IDs preserve existing job states on retry.
 func (f *eventFollowups) try(ctx context.Context, intent *storage.Intent) {
 	if intent == nil {
 		return
@@ -93,6 +101,8 @@ func (f *eventFollowups) try(ctx context.Context, intent *storage.Intent) {
 	}
 }
 
+// handle is the queue adapter. It makes exhausted planning failures terminal;
+// the worker owns completion, retry scheduling and claim-token checks.
 func (f *eventFollowups) handle(ctx context.Context, job work.Intent) error {
 	err := f.plan(ctx, job, false)
 	if err != nil && job.Attempts >= followupMaxAttempts {
@@ -101,6 +111,10 @@ func (f *eventFollowups) handle(ctx context.Context, job work.Intent) error {
 	return err
 }
 
+// plan rechecks the source, then persists the work each available feature can
+// prepare. A feature error keeps the parent retryable while successful child
+// intents retain their identity. pending allows the synchronous path to mark
+// an unclaimed parent complete; a running worker completes its own claim.
 func (f *eventFollowups) plan(ctx context.Context, job work.Intent, pending bool) error {
 	var payload eventFollowupPayload
 	if err := json.Unmarshal([]byte(job.Payload), &payload); err != nil || payload.Event.ID != job.EventID {
@@ -171,8 +185,9 @@ func (f *eventFollowups) releasedPush(ctx context.Context, eventID string) (*rep
 	return payload.Push, nil
 }
 
-// Discovery is retried only when the original local lookup failed. The
-// acceptance cutoff prevents a new registration from receiving old events.
+// callbackIntents rechecks captured registrations and retries failed discovery.
+// Recovery requires a creation time strictly before acceptance. Both times
+// have second precision, so uncertain same-second registrations are skipped.
 func (f *eventFollowups) callbackIntents(ctx context.Context, payload eventFollowupPayload) ([]storage.Intent, error) {
 	if payload.DiscoverCallbacks {
 		ids, err := f.callbacks.CandidateIDs(ctx, payload.Event)
@@ -192,6 +207,8 @@ func (f *eventFollowups) callbackIntents(ctx context.Context, payload eventFollo
 	return f.callbacks.PrepareFor(ctx, payload.Event, payload.Callbacks)
 }
 
+// viewIntents rechecks registration generations and source relevance. Failed
+// discovery uses the same strict acceptance cutoff as callbackIntents.
 func (f *eventFollowups) viewIntents(ctx context.Context, payload eventFollowupPayload) ([]storage.Intent, error) {
 	if payload.DiscoverViews {
 		targets, err := f.views.CandidateTargets(ctx, payload.Event)

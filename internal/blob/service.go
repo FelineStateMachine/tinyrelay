@@ -16,6 +16,7 @@ import (
 	"sync"
 )
 
+// Action identifies the file-door operation being authorized.
 type Action string
 
 const (
@@ -27,11 +28,22 @@ const (
 	ActionReport Action = "report"
 )
 
-type Authorize func(*http.Request, Action) (string, error)
-type CanRead func(context.Context, string, []string) bool
-type ResolveIP func(context.Context, string) ([]net.IP, error)
-type ReportRecorder func(context.Context, *sql.Tx, string, string, string, string, string) error
+// Authorize authenticates an HTTP request for an action and returns the
+// caller's pubkey.
+type Authorize func(request *http.Request, action Action) (pubkey string, err error)
 
+// CanRead reports whether any supplied reader pubkey may read the blob.
+type CanRead func(ctx context.Context, blobSHA string, readerPubkeys []string) bool
+
+// ResolveIP resolves a host for mirror URL policy checks.
+type ResolveIP func(ctx context.Context, host string) ([]net.IP, error)
+
+// ReportRecorder records a report in the host moderation transaction. The
+// targetKind and reportType values describe the reported object and report;
+// blob reports currently pass "blob" for both.
+type ReportRecorder func(ctx context.Context, tx *sql.Tx, reporter string, targetBlob string, targetKind string, reportType string, content string) error
+
+// Config supplies durable storage, HTTP policy and host integration hooks.
 type Config struct {
 	Root           string
 	PublicURL      string
@@ -57,6 +69,7 @@ type Config struct {
 	UploadTerms func(context.Context, string) (UploadTerms, error)
 }
 
+// Limits are applied when each upload starts. Zero leaves that limit open.
 type Limits struct {
 	MaxFileBytes     int64
 	UserStorageBytes int64
@@ -76,6 +89,7 @@ type UploadTerms struct {
 // image, video, audio or document is plain.
 var encryptedTypes = map[string]bool{"application/octet-stream": true, "application/vnd.blossom.directory+msgpack": true}
 
+// Blob is the metadata for one content-addressed object.
 type Blob struct {
 	SHA256   string `json:"sha256"`
 	Size     int64  `json:"size"`
@@ -84,17 +98,20 @@ type Blob struct {
 	Uploaded int64  `json:"uploaded"`
 }
 
+// PutOptions describes a blob upload and its optional metadata transaction.
 type PutOptions struct {
 	Reader   io.Reader
 	Type     string
 	Uploader string
 	Hash     string
-	// Commit records ownership metadata in the blob transaction. The final
-	// argument reports whether the blob is new. An error rolls back all claims.
+	// Commit records ownership metadata in the blob transaction. Its isNew
+	// argument reports whether the blob was newly installed. An error rolls
+	// back all claims.
 	// New bytes remain unavailable until their ownership metadata is durable.
-	Commit func(context.Context, *sql.Tx, Blob, bool) error
+	Commit func(ctx context.Context, tx *sql.Tx, blob Blob, isNew bool) error
 }
 
+// Service owns blob files and their metadata operations.
 type Service struct {
 	config  Config
 	root    string

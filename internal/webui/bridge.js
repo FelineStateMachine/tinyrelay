@@ -1,6 +1,7 @@
 // Signer bridge: session sign-in and sign-out, NIP-07 and NIP-46 signers,
-// Nostr Connect, and the NIP-98 signed fetch that every management call uses.
-// The browser never receives a relay private key; it only asks the signer.
+// Nostr Connect and the NIP-98 signed fetch used by authenticated calls.
+// It exposes tiny.localPath, tiny.authorization and tiny.signedFetch, and
+// announces a connected signer with tiny:signer.
 (() => {
   "use strict";
 

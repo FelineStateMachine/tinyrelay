@@ -7,14 +7,21 @@ import (
 	"fmt"
 )
 
+// RetentionRule removes non-identity events older than Days. A negative Kind
+// applies the catch-all rule to kinds eligible for retention.
 type RetentionRule struct {
 	Kind int
 	Days int
 }
+
+// MemberRetention removes eligible events and list history for one author
+// older than Days.
 type MemberRetention struct {
 	PubKey string
 	Days   int
 }
+
+// RetentionOptions supplies the retention time, relay identity and rules.
 type RetentionOptions struct {
 	Now      int64
 	Identity string
@@ -86,6 +93,7 @@ func deleteCount(ctx context.Context, tx *sql.Tx, query string, args ...any) (in
 	return result.RowsAffected()
 }
 
+// KindStats reports count, size and time bounds for one stored event kind.
 type KindStats struct {
 	Kind   int   `json:"kind"`
 	N      int64 `json:"n"`

@@ -1,5 +1,9 @@
 (function () {
   "use strict";
+  // WebMCP registers read, write and navigation tools for the browser model
+  // context. Read tools call the relay query surface, write tools use the
+  // signed management or event boundary, and navigation tools open relay
+  // pages in the current tab.
 
   const context = document.modelContext || navigator.modelContext;
   const state = window.tinyWebMCP = {

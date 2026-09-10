@@ -40,6 +40,9 @@ type tenantConfig struct {
 	publicURL string
 }
 
+// Tenant composes one relay's policy, storage, protocol adapters and services.
+// App creates and owns tenants. Request handlers and workers enter the tenant's
+// maintenance gate before accessing shared services.
 type Tenant struct {
 	app           *App
 	meta          catalog.Tenant
@@ -146,6 +149,9 @@ func (t *Tenant) authenticated(ctx context.Context, s relay.Session) error {
 	return nil
 }
 
+// Policy returns the current read-only policy snapshot. Its maps and slices
+// share the snapshot's backing data; callers preserve them and submit changes
+// through the policy management path.
 func (t *Tenant) Policy() policy.Policy {
 	t.mu.RLock()
 	defer t.mu.RUnlock()
@@ -153,6 +159,10 @@ func (t *Tenant) Policy() policy.Policy {
 	return t.policy
 }
 func (t *Tenant) RelayURL() string { return strings.Replace(t.publicURL, "http", "ws", 1) }
+
+// Close stops new operations, joins background services, closes live relay
+// connections and waits for active operations before closing the store. If
+// that wait exceeds ctx, the store stays open for the remaining operations.
 func (t *Tenant) Close(ctx context.Context) error {
 	t.maintenance.markClosing()
 	servicesErr := t.closeServices(ctx)
@@ -163,6 +173,12 @@ func (t *Tenant) Close(ctx context.Context) error {
 	return errors.Join(servicesErr, routerErr, t.store.Close())
 }
 
+// Publish applies write admission and the event kind's persistence or control
+// action for session s. Its string result is the relay OK message; duplicate
+// events produce a duplicate message with a nil error. Durable event writes
+// include projections and follow-up planning intents in their transaction.
+// Git metadata staging runs after that commit and before a successful reply.
+// The relay router handles live fan-out of accepted events.
 func (t *Tenant) Publish(ctx context.Context, e event.Event, s relay.Session) (string, error) {
 	ctx, done, admissionErr := t.beginOperation(ctx)
 	if admissionErr != nil {
@@ -234,8 +250,8 @@ func (t *Tenant) Publish(ctx context.Context, e event.Event, s relay.Session) (s
 	return reason, nil
 }
 
-// roomScope names the room an event is addressed to when that room is not
-// the tenant's own group, which keeps its established handling.
+// roomScope returns the named room for a room event. An empty result selects
+// the tenant-wide group path, including Marmot group events.
 func (t *Tenant) roomScope(e event.Event) string {
 	if e.Kind == event.KIND_MARMOT_GROUP {
 		return ""
@@ -289,6 +305,10 @@ func hexLower(value string) bool {
 	return true
 }
 
+// Query returns the authorized union of the filters for session s. It applies
+// per-filter limits, removes duplicate IDs and sorts by descending creation
+// time, then ascending ID. Matching NIP-43 invitations are generated for the
+// requesting session alongside the stored results.
 func (t *Tenant) Query(ctx context.Context, filters []event.Filter, s relay.Session) ([]event.Event, error) {
 	ctx, done, admissionErr := t.beginOperation(ctx)
 	if admissionErr != nil {
@@ -333,6 +353,9 @@ func (t *Tenant) Query(ctx context.Context, filters []event.Filter, s relay.Sess
 	return result, nil
 }
 
+// Count returns a NIP-45 result with the size of Query's authorized union,
+// using filters with their limits cleared. A supported single-filter request
+// also receives an HLL sketch. The tenant's count feature must be enabled.
 func (t *Tenant) Count(ctx context.Context, filters []event.Filter, s relay.Session) (any, error) {
 	ctx, done, admissionErr := t.beginOperation(ctx)
 	if admissionErr != nil {
@@ -367,6 +390,8 @@ func (t *Tenant) Count(ctx context.Context, filters []event.Filter, s relay.Sess
 	return result, nil
 }
 
+// Sync supplies visible event IDs and timestamps for a reconciliation session.
+// It clears the filter limit and requires the tenant's sync feature.
 func (t *Tenant) Sync(ctx context.Context, f event.Filter, s relay.Session) ([]syncprotocol.Item, error) {
 	ctx, done, admissionErr := t.beginOperation(ctx)
 	if admissionErr != nil {
@@ -388,14 +413,20 @@ func (t *Tenant) Sync(ctx context.Context, f event.Filter, s relay.Session) ([]s
 	return items, nil
 }
 
+// CanRead checks an event against current policy and session authority for
+// live delivery, including pending state, moderation and room visibility.
 func (t *Tenant) CanRead(e event.Event, s relay.Session) bool {
 	return t.gate.CanSee(context.Background(), e, s, nil)
 }
 
+// CanReadFilter checks live visibility with the subscription filter's context,
+// including addressed signer messages available during authentication.
 func (t *Tenant) CanReadFilter(e event.Event, s relay.Session, f *event.Filter) bool {
 	return t.gate.CanSee(context.Background(), e, s, f)
 }
 
+// QueryHints returns Query's events and relay completion hints: "finish" or
+// "more", plus "auth" when authentication can affect the query's visibility.
 func (t *Tenant) QueryHints(ctx context.Context, filters []event.Filter, s relay.Session) ([]event.Event, []string, error) {
 	ctx, done, admissionErr := t.beginOperation(ctx)
 	if admissionErr != nil {

@@ -1,3 +1,7 @@
+{{/* The page shell owns the rail, content column, contextual panel and
+footer. Page templates render one section selected by .Tab. The body works
+before scripts load; tiny.js and bridge.js establish shared browser services,
+then feature modules are loaded for the current page. */}}
 {{define "page"}}<!doctype html>
 <html lang="en" data-js="no" data-scripts="{{scriptsVersion}}">
 <head>

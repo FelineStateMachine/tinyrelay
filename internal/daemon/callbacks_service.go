@@ -13,7 +13,8 @@ import (
 )
 
 // callbackService owns callback registration, matching and durable delivery.
-// Its dependencies are explicit so callback state does not enlarge Tenant.
+// It borrows the tenant store, community and gate. Per-registration locks
+// serialize remote delivery; the daemon owns worker startup and shutdown.
 type callbackService struct {
 	store     *storage.Store
 	community *community.Service
@@ -30,6 +31,9 @@ type callbackService struct {
 	callbackClient *http.Client
 }
 
+// callbackServiceConfig binds storage, current policy and visibility checks.
+// PublicURL identifies the HTTP relay in deliveries; RelayURL supplies the
+// WebSocket address used by event visibility checks.
 type callbackServiceConfig struct {
 	Store     *storage.Store
 	Community *community.Service

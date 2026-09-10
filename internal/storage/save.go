@@ -13,6 +13,9 @@ import (
 	"github.com/FelineStateMachine/tinyrelay/internal/event"
 )
 
+// Intent describes durable work to insert with an event save. The tuple of
+// Kind, EventID and Target determines its stable ID; Payload is retained for
+// the worker handling that kind.
 type Intent struct {
 	Kind    string `json:"kind"`
 	EventID string `json:"event_id"`
@@ -20,6 +23,12 @@ type Intent struct {
 	Payload string `json:"payload"`
 }
 
+// SaveOptions controls event persistence. Now is the Unix time used for
+// history and intent timestamps. SearchMode is empty for the default indexed
+// kinds, "full" for all public content and "off" to skip content indexing.
+// For stored events, Intents and BeforeCommit run in the event transaction.
+// Ephemeral events return before those hooks. A BeforeCommit error rolls back
+// the transaction owned by Save; SaveTx returns it to the transaction's owner.
 type SaveOptions struct {
 	Now          int64
 	SearchMode   string
@@ -27,11 +36,17 @@ type SaveOptions struct {
 	BeforeCommit func(context.Context, *sql.Tx) error
 }
 
+// SaveResult reports the event sequence. Ephemeral events return without a
+// database row and set Ephemeral.
 type SaveResult struct {
 	Sequence  int64
 	Ephemeral bool
 }
 
+// Save commits an event, its indexes and the supplied transaction hooks
+// together. Callers validate the event before saving. Duplicate, replaced,
+// deleted and vanished events return a Rejection. Ephemeral events return an
+// Ephemeral result without writing rows or running the hooks.
 func (s *Store) Save(ctx context.Context, e event.Event, opts SaveOptions) (SaveResult, error) {
 	var result SaveResult
 	err := s.WithTx(ctx, func(tx *sql.Tx) error {

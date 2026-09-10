@@ -175,8 +175,10 @@ func readConfigRows(ctx context.Context, db *sql.DB, query string, scan func(*sq
 	return rows.Err()
 }
 
-// ApplyConfigTx replaces selected community configuration sections inside a
-// caller-owned transaction. Empty sections are meaningful replacements.
+// ApplyConfigTx replaces each selected community configuration section inside
+// the caller-owned transaction. A selected empty section clears that section;
+// an unselected section is left unchanged. The caller commits or rolls back
+// the transaction after all related configuration writes succeed.
 func ApplyConfigTx(ctx context.Context, tx *sql.Tx, c ConfigSnapshot, members, bans, addresses, eventBans, kinds, retention bool) error {
 	now := time.Now().Unix()
 	if members {

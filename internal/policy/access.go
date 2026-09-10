@@ -13,6 +13,8 @@ type Access struct {
 	Owner   bool
 }
 
+// CanRead applies the read rule, kind blocks, private repository rules and
+// recipient addressing to one event.
 func CanRead(p Policy, e event.Event, a Access) bool {
 	if containsInt(p.BlockedKinds, e.Kind) {
 		return false
@@ -44,6 +46,8 @@ func IsPrivateRepository(e event.Event) bool {
 	return false
 }
 
+// CanWrite applies kind blocks, allowlists and the tenant write rule to one
+// event.
 func CanWrite(p Policy, e event.Event, a Access) bool {
 	if containsInt(p.BlockedKinds, e.Kind) {
 		return false

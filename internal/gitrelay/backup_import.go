@@ -19,6 +19,7 @@ import (
 	"strings"
 )
 
+// BackupObject is one validated Git object and its compressed content chunks.
 type BackupObject struct {
 	OID    string   `json:"oid"`
 	Type   string   `json:"type"`
@@ -26,6 +27,7 @@ type BackupObject struct {
 	Chunks []string `json:"chunks"`
 }
 
+// BackupRepository contains the objects and refs for one imported repository.
 type BackupRepository struct {
 	Key         string            `json:"key"`
 	Owner       string            `json:"owner"`
@@ -35,11 +37,13 @@ type BackupRepository struct {
 	Refs        map[string]string `json:"refs"`
 }
 
+// GitBackup is the complete bind.ws/git-sqlite/1 import document.
 type GitBackup struct {
 	Format       string             `json:"format"`
 	Repositories []BackupRepository `json:"repositories"`
 }
 
+// ValidateGitBackup validates an import document without writing Git state.
 func ValidateGitBackup(input []byte) (GitBackup, error) {
 	var backup GitBackup
 	if err := json.Unmarshal(input, &backup); err != nil {

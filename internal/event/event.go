@@ -27,6 +27,8 @@ type Event struct {
 	Sig       string     `json:"sig"`
 }
 
+// Validate checks the wire shape, canonical ID and Schnorr signature of e.
+// Kind-specific checks are applied by the protocol gate that owns the kind.
 func Validate(e Event) error {
 	if !hex64(e.ID) {
 		return errors.New("invalid: bad id")
@@ -62,6 +64,7 @@ func Validate(e Event) error {
 	return nil
 }
 
+// Parse decodes and validates one complete JSON event object.
 func Parse(raw []byte) (Event, error) {
 	if err := requireFields(raw); err != nil {
 		return Event{}, err
@@ -76,6 +79,7 @@ func Parse(raw []byte) (Event, error) {
 	return e, nil
 }
 
+// Canonical encodes e as the JSON representation used on relay boundaries.
 func Canonical(e Event) ([]byte, error) {
 	var out bytes.Buffer
 	encoder := json.NewEncoder(&out)
@@ -86,6 +90,8 @@ func Canonical(e Event) ([]byte, error) {
 	return bytes.TrimSuffix(out.Bytes(), []byte{'\n'}), nil
 }
 
+// Tag returns the first value for name, or an empty string when the tag is
+// absent or has no value.
 func Tag(e Event, name string) string {
 	for _, tag := range e.Tags {
 		if len(tag) > 0 && tag[0] == name && len(tag) > 1 {
@@ -95,6 +101,7 @@ func Tag(e Event, name string) string {
 	return ""
 }
 
+// TagValues returns every first value belonging to tags named name.
 func TagValues(e Event, name string) []string {
 	values := make([]string, 0)
 	for _, tag := range e.Tags {
@@ -105,6 +112,8 @@ func TagValues(e Event, name string) []string {
 	return values
 }
 
+// Expiration returns the positive Unix timestamp in the expiration tag.
+// Malformed, missing and nonpositive values return zero.
 func Expiration(e Event) int64 {
 	v, err := strconv.ParseInt(Tag(e, "expiration"), 10, 64)
 	if err != nil || v <= 0 {
@@ -113,6 +122,7 @@ func Expiration(e Event) int64 {
 	return v
 }
 
+// Difficulty returns the NIP-13 proof-of-work difficulty encoded by id.
 func Difficulty(id string) int {
 	parsed, err := nostr.IDFromHex(id)
 	if err != nil {
@@ -121,6 +131,7 @@ func Difficulty(id string) int {
 	return nip13.Difficulty(parsed)
 }
 
+// CommittedDifficulty returns the target in a nonce tag's third field.
 func CommittedDifficulty(e Event) int {
 	for _, tag := range e.Tags {
 		if len(tag) > 2 && tag[0] == "nonce" {
@@ -131,6 +142,8 @@ func CommittedDifficulty(e Event) int {
 	return 0
 }
 
+// Sign derives the public key, ID and Schnorr signature for e from secretHex.
+// A nil tag slice is encoded as an empty tag list before signing.
 func Sign(e *Event, secretHex string) error {
 	secret, err := decodeSecret(secretHex)
 	if err != nil {
@@ -155,6 +168,7 @@ func Sign(e *Event, secretHex string) error {
 	return nil
 }
 
+// GenerateKey creates a random nonzero 32-byte private key in hexadecimal.
 func GenerateKey() (string, error) {
 	for {
 		key := make([]byte, 32)
@@ -167,6 +181,7 @@ func GenerateKey() (string, error) {
 	}
 }
 
+// PublicKey derives the x-only Schnorr public key for secretHex.
 func PublicKey(secretHex string) (string, error) {
 	secret, err := decodeSecret(secretHex)
 	if err != nil {
@@ -176,9 +191,16 @@ func PublicKey(secretHex string) (string, error) {
 	return hex.EncodeToString(schnorr.SerializePubKey(pubkey)), nil
 }
 
-func IsEphemeral(k int) bool   { return k >= 20000 && k < 30000 }
+// IsEphemeral reports whether k is in Nostr's ephemeral kind range.
+func IsEphemeral(k int) bool { return k >= 20000 && k < 30000 }
+
+// IsReplaceable reports whether k is a replaceable event kind.
 func IsReplaceable(k int) bool { return k == 0 || k == 3 || k >= 10000 && k < 20000 }
+
+// IsAddressable reports whether k is an addressable event kind.
 func IsAddressable(k int) bool { return k >= 30000 && k < 40000 }
+
+// IsPrivate reports whether k carries recipient-scoped content.
 func IsPrivate(k int) bool {
 	return k == 4 || k == 13 || k == KIND_WRAP || k == 21059 || k == KIND_NOSTR_CONNECT || k == KIND_PUSH_REGISTRATION
 }

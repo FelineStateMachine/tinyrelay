@@ -1,6 +1,3 @@
-// Package records owns the durable records that a relay signs about itself.
-// It deliberately keeps the relay secret inside the tenant settings table and
-// exposes only public keys and generated events to callers.
 package records
 
 import (
@@ -18,21 +15,26 @@ import (
 )
 
 type Config struct {
-	Store               *storage.Store
-	Policy              func() policy.Policy
-	SetPolicy           func(policy.Policy) error
-	RelayURL            string
-	GroupID             string
-	OnGenerated         func(context.Context, event.Event) error
+	// Store holds the tenant database and records settings.
+	Store *storage.Store
+	// Policy returns the current durable tenant policy when records evaluates
+	// access or builds a projection.
+	Policy func() policy.Policy
+	// SetPolicy persists a policy change requested by records management.
+	SetPolicy func(policy.Policy) error
+	RelayURL  string
+	GroupID   string
+	// OnGenerated receives a signed event after its records clock transaction
+	// commits. The callback commonly persists, publishes or queues the event.
+	OnGenerated func(context.Context, event.Event) error
+	// DeliverNotification delivers a sealed notification event to its target.
 	DeliverNotification func(context.Context, event.Event, string) error
 	// PushNotification receives a plaintext summary of each notification for
 	// device delivery. The gift wrap itself is opaque to the relay once sealed.
 	PushNotification func(context.Context, string, string, string, string) error
 	OnTransfer       func(context.Context, string, string) error
-	// Community supplies membership and moderation projections. Keeping these
-	// reads behind callbacks prevents records from depending on community's
-	// table layout. A nil reader is reserved for isolated records use; hosts
-	// serving community projections must provide it.
+	// Community supplies membership and moderation projections through the
+	// CommunityReader boundary.
 	Community CommunityReader
 }
 
@@ -40,9 +42,9 @@ type Config struct {
 // Implementations own the community schema and may use a transaction-backed
 // snapshot when the host is publishing a projection.
 type CommunityReader interface {
-	Members(context.Context) ([]communityread.Member, error)
-	ModerationCounts(context.Context, int64) (communityread.ModerationCounts, error)
-	MemberStatus(context.Context, string) (member bool, memberCount int, err error)
+	Members(ctx context.Context) ([]communityread.Member, error)
+	ModerationCounts(ctx context.Context, since int64) (communityread.ModerationCounts, error)
+	MemberStatus(ctx context.Context, pubkey string) (member bool, memberCount int, err error)
 }
 
 type Member = communityread.Member

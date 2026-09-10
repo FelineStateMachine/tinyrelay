@@ -1,4 +1,3 @@
-// Package configport imports, exports, plans and applies bind.ws relay files.
 package configport
 
 import (
@@ -21,16 +20,23 @@ import (
 
 const Format = "bind.ws/relay-config/2"
 
+// Member is a community member in an exported configuration.
 type Member struct {
 	PubKey string `json:"pubkey"`
 	Name   string `json:"name,omitempty"`
 	Note   string `json:"note,omitempty"`
 	Role   string `json:"role"`
 }
+
+// Rule is a retention rule. A nil Kind applies to the tenant default.
 type Rule struct {
 	Kind *int `json:"kind"`
 	Days int  `json:"days"`
 }
+
+// Config is the JSON representation accepted by Parse and produced by
+// Export. Sections records which keys were present in the input so Apply can
+// distinguish omission from an explicit empty replacement.
 type Config struct {
 	Format       string                     `json:"format"`
 	ExportedAt   int64                      `json:"exported_at,omitempty"`
@@ -51,6 +57,8 @@ type Config struct {
 	Sections    []string         `json:"-"`
 	Warnings    []string         `json:"-"`
 }
+
+// Changes describes the policy and community sections changed by an apply.
 type Changes struct {
 	Policy         []string      `json:"policy,omitempty"`
 	Members        []string      `json:"members,omitempty"`
@@ -58,6 +66,9 @@ type Changes struct {
 	Warnings       []string      `json:"warnings,omitempty"`
 	FinalPolicy    policy.Policy `json:"-"`
 }
+
+// ConfigStore coordinates configuration with the tenant store, community
+// service and policy callbacks.
 type ConfigStore struct {
 	Store     *storage.Store
 	Community *community.Service
@@ -70,6 +81,7 @@ type ConfigStore struct {
 	ValidatePolicy func(policy.Policy) error
 }
 
+// ApplyOptions controls an import or preset application.
 type ApplyOptions struct {
 	DryRun         bool
 	MigrationOwner string

@@ -1,7 +1,3 @@
-// Package views holds the parts of custom views that the renderers and the
-// relay share: finding fenced code blocks in text, naming a block by its
-// hash and the markup that shows an artifact in place of a block. It knows
-// nothing about any particular transform.
 package views
 
 import (

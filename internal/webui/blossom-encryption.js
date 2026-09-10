@@ -1,8 +1,9 @@
-// BUD-15 draft (June 2026), BUD-15: Client-side CHK encrypted blobs.
-// https://github.com/hzrd149/blossom/pull/104
-// Keys are client-only values. Callers must not include k in requests to a server.
+// BUD-15 client-side CHK encrypted blobs. Keys remain in the browser page and
+// are passed to the caller for sharing or later decryption.
 (() => {
   "use strict";
+  // Browser encryption for Blossom content. The public API stores and checks
+  // content-addressed ciphertext while keeping keys in the caller's page.
 
   const encoder = new TextEncoder();
   const zeroNonce = new Uint8Array(12);

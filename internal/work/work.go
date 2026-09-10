@@ -1,4 +1,3 @@
-// Package work provides durable, fenced work intents backed by SQLite.
 package work
 
 import (
@@ -20,6 +19,7 @@ import (
 
 const defaultLease = 30 * time.Second
 
+// ErrClaimLost denotes loss of worker lease ownership.
 var ErrClaimLost = errors.New("work: claim lost")
 
 type stopError struct{ err error }
@@ -37,7 +37,9 @@ func (e *stopError) Unwrap() error { return e.err }
 // instead of retrying it, while retaining the underlying error for operators.
 func Stop(err error) error { return &stopError{err: err} }
 
-// Intent is a durable unit of work. ClaimToken is only valid until ClaimUntil.
+// Intent is a durable unit of work. ClaimToken identifies the current claim;
+// ClaimUntil determines when another worker can claim an expired lease.
+// State is pending, running, completed or cancelled.
 type Intent struct {
 	ID         string
 	Kind       string
@@ -322,17 +324,24 @@ func metricKind(kind string) string {
 	return "other"
 }
 
-// Handler processes one claimed intent.
-type Handler func(context.Context, Intent) error
+// Handler processes one claimed intent while the worker renews its lease.
+// A nil error completes the claim; an error schedules a retry. Stop marks a
+// terminal failure. The handler observes ctx cancellation so the worker can
+// finish shutdown or release an attempt whose claim was lost. A retry can
+// repeat an external effect after an interrupted acknowledgment; handlers own
+// deduplication of those effects.
+type Handler func(ctx context.Context, intent Intent) error
 
 // WorkerOptions controls claim leases and optional handler timing observation.
+// Lease and Renew default to 30 seconds and one third of the lease.
 type WorkerOptions struct {
 	Lease   time.Duration
 	Renew   time.Duration
 	Observe func(kind, outcome string, duration time.Duration)
 }
 
-// PoolOptions controls a pool of durable workers.
+// PoolOptions controls a pool of durable workers. Workers less than or equal
+// to zero use the default of four.
 type PoolOptions struct {
 	Workers int
 	Worker  WorkerOptions

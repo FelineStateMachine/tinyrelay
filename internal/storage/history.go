@@ -8,6 +8,7 @@ import (
 	"github.com/FelineStateMachine/tinyrelay/internal/event"
 )
 
+// HistoryRow identifies one retained version of a replaceable list.
 type HistoryRow struct {
 	Kind      int    `json:"kind"`
 	D         string `json:"d"`
@@ -33,21 +34,31 @@ func (s *Store) ListHistory(ctx context.Context, owner string, now int64) ([]His
 	return result, rows.Err()
 }
 
+// RestoreResult contains a prior list event draft and its difference from the
+// current list.
 type RestoreResult struct {
 	Draft Draft `json:"draft"`
 	Diff  Diff  `json:"diff"`
 }
+
+// Draft is the event body needed to publish a restored list version.
 type Draft struct {
 	Kind      int        `json:"kind"`
 	CreatedAt int64      `json:"created_at"`
 	Tags      [][]string `json:"tags"`
 	Content   string     `json:"content"`
 }
+
+// Diff describes content and tag changes between the retained and current
+// versions.
 type Diff struct {
 	AddedTags      [][]string `json:"addedTags"`
 	RemovedTags    [][]string `json:"removedTags"`
 	ContentChanged bool       `json:"contentChanged"`
 }
+
+// RestoreOptions identifies the retained list event and the query time used
+// for expiration checks.
 type RestoreOptions struct {
 	Owner   string
 	EventID string

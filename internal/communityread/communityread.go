@@ -1,13 +1,16 @@
-// Package communityread contains the small read models shared by community
-// and records. It has no storage or service dependencies.
 package communityread
 
 type Member struct {
+	// PubKey is the member's 32-byte public key in lowercase hexadecimal form.
 	PubKey string
-	Name   string
-	Role   string
+	// Name is the member's optional NIP-05-style local name.
+	Name string
+	// Role is the current community role.
+	Role string
 }
 
+// ModerationCounts contains moderation activity counted from a caller-supplied
+// Unix timestamp.
 type ModerationCounts struct {
 	Bans, Reports, Resolved, Hidden, BlockedAddresses int
 }

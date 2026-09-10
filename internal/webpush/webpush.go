@@ -1,6 +1,3 @@
-// Package webpush sends Web Push messages: RFC 8291 payload encryption with
-// the aes128gcm content encoding and RFC 8292 VAPID authorization. It uses
-// only the standard library so the relay keeps its dependency footprint.
 package webpush
 
 import (

@@ -8,16 +8,13 @@ import (
 	"github.com/FelineStateMachine/tinyrelay/internal/event"
 )
 
-// ErrGRASP08Unauthorized is intentionally detail-free. GRASP-08 uses an
-// empty 401 challenge so a caller cannot distinguish an unknown repository
-// from an unauthorized one.
+// ErrGRASP08Unauthorized is the detail-free GRASP-08 authentication error
+// returned for every failed repository proof.
 var ErrGRASP08Unauthorized = errors.New("auth-required:")
 
-// VerifyGRASP08 verifies the reusable repository-root proof used by the
-// GRASP-08 private-service profile. The proof is a kind 27235 event naming
-// the repository root and GET; it is valid for 60 seconds and is reusable
-// across the repository's Smart HTTP requests. Unlike NIP-98, payload tags
-// are intentionally ignored and the proof is not replay-tracked.
+// VerifyGRASP08 validates a reusable kind 27235 GET proof for the repository
+// root named by a GRASP-08 Smart HTTP request. The proof remains valid for
+// one minute across the repository's supported Git requests.
 func (v *Validator) VerifyGRASP08(header, rawURL string) (event.Event, error) {
 	e, err := decodeToken(header, "GRASP-08")
 	if err != nil {
@@ -40,8 +37,8 @@ func (v *Validator) VerifyGRASP08(header, rawURL string) (event.Event, error) {
 	return e, nil
 }
 
-// GRASP08RepositoryRoot returns the canonical repository URL for a Smart HTTP
-// request beneath a .git path.
+// GRASP08RepositoryRoot returns the canonical repository URL for a supported
+// Smart HTTP request beneath a .git path.
 func GRASP08RepositoryRoot(raw string) (string, bool) {
 	u, err := url.Parse(raw)
 	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" || u.User != nil {

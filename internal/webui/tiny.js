@@ -1,5 +1,7 @@
-// Shared browser helpers. This file is loaded before every feature module
-// and the signer bridge, so each helper exists exactly once.
+// Shared browser helpers. This file is loaded before every feature module and
+// the signer bridge. It creates tiny.util for byte, URL, encoding and wiki
+// name operations, tiny.signing for verified event signing and publication,
+// and tiny.require for loading page-specific bundles once.
 (() => {
   "use strict";
   const tiny = globalThis.tiny || {};

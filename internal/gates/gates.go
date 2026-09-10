@@ -1,4 +1,3 @@
-// Package gates implements policy checks shared by ingest, query and live fan-out.
 package gates
 
 import (
@@ -16,6 +15,8 @@ import (
 	"github.com/dlclark/regexp2"
 )
 
+// Config supplies the policy and optional durable services used by Gate.
+// Store and Community enable checks that depend on persisted relay state.
 type Config struct {
 	Store     *storage.Store
 	Community *community.Service
@@ -23,6 +24,7 @@ type Config struct {
 	Slug      string
 }
 
+// Gate evaluates event admission and visibility for one tenant configuration.
 type Gate struct {
 	cfg    Config
 	agents agentLimiter
@@ -116,6 +118,8 @@ func New(cfg Config) (*Gate, error) {
 	return &Gate{cfg: cfg}, nil
 }
 
+// Write validates a client-published event against protocol shape, tenant
+// policy, membership, bans, room access, retention and proof-of-work rules.
 func (g *Gate) Write(ctx context.Context, e event.Event, s relay.Session, now int64) error {
 	p := g.cfg.Policy()
 	if e.Kind == event.KIND_AUTH {
@@ -286,9 +290,9 @@ func inboxAdmission(p policy.Policy, e event.Event) bool {
 	return false
 }
 
-// Import applies only the common event gate used by host-side pulls. It does
-// not apply client admission rules, kind allowlists, retention, PoW, or create
-// delivery fan-out; the imported event's origin must be recorded by storage.
+// Import validates an event received from another host using protocol shape,
+// safety, ban, agent and room existence checks. The caller records its origin
+// in storage after this common gate succeeds.
 func (g *Gate) Import(ctx context.Context, e event.Event, now int64) error {
 	p := g.cfg.Policy()
 	if err := event.Validate(e); err != nil {
@@ -466,6 +470,8 @@ func (g *Gate) kindRules(ctx context.Context, p policy.Policy, kind int) (bool, 
 	return allowedAny, blocked, nil
 }
 
+// RetentionDays returns the configured retention period for kind, using the
+// wildcard rule when no exact rule exists.
 func (g *Gate) RetentionDays(ctx context.Context, kind int) int {
 	if g.cfg.Community == nil {
 		wildcard := 0
@@ -606,6 +612,8 @@ func (g *Gate) guestPass(ctx context.Context, p policy.Policy, e event.Event, a 
 	return false
 }
 
+// Read validates a subscription request and returns an AUTH hint when a
+// subscriber may receive private or members-only results after authenticating.
 func (g *Gate) Read(ctx context.Context, filters []event.Filter, s relay.Session) (bool, error) {
 	p := g.cfg.Policy()
 	if p.Features.Signer && len(filters) > 0 {
@@ -662,6 +670,8 @@ func (g *Gate) Read(ctx context.Context, filters []event.Filter, s relay.Session
 	return authHint, nil
 }
 
+// CanSee reports whether session s may receive e. It applies hidden-event,
+// ban, repository privacy, policy, room and recipient checks.
 func (g *Gate) CanSee(ctx context.Context, e event.Event, s relay.Session, f *event.Filter) bool {
 	p := g.cfg.Policy()
 	if g.cfg.Store != nil {

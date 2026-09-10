@@ -6,6 +6,12 @@ import (
 	"strings"
 )
 
+// Filter describes the event fields and tags a subscription or query accepts.
+// Fields combine with AND; values within a list are alternatives. Nil IDs,
+// Authors and Kinds leave that field unrestricted, while an empty non-nil list
+// matches nothing. Tags uses names without the wire prefix #. Since and Until
+// are inclusive Unix timestamps. Limit controls a historical result batch;
+// Matches evaluates each event independently of that limit.
 type Filter struct {
 	IDs     []string            `json:"ids,omitempty"`
 	Authors []string            `json:"authors,omitempty"`
@@ -17,6 +23,8 @@ type Filter struct {
 	Search  string              `json:"search,omitempty"`
 }
 
+// ParseFilter decodes supported Nostr filter fields, including #tag keys, and
+// checks their JSON types.
 func ParseFilter(raw []byte) (Filter, error) {
 	var values map[string]json.RawMessage
 	if err := json.Unmarshal(raw, &values); err != nil {
@@ -79,6 +87,7 @@ func ParseFilter(raw []byte) (Filter, error) {
 	return f, nil
 }
 
+// MarshalJSON encodes tag constraints with their Nostr #name wire keys.
 func (f Filter) MarshalJSON() ([]byte, error) {
 	values := make(map[string]json.RawMessage, 7+len(f.Tags))
 	if f.IDs != nil {
@@ -108,6 +117,8 @@ func (f Filter) MarshalJSON() ([]byte, error) {
 	return json.Marshal(values)
 }
 
+// Matches reports whether e satisfies every populated constraint in f.
+// Search terms are matched against public content and exclude private kinds.
 func Matches(f Filter, e Event) bool {
 	if f.IDs != nil && !contains(f.IDs, e.ID) || f.Authors != nil && !contains(f.Authors, e.PubKey) || f.Kinds != nil && !containsInt(f.Kinds, e.Kind) {
 		return false
@@ -136,6 +147,8 @@ func Matches(f Filter, e Event) bool {
 	return true
 }
 
+// SearchTerms splits a search query into terms and drops protocol-style
+// name:value tokens.
 func SearchTerms(query string) []string { return slicesFilter(strings.Fields(query)) }
 
 func slicesFilter(words []string) []string {

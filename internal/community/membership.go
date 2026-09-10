@@ -71,11 +71,10 @@ type MembershipResult struct {
 	NewRequest bool
 }
 
-// HandleMembershipEventTx applies join/leave admission and invokes persist in
-// the same SQLite transaction. The callback must store the accepted event (or
-// return an error); membership and projection work then roll back together.
-// Management events that need records-owned state should use the root's
-// transaction hooks and EnqueueProjectionTx directly.
+// HandleMembershipEventTx applies join/leave admission in a transaction owned
+// by the service and invokes persist with that transaction. persist owns
+// accepted-event storage; returning an error rolls back membership, the
+// accepted event and queued projection work together.
 func (s *Service) HandleMembershipEventTx(ctx context.Context, ev event.Event, persist func(*sql.Tx) error) (MembershipResult, error) {
 	if persist == nil {
 		return MembershipResult{}, errors.New("community: nil event persistence callback")
@@ -281,9 +280,8 @@ func (s *Service) HandleModerationEventTx(ctx context.Context, ev event.Event, p
 	return out, err
 }
 
-// OnMembershipApplied is retained as a source compatibility shim. Projection
-// refresh is now driven by durable records-projection work intents; invoking a
-// relay callback here can deadlock a publish fence.
+// OnMembershipApplied ignores fn. Projection refresh uses durable
+// records-projection work intents.
 func (s *Service) OnMembershipApplied(fn func(event.Event)) {
 	_ = fn
 }

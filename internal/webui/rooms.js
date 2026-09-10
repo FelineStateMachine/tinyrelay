@@ -2,6 +2,10 @@
 // runs after components.js has published the shared UI helper contract.
 (() => {
   "use strict";
+  // Room elements own composition, room management actions and live updates.
+  // room-compose signs kind 9 and 12 events, room-create signs room metadata,
+  // room-action handles membership controls, and room-live consumes the room
+  // event stream.
   const tiny = window.tiny;
   const {FormElement, el, isHex64} = tiny.ui;
  // Rooms: the compose bar, room creation, room administration and the live

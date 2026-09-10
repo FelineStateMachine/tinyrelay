@@ -31,7 +31,7 @@ func (s *Service) Members(ctx context.Context) ([]communityread.Member, error) {
 	return out, rows.Err()
 }
 
-// MemberStatus reports heir membership and the current member count in one
+// MemberStatus reports the key's membership and the current member count in one
 // call so succession checks use a consistent community snapshot.
 func (s *Service) MemberStatus(ctx context.Context, pubkey string) (bool, int, error) {
 	var count int

@@ -16,6 +16,10 @@ import (
 	"github.com/FelineStateMachine/tinyrelay/internal/work"
 )
 
+// Config supplies a Service's store, routing policy, transports and optional
+// application hooks. Store is required. DataDir defaults to the store's
+// directory; Workers defaults to work.RunPool's worker count when Run is used.
+// The caller retains ownership of the supplied transports and store.
 type Config struct {
 	Store         *storage.Store
 	Policy        Policy
@@ -36,12 +40,14 @@ type Config struct {
 	Workers         int
 }
 
+// Service owns replication job state and the durable queue built on Store.
 type Service struct {
 	store  *storage.Store
 	queue  *work.Queue
 	config Config
 }
 
+// NewService initializes replication job tables and returns a service.
 func NewService(config Config) (*Service, error) {
 	if config.Store == nil {
 		return nil, errors.New("replication: store is required")
@@ -55,8 +61,10 @@ func NewService(config Config) (*Service, error) {
 	return &Service{store: config.Store, queue: work.New(config.Store), config: config}, nil
 }
 
+// Store returns the service's supplied store.
 func (s *Service) Store() *storage.Store { return s.store }
 
+// Queue returns the service's durable replication queue.
 func (s *Service) Queue() *work.Queue { return s.queue }
 
 func (s *Service) Prepare(e event.Event, origin Origin) []storage.Intent {

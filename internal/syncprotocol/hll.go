@@ -25,6 +25,9 @@ func NewHLL(offset int) *HLL {
 	return &HLL{offset: offset}
 }
 
+// HLLFilterOffset derives the register byte offset from the single tag value
+// used by the relay's count filter. Hashed values and address-style values are
+// both accepted.
 func HLLFilterOffset(f event.Filter) (int, bool) {
 	if len(f.Tags) != 1 {
 		return 0, false
@@ -51,6 +54,7 @@ func HLLFilterOffset(f event.Filter) (int, bool) {
 	return 0, false
 }
 
+// Add incorporates one 32-byte hexadecimal public key into the sketch.
 func (h *HLL) Add(pubkeyHex string) error {
 	if len(pubkeyHex) != 64 || !isHexCharacters(pubkeyHex) {
 		return fmt.Errorf("invalid pubkey: expected 32-byte hex")
@@ -75,8 +79,10 @@ func (h *HLL) Add(pubkeyHex string) error {
 	return nil
 }
 
+// Hex returns the 256 registers in their wire hexadecimal form.
 func (h *HLL) Hex() string { return hex.EncodeToString(h.regs[:]) }
 
+// MergeHex unions another 256-register sketch into h.
 func (h *HLL) MergeHex(encoded string) error {
 	if len(encoded) != hllRegisters*2 {
 		return fmt.Errorf("invalid HLL: expected %d hex characters", hllRegisters*2)

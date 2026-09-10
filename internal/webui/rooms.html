@@ -1,4 +1,6 @@
-{{/* Rooms: the list, one room's timeline with its compose bar, and one thread. */}}
+{{/* Rooms renders the list, one room's timeline with its compose bar and one
+thread. room-live receives the room stream after the server-rendered page
+establishes the initial state. */}}
 {{define "rooms"}}<section id="rooms">
 <h1>Rooms</h1>
 {{if .Error}}{{template "alert" .Error}}

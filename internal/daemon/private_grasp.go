@@ -23,10 +23,9 @@ func privateGitProof(r *http.Request) (event.Event, bool) {
 	return proof, ok
 }
 
-// PrivateServiceProfile is the protocol-facing description of a GRASP-08
-// tenant. It intentionally contains no tenant name, description, tags, or
-// repository coordinates: those are private data until the caller has
-// authenticated and passed the membership check.
+// PrivateServiceProfile describes a GRASP-08 tenant's configured protocol,
+// authentication methods, read policy and owner identity. Protocol adapters
+// choose the fields appropriate to the request's authenticated audience.
 type PrivateServiceProfile struct {
 	Enabled        bool
 	Protocol       string
@@ -35,9 +34,8 @@ type PrivateServiceProfile struct {
 	Owner          string
 }
 
-// PrivateAccess is evaluated against the durable community table for every
-// request. Repository maintainers are deliberately absent from this type;
-// maintaining a repository does not grant tenant membership.
+// PrivateAccess records tenant-level authority resolved from current community
+// membership. Owner, member and moderator roles grant private-service access.
 type PrivateAccess struct {
 	PubKey string
 	Role   string
@@ -68,8 +66,8 @@ func (t *Tenant) PrivateProfile() PrivateServiceProfile {
 	}
 }
 
-// PrivateAccess resolves current membership. It deliberately does not cache
-// the result, so removals and bans take effect on the next request.
+// PrivateAccess reads current membership and bans for each request, so access
+// changes apply to the next authorization check.
 func (t *Tenant) PrivateAccess(ctx context.Context, pubkey string) (PrivateAccess, error) {
 	access := PrivateAccess{PubKey: pubkey}
 	if t == nil || !t.PrivateServiceEnabled() {

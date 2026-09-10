@@ -1,6 +1,3 @@
-// Package webui contains the deliberately plain HTML surface for a hosted
-// relay. It owns presentation and form routing; relay policy and mutations
-// remain in the daemon supplied Backend.
 package webui
 
 import (
@@ -34,8 +31,12 @@ var signerJS []byte
 //go:embed fixi.js
 var fixiJS []byte
 
+// Backend supplies relay identity and the method calls used by page handlers.
+// Query receives the request context, method name, JSON arguments and actor
+// public key, and returns the method's JSON-shaped result. Policy, URL, slug
+// and identity describe the relay rendered into each page.
 type Backend interface {
-	Query(context.Context, string, []json.RawMessage, string) (any, error)
+	Query(ctx context.Context, method string, params []json.RawMessage, actor string) (any, error)
 	Policy() policy.Policy
 	URL() string
 	Slug() string
@@ -48,8 +49,12 @@ type CustomViewSource interface {
 	CustomViews() []views.View
 }
 
-type ActorResolver func(*http.Request) (string, error)
-type QRProvider func(string) ([]byte, error)
+// ActorResolver returns the authenticated public key associated with request.
+// An empty key represents an anonymous browser request.
+type ActorResolver func(request *http.Request) (string, error)
+
+// QRProvider encodes text as an image for pages that show a connection QR.
+type QRProvider func(text string) ([]byte, error)
 
 type App struct {
 	backend  Backend

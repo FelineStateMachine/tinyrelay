@@ -1,4 +1,3 @@
-// Package catalog owns the durable registry of self-hosted relay tenants.
 package catalog
 
 import (
@@ -20,9 +19,15 @@ import (
 type Status string
 
 const (
+	// StatusCreating identifies a tenant whose directories or services are
+	// still being initialized.
 	StatusCreating Status = "creating"
-	StatusReady    Status = "ready"
+	// StatusReady identifies a tenant available for normal service.
+	StatusReady Status = "ready"
+	// StatusDisabled identifies a tenant stopped by the operator and eligible
+	// for reactivation or deletion.
 	StatusDisabled Status = "disabled"
+	// StatusDeleting identifies a tenant whose deletion intent is recorded.
 	StatusDeleting Status = "deleting"
 )
 
@@ -36,12 +41,17 @@ var (
 )
 
 type CreateOptions struct {
-	Name     string
-	Owner    string
+	// Name is the operator-visible unique tenant name.
+	Name string
+	// Owner is the tenant owner's public key.
+	Owner string
+	// Template identifies the configuration template used during setup.
 	Template string
-	Source   string
+	// Source records where the tenant configuration came from.
+	Source string
 }
 
+// Paths contains the private filesystem locations assigned to a tenant.
 type Paths struct {
 	Root     string
 	Database string

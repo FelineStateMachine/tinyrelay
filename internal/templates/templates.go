@@ -1,4 +1,3 @@
-// Package templates contains the built-in declarative relay and connection catalog.
 package templates
 
 import (
@@ -8,6 +7,7 @@ import (
 	"github.com/FelineStateMachine/tinyrelay/internal/policy"
 )
 
+// Template describes a built-in relay policy and its recommended connections.
 type Template struct {
 	Name          string
 	Title         string
@@ -21,6 +21,7 @@ type Template struct {
 	Connections   []string
 }
 
+// Connection describes one client integration displayed for a relay.
 type Connection struct {
 	Name       string
 	Title      string
@@ -35,7 +36,10 @@ type Connection struct {
 	Links      []Link
 }
 
+// Input describes a value a connection asks the user to supply.
 type Input struct{ Name, Label, Placeholder, Default, Pattern string }
+
+// Link describes an external URL or copyable value for a connection.
 type Link struct{ Label, Href, Copy string }
 
 var templateCatalog = []Template{
@@ -78,6 +82,8 @@ func Names() []string {
 	}
 	return out
 }
+
+// Connections returns the built-in connection catalog in display order.
 func Connections() []Connection {
 	out := make([]Connection, len(connectionCatalog))
 	for i, c := range connectionCatalog {
@@ -85,6 +91,8 @@ func Connections() []Connection {
 	}
 	return out
 }
+
+// Find returns a named template and a boolean indicating whether it exists.
 func Find(name string) (Template, bool) {
 	for _, t := range templateCatalog {
 		if t.Name == name {

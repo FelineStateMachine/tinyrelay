@@ -1,7 +1,3 @@
-// Package mcp implements the Model Context Protocol, revision 2026-07-28, in
-// the stateless form of its Streamable HTTP binding: one endpoint that
-// accepts POST, no sessions, no initialize handshake, and every request
-// carrying its protocol version in both the headers and the body.
 package mcp
 
 import (
@@ -14,9 +10,7 @@ import (
 // Version is the protocol revision this package implements.
 const Version = "2026-07-28"
 
-// SupportedVersions lists the protocol revisions the server accepts. Older
-// revisions negotiated a session with an initialize handshake and are not
-// served.
+// SupportedVersions lists the protocol revisions the server accepts.
 var SupportedVersions = []string{Version}
 
 // Header names mirrored from the JSON-RPC body so intermediaries can route

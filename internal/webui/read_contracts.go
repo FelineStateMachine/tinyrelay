@@ -8,20 +8,37 @@ import (
 	"github.com/FelineStateMachine/tinyrelay/internal/event"
 )
 
-// RoomsReader is the presentation-owned read contract for room pages. The
-// legacy Backend.Query method remains supported for adapters that have not
-// adopted this interface yet.
+// RoomsReader supplies the typed reads used by room pages. actor is the
+// authenticated public key, or an empty string for an anonymous request.
+// cursor is empty for the newest page and otherwise is the value returned in
+// NextCursor. limit requests at most that many rows. The daemon adapter uses
+// 100 when the requested limit falls outside 1 through 100.
+//
+// ListRooms returns visible room summaries ordered by room ID and a cursor for
+// the next page. ReadRoom returns the room summary, visible members, newest
+// room messages, message edits and a cursor for older messages. ReadThread
+// returns the room summary, one root event, its replies, edits and a cursor for
+// older replies. Reads enforce tenant and room access and return errors for
+// missing rooms, invalid cursors or an inaccessible room. ReadThread also
+// returns an error when rootID is not a lower-case hexadecimal event ID or does
+// not identify a message in roomID.
 type RoomsReader interface {
-	ListRooms(context.Context, string, string, int) (RoomList, error)
-	ReadRoom(context.Context, string, string, string, int) (RoomPage, error)
-	ReadThread(context.Context, string, string, string, string, int) (RoomPage, error)
+	// ListRooms returns up to limit visible room summaries after cursor.
+	ListRooms(ctx context.Context, actor, cursor string, limit int) (RoomList, error)
+	// ReadRoom returns one visible room, its members, messages and edits after cursor.
+	ReadRoom(ctx context.Context, actor, roomID, cursor string, limit int) (RoomPage, error)
+	// ReadThread returns one room thread root, replies and edits after cursor.
+	ReadThread(ctx context.Context, actor, roomID, rootID, cursor string, limit int) (RoomPage, error)
 }
 
 type RoomList struct {
-	Rooms      []RoomSummary `json:"rooms"`
-	NextCursor string        `json:"next_cursor,omitempty"`
+	// Rooms contains visible room summaries in ascending ID order.
+	Rooms []RoomSummary `json:"rooms"`
+	// NextCursor is the last room ID when another page is available.
+	NextCursor string `json:"next_cursor,omitempty"`
 }
 
+// RoomSummary is the room metadata shown in the rail and room header.
 type RoomSummary struct {
 	ID            string `json:"id"`
 	Name          string `json:"name,omitempty"`
@@ -46,6 +63,9 @@ type RoomMember struct {
 
 type RoomMessage = event.Event
 
+// RoomPage is the typed result for a room or thread read. A room read fills
+// Members and Messages; a thread read fills Root and Replies. Edits contains
+// the newest visible edit for the returned targets.
 type RoomPage struct {
 	Room       RoomSummary   `json:"room"`
 	Members    []RoomMember  `json:"members,omitempty"`
@@ -56,9 +76,8 @@ type RoomPage struct {
 	NextCursor string        `json:"next_cursor,omitempty"`
 }
 
-// rowsReader adapts the legacy method-and-JSON backend to the read shapes
-// used by page renderers. It keeps wire compatibility while making list
-// queries consistently return rows at the presentation boundary.
+// rowsReader converts method-and-JSON query results into the row slices used
+// by page renderers.
 type rowsReader struct{ backend Backend }
 
 func (r rowsReader) rows(ctx context.Context, method string, params []json.RawMessage, actor string) ([]any, error) {

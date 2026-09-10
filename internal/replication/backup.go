@@ -18,8 +18,10 @@ import (
 	"github.com/FelineStateMachine/tinyrelay/internal/storage"
 )
 
+// BackupFormat identifies the JSON archive format produced by this package.
 const BackupFormat = "tinyrelay/backup/1"
 
+// BackupArchive is a sealed event and application-state export.
 type BackupArchive struct {
 	Format  string        `json:"format"`
 	Events  []event.Event `json:"events"`
@@ -28,6 +30,7 @@ type BackupArchive struct {
 	Created int64         `json:"created_at"`
 }
 
+// BackupState contains application-owned state and exported objects.
 type BackupState struct {
 	Config    json.RawMessage `json:"config,omitempty"`
 	Community json.RawMessage `json:"community,omitempty"`
@@ -39,12 +42,14 @@ type BackupState struct {
 	Database  []BackupTable   `json:"database,omitempty"`
 }
 
+// BackupTable is a named table snapshot represented as JSON rows.
 type BackupTable struct {
 	Name    string              `json:"name"`
 	Columns []string            `json:"columns"`
 	Rows    [][]json.RawMessage `json:"rows"`
 }
 
+// BackupObject is an exported named file or blob with an integrity digest.
 type BackupObject struct {
 	Name     string `json:"name"`
 	SHA256   string `json:"sha256"`
@@ -54,18 +59,23 @@ type BackupObject struct {
 	Uploaded int64  `json:"uploaded,omitempty"`
 }
 
+// BackupProvider snapshots and restores application state associated with a
+// relay database. The provider owns its external resources.
 type BackupProvider interface {
-	Snapshot(context.Context) (BackupState, error)
-	Restore(context.Context, BackupState) error
+	Snapshot(ctx context.Context) (BackupState, error)
+	Restore(ctx context.Context, state BackupState) error
 }
 
+// FullBackupProvider can produce a complete archive using its own snapshot
+// coordination.
 type FullBackupProvider interface {
 	BackupProvider
-	SnapshotArchive(context.Context, int64) (BackupArchive, error)
+	SnapshotArchive(ctx context.Context, created int64) (BackupArchive, error)
 }
 
+// RestoreFinalizer runs application cleanup after a successful restore.
 type RestoreFinalizer interface {
-	FinalizeRestore(context.Context) error
+	FinalizeRestore(ctx context.Context) error
 }
 
 func CreateBackup(ctx context.Context, store *storage.Store, now int64) (BackupArchive, error) {

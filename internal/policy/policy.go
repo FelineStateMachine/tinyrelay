@@ -1,4 +1,3 @@
-// Package policy contains the durable, host-independent policy for a relay.
 package policy
 
 import (
@@ -10,11 +9,13 @@ import (
 	"strings"
 )
 
+// Succession describes the account handoff after a period of inactivity.
 type Succession struct {
 	Heir      string `json:"heir"`
 	AfterDays int    `json:"afterDays"`
 }
 
+// Notify selects tenant notification categories.
 type Notify struct {
 	Reports    bool `json:"reports"`
 	Jobs       bool `json:"jobs"`
@@ -22,16 +23,19 @@ type Notify struct {
 	Digest     bool `json:"digest"`
 }
 
+// MemberInvites controls invitation depth and quota.
 type MemberInvites struct {
 	Depth int `json:"depth"`
 	Quota int `json:"quota"`
 }
 
+// Sites controls hosted site publication and mirroring.
 type Sites struct {
 	Enabled bool `json:"enabled"`
 	Mirror  bool `json:"mirror"`
 }
 
+// Features selects relay protocols and tenant capabilities.
 type Features struct {
 	Search    string `json:"search"`
 	Sync      bool   `json:"sync"`
@@ -57,10 +61,12 @@ type Features struct {
 	Jobs bool `json:"jobs"`
 }
 
+// Delivery controls event delivery services.
 type Delivery struct {
 	Enabled bool `json:"enabled"`
 }
 
+// Inbox controls targeted inbox admission.
 type Inbox struct {
 	Targeted bool `json:"targeted"`
 }
@@ -71,6 +77,7 @@ type FileLimits struct {
 	UserStorageBytes int64 `json:"userStorageBytes"`
 }
 
+// CustomHost records a tenant-managed host and its provisioning state.
 type CustomHost struct {
 	Host      string `json:"host"`
 	ID        string `json:"id"`
@@ -80,13 +87,15 @@ type CustomHost struct {
 	SSLStatus string `json:"sslStatus"`
 }
 
+// RetentionRule assigns a retention period to one kind; negative kinds are
+// used as the wildcard rule by the gate.
 type RetentionRule struct {
 	Kind int `json:"kind"`
 	Days int `json:"days"`
 }
 
-// Policy is the tenant policy. Host capacity and scheduling controls are
-// intentionally outside this type; they are not tenant entitlements.
+// Policy is the durable policy for one tenant. It combines identity and
+// presentation settings, access rules, feature switches and storage limits.
 type Policy struct {
 	Owner              string            `json:"owner"`
 	CustomHosts        []CustomHost      `json:"customHosts"`
@@ -142,9 +151,8 @@ const DefaultRooms = 64
 // name one.
 const DefaultCallbacks = 4
 
-// UnmarshalJSON keeps the room and callback allowances and the long task
-// switch at their defaults when a stored policy predates the fields, so
-// existing tenants do not lose room creation, callbacks or job traffic.
+// UnmarshalJSON applies the current defaults for room, callback and job
+// settings before decoding a stored policy.
 func (p *Policy) UnmarshalJSON(data []byte) error {
 	type plain Policy
 	decoded := plain{Rooms: DefaultRooms, Callbacks: DefaultCallbacks}
@@ -162,6 +170,8 @@ func Defaults(owner string) Policy {
 		Notify:   Notify{}, Views: map[string]string{}, Tags: []string{}, LanguageTags: []string{}, RelayCountries: []string{}, OpenKinds: []int{}, BlockedWords: []string{}, PushCallbacks: []string{}, Delivery: Delivery{}}
 }
 
+// Validate checks policy enum values, URL fields, feature dependencies and
+// numeric bounds.
 func Validate(p Policy) error {
 	if p.FileLimits.MaxFileBytes < 0 || p.FileLimits.UserStorageBytes < 0 {
 		return errors.New("fileLimits: byte allowances cannot be negative")

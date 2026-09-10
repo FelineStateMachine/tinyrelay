@@ -1,5 +1,3 @@
-// Package auth identifies Nostr callers at HTTP and websocket boundaries.
-// Access policy belongs to the caller; this package only verifies proofs.
 package auth
 
 import (
@@ -27,6 +25,8 @@ type Validator struct {
 	seen map[string]time.Time
 }
 
+// NewValidator uses now to check proof freshness and track replay windows.
+// A nil clock selects the system clock.
 func NewValidator(now func() time.Time) *Validator {
 	if now == nil {
 		now = time.Now
@@ -34,6 +34,9 @@ func NewValidator(now func() time.Time) *Validator {
 	return &Validator{now: now, seen: make(map[string]time.Time)}
 }
 
+// VerifyNIP98 validates a kind 27235 request proof against the exact URL,
+// method and body supplied by the caller. Successfully verified event IDs are
+// retained for the one-minute replay window.
 func (v *Validator) VerifyNIP98(header, rawURL, method, body string) (event.Event, error) {
 	e, err := decodeToken(header, "NIP-98")
 	if err != nil {
@@ -64,13 +67,15 @@ func (v *Validator) VerifyNIP98(header, rawURL, method, body string) (event.Even
 	return e, nil
 }
 
+// VerifyBlossom validates a BUD-11 authorization for action. It accepts the
+// protocol's reusable authorization form and checks its action and expiry.
 func (v *Validator) VerifyBlossom(header, action string) (event.Event, error) {
 	return v.verifyBlossom(header, action, "", "", false)
 }
 
-// VerifyBlossomRequest verifies a BUD-11 request, including optional server
-// domain and blob-hash scope. It is separate from VerifyBlossom to preserve
-// callers that use the older, server-agnostic helper.
+// VerifyBlossomRequest validates a BUD-11 authorization with optional server
+// and blob-hash scope. Upload, delete, mirror and media actions require an x
+// tag when this scoped form is used.
 func (v *Validator) VerifyBlossomRequest(header, action, server, blobHash string) (event.Event, error) {
 	return v.verifyBlossom(header, action, server, blobHash, true)
 }
@@ -215,6 +220,8 @@ type ChallengeManager struct {
 	active   map[string]time.Time
 }
 
+// NewChallengeManager creates a NIP-42 challenge store for relayURL. Issued
+// challenges are single-use and expire with the validator replay window.
 func NewChallengeManager(relayURL string, now func() time.Time) *ChallengeManager {
 	if now == nil {
 		now = time.Now
@@ -222,6 +229,7 @@ func NewChallengeManager(relayURL string, now func() time.Time) *ChallengeManage
 	return &ChallengeManager{relayURL: relayURL, now: now, active: make(map[string]time.Time)}
 }
 
+// Issue creates and stores a cryptographically random NIP-42 challenge.
 func (m *ChallengeManager) Issue() (string, error) {
 	raw := make([]byte, 32)
 	if _, err := rand.Read(raw); err != nil {
@@ -236,6 +244,7 @@ func (m *ChallengeManager) Issue() (string, error) {
 	return challenge, nil
 }
 
+// Verify validates and consumes a NIP-42 AUTH event for the configured relay.
 func (m *ChallengeManager) Verify(e event.Event) error {
 	if err := event.Validate(e); err != nil {
 		return authError(err.Error())

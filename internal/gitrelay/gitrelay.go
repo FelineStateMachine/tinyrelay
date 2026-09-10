@@ -1,6 +1,3 @@
-// Package gitrelay provides the self-hosted GRASP smart-HTTP boundary. Git
-// own receive-pack/upload-pack remain the object and pack implementation;
-// signed Nostr repository events remain the authority for refs.
 package gitrelay
 
 import (
@@ -17,6 +14,7 @@ import (
 	"github.com/FelineStateMachine/tinyrelay/internal/storage"
 )
 
+// Repository is the resolved authority and Git state for one hosted project.
 type Repository struct {
 	Owner       string
 	Identifier  string
@@ -48,6 +46,7 @@ type MaintainerSource interface {
 	IsMaintainer(ctx context.Context, r Repository, pubkey string) bool
 }
 
+// Config supplies the event store, Git root, authorization and transport hooks.
 type Config struct {
 	Store     *storage.Store
 	Root      string
@@ -63,15 +62,15 @@ type Config struct {
 	// advertised clone URLs. It is optional for an embedded relay.
 	ServiceURL string
 	// PublicURL is the canonical HTTPS URL used in repository advertisements;
-	// ServiceURL remains accepted as a compatibility alias.
+	// ServiceURL is used when PublicURL is empty.
 	PublicURL string
 	// EnableGRASP06 enables the alternative PR repository surface. It is kept
 	// opt-in because publishing a capability creates an interoperability
 	// promise beyond the base GRASP-01 HTTP endpoint.
 	EnableGRASP06 bool
-	// AllowMissingObjects is retained for configuration compatibility. Missing
-	// objects always enter the durable pending path; this flag no longer makes
-	// incomplete state visible.
+	// AllowMissingObjects is ignored.
+	// Missing objects enter the durable pending path and stay hidden until
+	// receive-pack or repair supplies every advertised tip.
 	AllowMissingObjects bool
 	// AllowPrivateRelays permits operator-controlled private DNS targets for
 	// self-hosted networks. Public deployments should leave it disabled.
@@ -92,6 +91,7 @@ type Config struct {
 	OnPromote func(context.Context, string, Repository) error
 }
 
+// GitRelay coordinates signed repository events with native bare repositories.
 type GitRelay struct {
 	store         *storage.Store
 	root          string

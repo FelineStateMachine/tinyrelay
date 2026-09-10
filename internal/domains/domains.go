@@ -1,6 +1,3 @@
-// Package domains implements operator-managed local host mappings. A mapping
-// is explicit configuration; it never provisions DNS, certificates, or a
-// wildcard route on the operator's behalf.
 package domains
 
 import (
@@ -20,11 +17,18 @@ import (
 type ResolveDNS func(context.Context, string) ([]net.IP, error)
 
 type Config struct {
-	Catalog    *catalog.Catalog
-	TenantID   string
-	BaseHost   string
-	RelayURL   string
-	Owner      func(string) bool
+	// Catalog stores the tenant's primary and secondary host mappings.
+	Catalog *catalog.Catalog
+	// TenantID scopes all writes and reads performed by Service.
+	TenantID string
+	// BaseHost is the relay's canonical host and may be empty for a tenant
+	// without a primary host.
+	BaseHost string
+	// RelayURL is returned in discovery responses.
+	RelayURL string
+	// Owner authorizes management calls made through Execute.
+	Owner func(string) bool
+	// ResolveDNS checks the configured host's DNS records when Check runs.
 	ResolveDNS ResolveDNS
 }
 

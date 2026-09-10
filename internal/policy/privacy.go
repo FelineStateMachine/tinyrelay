@@ -12,13 +12,11 @@ import (
 // replaceable repository state events. It keeps the policy package independent
 // from the storage implementation.
 type PrivateRepositoryLookup interface {
-	IsPrivateRepository(context.Context, string, string) (bool, error)
+	IsPrivateRepository(ctx context.Context, pubkey, identifier string) (bool, error)
 }
 
-// PrivateServiceEnabled reports whether the tenant can serve the complete
-// GRASP-08 private service contract. Valid policies already enforce these
-// implications, but keeping the predicate here gives callers one definition
-// when inspecting policy values during startup or migration.
+// PrivateServiceEnabled reports whether the tenant has the complete GRASP-08
+// private service contract enabled.
 func (p Policy) PrivateServiceEnabled() bool {
 	return p.Features.Grasp && p.Features.Grasp08 && p.Reads == "members"
 }

@@ -6,12 +6,17 @@ import (
 	"sync"
 )
 
+// Admission errors distinguish exclusive maintenance from tenant shutdown.
+// Callers may retry maintenance refusals after the active operation finishes.
 var (
 	ErrMaintenance     = errors.New("retryable: tenant maintenance in progress")
 	ErrMaintenanceBusy = errors.New("retryable: tenant maintenance is already active")
 	ErrTenantClosing   = errors.New("tenant is closing")
 )
 
+// maintenanceGate counts admitted operations and grants exclusive maintenance
+// after those operations drain. Context markers carry admission across nested
+// service calls. A returned completion function releases each admission once.
 type maintenanceGate struct {
 	mu          sync.Mutex
 	active      int
@@ -27,9 +32,14 @@ type maintenanceContext struct {
 	maintenance bool
 }
 
+// beginOperation admits ordinary tenant work. The caller passes the returned
+// context to nested operations and defers the completion function on success.
 func (t *Tenant) beginOperation(ctx context.Context) (context.Context, func(), error) {
 	return t.maintenance.beginOperation(ctx)
 }
+
+// beginMaintenance grants exclusive tenant access after active work drains.
+// The returned context admits maintenance's nested calls until completion.
 func (t *Tenant) beginMaintenance(ctx context.Context) (context.Context, func(), error) {
 	return t.maintenance.beginMaintenance(ctx)
 }

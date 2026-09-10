@@ -1,4 +1,5 @@
-/* NIP-17 file messages. This module never publishes to ordinary relays. */
+/* NIP-17 file messages. The module builds encrypted rumors and gift-wrap
+   events, discovers inbox relays and sends bounded deliveries. */
 (() => {
   "use strict";
   const {relayURL} = globalThis.tiny.util;

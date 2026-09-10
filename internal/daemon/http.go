@@ -500,6 +500,10 @@ func (t *Tenant) manageHTTP(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, map[string]any{"result": result})
 }
 
+// Execute dispatches a management method with positional JSON parameters.
+// actor is the authenticated public key, or empty for an anonymous caller.
+// The transport establishes actor identity; method handlers apply current
+// membership and resource permissions. Results retain each method's wire shape.
 func (t *Tenant) Execute(ctx context.Context, actor, method string, params []json.RawMessage) (any, error) {
 	ctx, done, admissionErr := t.beginOperation(ctx)
 	if admissionErr != nil {

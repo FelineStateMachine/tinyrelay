@@ -1,4 +1,3 @@
-// Package telemetry contains the relay's low-cardinality observability boundary.
 package telemetry
 
 import (

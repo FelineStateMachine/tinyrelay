@@ -1,4 +1,3 @@
-// Package storage owns each tenant's local SQLite database and transaction boundary.
 package storage
 
 import (
@@ -15,6 +14,7 @@ import (
 	_ "modernc.org/sqlite"
 )
 
+// Rejection is a stable Save error that callers can match with errors.Is.
 type Rejection string
 
 func (e Rejection) Error() string { return string(e) }
@@ -26,10 +26,14 @@ const (
 	ErrVanished  Rejection = "blocked: this pubkey asked for its events to be deleted"
 )
 
+// Observer receives operation name, outcome and duration for instrumented
+// Store operations.
 type Observer interface {
-	ObserveStorage(string, string, time.Duration)
+	ObserveStorage(operation, outcome string, duration time.Duration)
 }
 
+// Store is a tenant's SQLite database. A Store must be closed when its owner
+// is done with it.
 type Store struct {
 	db         *sql.DB
 	path       string
@@ -37,6 +41,9 @@ type Store struct {
 	observer   Observer
 }
 
+// Open creates or opens path, initializes the tenant schema and returns a
+// Store. The parent directory is created with mode 0700 and the database file
+// with mode 0600.
 func Open(ctx context.Context, path string) (*Store, error) {
 	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
 		return nil, fmt.Errorf("create database directory: %w", err)
@@ -58,8 +65,8 @@ func Open(ctx context.Context, path string) (*Store, error) {
 	if err != nil {
 		return nil, fmt.Errorf("open database: %w", err)
 	}
-	// One connection is the initial serialization boundary. Reader pools can be
-	// introduced after measurements without changing transaction semantics.
+	// One connection serializes tenant database operations. Transaction hooks
+	// use their supplied transaction while it holds this connection.
 	db.SetMaxOpenConns(1)
 	db.SetMaxIdleConns(1)
 	s := &Store{db: db, path: path}
@@ -69,9 +76,18 @@ func Open(ctx context.Context, path string) (*Store, error) {
 	return s, nil
 }
 
-func (s *Store) DB() *sql.DB  { return s.db }
+// DB returns the database used by tenant services for their schemas, queries
+// and transactions. Event persistence uses Save or SaveTx to apply storage's
+// replacement, deletion and indexing rules.
+func (s *Store) DB() *sql.DB { return s.db }
+
+// Path returns the database file path supplied to Open.
 func (s *Store) Path() string { return s.path }
+
+// Close releases the database connection.
 func (s *Store) Close() error { return s.db.Close() }
+
+// SetObserver replaces the observer used for operation timing and outcomes.
 func (s *Store) SetObserver(o Observer) {
 	s.observerMu.Lock()
 	defer s.observerMu.Unlock()
@@ -91,8 +107,9 @@ func (s *Store) observe(operation string, started time.Time, err error) {
 	s.observer.ObserveStorage(operation, outcome, time.Since(started))
 }
 
-// WithTx must not call another Store method: the callback owns the connection.
-// A successful return guarantees all domain changes and work intents committed.
+// WithTx opens a transaction, calls fn and commits after fn succeeds. It rolls
+// back on failure. The callback uses the supplied transaction for database
+// work because it holds the store's sole connection until completion.
 func (s *Store) WithTx(ctx context.Context, fn func(*sql.Tx) error) (err error) {
 	started := time.Now()
 	defer func() { s.observe("commit", started, err) }()

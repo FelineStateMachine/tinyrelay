@@ -9,14 +9,19 @@ import (
 	"github.com/FelineStateMachine/tinyrelay/internal/storage"
 )
 
+// PullTransport reads events from target. The transport owns network clients
+// and their lifecycle; PullOnce owns validation and storage.
 type PullTransport interface {
 	Query(ctx context.Context, target string, filter event.Filter) ([]event.Event, error)
 }
 
+// PushTransport sends one event to target. PushAfter advances its cursor only
+// after Send returns, including a relay duplicate acknowledgment.
 type PushTransport interface {
 	Send(ctx context.Context, target string, e event.Event) (DeliveryResult, error)
 }
 
+// SyncStats summarizes one pull or push pass.
 type SyncStats struct {
 	Stored     int
 	Duplicates int

@@ -80,16 +80,19 @@ var JobFeedbackStatuses = []string{"payment-required", "processing", "error", "s
 // JobInputTypes is the NIP-90 vocabulary of the i tag's input type.
 var JobInputTypes = []string{"url", "event", "job", "text"}
 
+// IsJobRequest reports whether kind is a NIP-90 request kind.
 func IsJobRequest(kind int) bool { return kind >= KIND_JOB_REQUEST_MIN && kind <= KIND_JOB_REQUEST_MAX }
-func IsJobResult(kind int) bool  { return kind >= KIND_JOB_RESULT_MIN && kind <= KIND_JOB_RESULT_MAX }
+
+// IsJobResult reports whether kind is a NIP-90 result kind.
+func IsJobResult(kind int) bool { return kind >= KIND_JOB_RESULT_MIN && kind <= KIND_JOB_RESULT_MAX }
 
 // IsJobKind reports whether the kind is a job request, result or feedback.
 func IsJobKind(kind int) bool {
 	return IsJobRequest(kind) || IsJobResult(kind) || kind == KIND_JOB_FEEDBACK
 }
 
-// JobResultKind returns the result kind for a request kind, or 0 when the
-// kind is not a job request.
+// JobResultKind returns the result kind for a request kind, or 0 for other
+// kinds.
 func JobResultKind(request int) int {
 	if !IsJobRequest(request) {
 		return 0
@@ -97,6 +100,8 @@ func JobResultKind(request int) int {
 	return request + 1000
 }
 
+// IsJobFeedbackStatus reports whether status is in the NIP-90 feedback
+// vocabulary.
 func IsJobFeedbackStatus(status string) bool {
 	for _, known := range JobFeedbackStatuses {
 		if known == status {
@@ -106,6 +111,7 @@ func IsJobFeedbackStatus(status string) bool {
 	return false
 }
 
+// IsJobInputType reports whether kind is a supported NIP-90 input type.
 func IsJobInputType(kind string) bool {
 	for _, known := range JobInputTypes {
 		if known == kind {

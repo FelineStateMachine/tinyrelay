@@ -10,6 +10,7 @@ import (
 	"github.com/FelineStateMachine/tinyrelay/internal/event"
 )
 
+// Stats reports event counts, database size and the current WAL size.
 type Stats struct {
 	Events   int64 `json:"events"`
 	Bytes    int64 `json:"bytes"`
@@ -40,6 +41,8 @@ func (s *Store) Stats(ctx context.Context) (Stats, error) {
 	return result, nil
 }
 
+// Vanish records a deletion horizon and removes the author's events and
+// related history through until, inclusive.
 func (s *Store) Vanish(ctx context.Context, pubkey string, until int64) error {
 	return s.WithTx(ctx, func(tx *sql.Tx) error {
 		statements := []struct {
@@ -61,6 +64,8 @@ func (s *Store) Vanish(ctx context.Context, pubkey string, until int64) error {
 	})
 }
 
+// SweepExpired removes expired events and history and returns the next event
+// expiration timestamp, or zero when none remain.
 func (s *Store) SweepExpired(ctx context.Context, now int64) (int64, error) {
 	var next int64
 	err := s.WithTx(ctx, func(tx *sql.Tx) error {
@@ -74,6 +79,7 @@ func (s *Store) SweepExpired(ctx context.Context, now int64) (int64, error) {
 	return next, err
 }
 
+// DeleteEvent removes one event by ID and reports whether a row was removed.
 func (s *Store) DeleteEvent(ctx context.Context, id string) (bool, error) {
 	result, err := s.db.ExecContext(ctx, "DELETE FROM events WHERE id=?", id)
 	if err != nil {
@@ -83,6 +89,7 @@ func (s *Store) DeleteEvent(ctx context.Context, id string) (bool, error) {
 	return n > 0, err
 }
 
+// EraseAuthor removes an author's events and retained list and wiki history.
 func (s *Store) EraseAuthor(ctx context.Context, pubkey string) (int64, error) {
 	var n int64
 	err := s.WithTx(ctx, func(tx *sql.Tx) error {
@@ -103,6 +110,7 @@ func (s *Store) EraseAuthor(ctx context.Context, pubkey string) (int64, error) {
 	return n, err
 }
 
+// GetSetting decodes a JSON setting into dest.
 func (s *Store) GetSetting(ctx context.Context, key string, dest any) error {
 	var raw string
 	if err := s.db.QueryRowContext(ctx, "SELECT value FROM settings WHERE key=?", key).Scan(&raw); err != nil {
@@ -114,6 +122,7 @@ func (s *Store) GetSetting(ctx context.Context, key string, dest any) error {
 	return nil
 }
 
+// PutSetting encodes value as JSON and upserts it under key.
 func (s *Store) PutSetting(ctx context.Context, key string, value any) error {
 	return s.WithTx(ctx, func(tx *sql.Tx) error { return PutSetting(ctx, tx, key, value) })
 }
@@ -154,6 +163,7 @@ func (s *Store) PruneSettings(ctx context.Context, prefix string, keep map[strin
 	return nil
 }
 
+// PutSetting writes one setting using a caller-owned transaction.
 func PutSetting(ctx context.Context, tx *sql.Tx, key string, value any) error {
 	raw, err := json.Marshal(value)
 	if err != nil {

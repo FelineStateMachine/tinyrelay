@@ -62,8 +62,6 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) { s.Handle(w,
 func (s *Server) Handle(w http.ResponseWriter, r *http.Request) Observation {
 	w.Header().Set("Cache-Control", "no-store")
 	if r.Method != http.MethodPost {
-		// GET opened a server stream and DELETE ended a session in earlier
-		// revisions. Neither exists in this one.
 		w.Header().Set("Allow", "POST")
 		http.Error(w, "method not allowed: the MCP endpoint accepts POST", http.StatusMethodNotAllowed)
 		return Observation{Outcome: OutcomeInvalid, Status: http.StatusMethodNotAllowed}
