@@ -695,6 +695,29 @@ func TestSmartHTTPServesBareRepository(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(root, "git", owner, "http.git", "HEAD")); err != nil {
 		t.Fatalf("repo: %v", err)
 	}
+	// Git 2.39 does not include upload-pack capabilities in an advertisement
+	// for an empty repository. Seed one valid commit so this exercises the
+	// capability negotiation used by browser clients.
+	repo := g.repoPath(r)
+	treeCmd := exec.Command("git", "--git-dir", repo, "mktree")
+	treeCmd.Stdin = strings.NewReader("")
+	tree, err := treeCmd.Output()
+	if err != nil {
+		t.Fatalf("empty tree: %v", err)
+	}
+	commitCmd := exec.Command("git", "--git-dir", repo, "commit-tree", strings.TrimSpace(string(tree)), "-m", "initial state")
+	commitCmd.Env = append(os.Environ(),
+		"GIT_AUTHOR_NAME=tinyrelay test", "GIT_AUTHOR_EMAIL=test@example.invalid",
+		"GIT_COMMITTER_NAME=tinyrelay test", "GIT_COMMITTER_EMAIL=test@example.invalid",
+	)
+	commit, err := commitCmd.Output()
+	if err != nil {
+		t.Fatalf("initial commit: %v", err)
+	}
+	update := exec.Command("git", "--git-dir", repo, "update-ref", "refs/heads/main", strings.TrimSpace(string(commit)))
+	if out, err := update.CombinedOutput(); err != nil {
+		t.Fatalf("initial ref: %v: %s", err, out)
+	}
 	req := httptest.NewRequest(http.MethodGet, "/npub/npub180cvv07tjdrrgpa0j7j7tmnyl2yr6yr7l8j4s3evf6u64th6gkwsyjh6w6/http.git/info/refs?service=git-upload-pack", nil)
 	if got, err := decodeNPub("npub180cvv07tjdrrgpa0j7j7tmnyl2yr6yr7l8j4s3evf6u64th6gkwsyjh6w6"); err != nil {
 		t.Fatalf("known npub: %v", err)
