@@ -37,7 +37,7 @@ async page => {
     return {links:links.length,url:page.url()};
   });
   await run('search GET submission and history', async () => {
-    await clickNav('all repositories');
+    await clickNav('← all repositories');
     await clickNav('/search');
     await page.locator('#search input[name=q]').fill('fixture');
     await page.locator('#search').getByRole('button', {name:'Search',exact:true}).click();
@@ -119,6 +119,7 @@ async page => {
     check(await page.locator('#nav-menu').evaluate(e=>e.open),'morphed menu did not open');
     await page.keyboard.press('Escape');
     check(!await page.locator('#nav-menu').evaluate(e=>e.open),'Escape did not close menu');
+    await page.locator('#menu').click();
     const before = await page.locator('html').getAttribute('data-theme');
     await page.locator('#theme').click();
     check(await page.locator('html').getAttribute('data-theme') !== before,'morphed theme button inactive');
