@@ -98,12 +98,24 @@ type Blob struct {
 	Uploaded int64  `json:"uploaded"`
 }
 
+// BlobClaimMetadata names a blob for one uploader. Names are claim-scoped so
+// deduplicated blobs can have different names for different uploaders.
+type BlobClaimMetadata struct {
+	SHA256    string `json:"sha256"`
+	Uploader  string `json:"uploader"`
+	Name      string `json:"name"`
+	Path      string `json:"path"`
+	UpdatedAt int64  `json:"updated_at"`
+}
+
 // PutOptions describes a blob upload and its optional metadata transaction.
 type PutOptions struct {
 	Reader   io.Reader
 	Type     string
 	Uploader string
 	Hash     string
+	Name     string
+	Path     string
 	// Commit records ownership metadata in the blob transaction. Its isNew
 	// argument reports whether the blob was newly installed. An error rolls
 	// back all claims.
@@ -171,6 +183,12 @@ func New(ctx context.Context, config Config) (*Service, error) {
 		PRIMARY KEY (sha256, uploader), FOREIGN KEY (sha256) REFERENCES blobs(sha256) ON DELETE CASCADE
 	); CREATE INDEX IF NOT EXISTS blobs_uploader ON blobs(uploader, uploaded DESC);
 	CREATE INDEX IF NOT EXISTS blob_claims_uploader ON blob_claims(uploader, claimed_at DESC, sha256 DESC);
+	CREATE TABLE IF NOT EXISTS blob_claim_metadata (
+	 sha256 TEXT NOT NULL, uploader TEXT NOT NULL, name TEXT NOT NULL, path TEXT NOT NULL,
+	 updated_at INTEGER NOT NULL, PRIMARY KEY (sha256,uploader,path),
+	 FOREIGN KEY (sha256,uploader) REFERENCES blob_claims(sha256,uploader) ON DELETE CASCADE
+	);
+	CREATE INDEX IF NOT EXISTS blob_claim_metadata_uploader ON blob_claim_metadata(uploader,updated_at DESC,sha256 DESC);
 	CREATE TABLE IF NOT EXISTS blob_reports (
 	 id TEXT PRIMARY KEY, reporter TEXT NOT NULL, target_pubkey TEXT NOT NULL DEFAULT '',
 	 target_blob TEXT NOT NULL, type TEXT NOT NULL, content TEXT NOT NULL, at INTEGER NOT NULL,
@@ -181,7 +199,7 @@ func New(ctx context.Context, config Config) (*Service, error) {
 		WHEN NEW.uploader != '' BEGIN INSERT OR IGNORE INTO blob_claims(sha256,uploader,claimed_at) VALUES(NEW.sha256,NEW.uploader,NEW.uploaded); END;
 	CREATE TABLE IF NOT EXISTS blob_blocks (sha256 TEXT PRIMARY KEY, reason TEXT NOT NULL DEFAULT '', blocked_at INTEGER NOT NULL DEFAULT 0);
 	CREATE TABLE IF NOT EXISTS blob_tombstones (sha256 TEXT PRIMARY KEY, deleted_at INTEGER NOT NULL);
-	CREATE TABLE IF NOT EXISTS multipart_uploads (id TEXT PRIMARY KEY, sha256 TEXT NOT NULL, uploader TEXT NOT NULL, length INTEGER NOT NULL, type TEXT NOT NULL, created INTEGER NOT NULL, last_seen INTEGER NOT NULL);
+	CREATE TABLE IF NOT EXISTS multipart_uploads (id TEXT PRIMARY KEY, sha256 TEXT NOT NULL, uploader TEXT NOT NULL, length INTEGER NOT NULL, type TEXT NOT NULL, created INTEGER NOT NULL, last_seen INTEGER NOT NULL, name TEXT NOT NULL DEFAULT '', path TEXT NOT NULL DEFAULT '');
 	CREATE TABLE IF NOT EXISTS multipart_parts (upload_id TEXT NOT NULL, offset INTEGER NOT NULL, length INTEGER NOT NULL, PRIMARY KEY(upload_id, offset), FOREIGN KEY(upload_id) REFERENCES multipart_uploads(id) ON DELETE CASCADE);
 	INSERT OR IGNORE INTO blob_claims(sha256,uploader,claimed_at)
 		SELECT sha256,uploader,uploaded FROM blobs WHERE uploader != ''`); err != nil {
@@ -191,6 +209,11 @@ func New(ctx context.Context, config Config) (*Service, error) {
 	// earlier claim keeps 0, which never lapses.
 	if _, err := config.Store.DB().ExecContext(ctx, "ALTER TABLE blob_claims ADD COLUMN expires INTEGER NOT NULL DEFAULT 0"); err != nil && !strings.Contains(err.Error(), "duplicate column") {
 		return nil, fmt.Errorf("add blob claim expiry: %w", err)
+	}
+	for _, column := range []string{"name TEXT NOT NULL DEFAULT ''", "path TEXT NOT NULL DEFAULT ''"} {
+		if _, err := config.Store.DB().ExecContext(ctx, "ALTER TABLE multipart_uploads ADD COLUMN "+column); err != nil && !strings.Contains(err.Error(), "duplicate column") {
+			return nil, fmt.Errorf("add multipart metadata: %w", err)
+		}
 	}
 	if _, err := config.Store.DB().ExecContext(ctx, "CREATE INDEX IF NOT EXISTS blob_claims_expires ON blob_claims(expires) WHERE expires>0"); err != nil {
 		return nil, fmt.Errorf("index blob claim expiry: %w", err)

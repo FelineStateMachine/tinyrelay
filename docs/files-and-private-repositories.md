@@ -1,10 +1,12 @@
 # Files and private repositories
 
-Use **Files** to search your uploads, import a public HTTPS URL or Blossom URI, inspect a file, and download it. Owners and moderators can browse the tenant's full inventory. Other users see the files they have uploaded or claimed.
+Use **Files** to browse uploads by name, open folders, preview images and download files. **My files** shows your uploads. **Sites** groups published assets by site, and **Rooms** groups attachments by rooms you can access. Owners and moderators can open **Storage** for the full inventory.
 
 ## Uploading
 
-The **Upload** panel on the Files page stores files or a folder. Choose files, choose a folder, or drop either onto the panel, and check **encrypt** to encrypt in the browser before sending. Plain uploads store each file as it is and refresh the listing. **Import from URL** stores a copy of a public HTTPS URL or Blossom URI.
+The **Upload** panel on the Files page stores files or a folder. Choose files, choose a folder, or drop either onto the panel, and check **encrypt** to encrypt in the browser before sending. Plain uploads preserve filenames and selected folder paths. Uploading while inside a folder adds the selection there. **Import from URL** stores a copy of a public HTTPS URL or Blossom URI.
+
+Blossom identifies file contents by hash. Tiny keeps plain upload names and paths with your upload record; those labels do not change the file's hash or travel automatically to another Blossom server. Older uploads use names from site manifests or room attachments where available. Otherwise, they show a file type and short hash.
 
 ## Encrypted files
 

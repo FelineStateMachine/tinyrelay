@@ -8,6 +8,7 @@ package daemon
 
 import (
 	"context"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -27,6 +28,11 @@ const (
 // approvalTypes is the bounded vocabulary of the request tag.
 var approvalTypes = []string{"approve", "decide", "question"}
 var approvalKinds = []int{kindComment, kindChatMessage, kindThreadRoot}
+
+const (
+	approvalWikiProposal = "wiki-proposal"
+	approvalWikiMerge    = "wiki-merge"
+)
 
 // approvalItem is one request as the asked person sees it.
 type approvalItem struct {
@@ -225,7 +231,22 @@ func (t *Tenant) approvalsFor(ctx context.Context, pubkey string, before *storag
 	for i := range items {
 		approvalSettle(&items[i], answers[items[i].ID], now)
 	}
-	return items, page.More, nil
+	wikiItems, wikiMore, err := t.wikiApprovalItems(ctx, pubkey, before, limit)
+	if err != nil {
+		return nil, false, err
+	}
+	items = append(items, wikiItems...)
+	sort.SliceStable(items, func(i, j int) bool {
+		if items[i].CreatedAt != items[j].CreatedAt {
+			return items[i].CreatedAt > items[j].CreatedAt
+		}
+		return items[i].ID < items[j].ID
+	})
+	more := page.More || wikiMore || len(items) > limit
+	if len(items) > limit {
+		items = items[:limit]
+	}
+	return items, more, nil
 }
 
 // openApprovals lists the unanswered, unexpired requests addressed to the

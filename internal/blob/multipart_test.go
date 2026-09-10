@@ -141,6 +141,31 @@ func TestMultipartResumesAfterServiceRestart(t *testing.T) {
 	}
 }
 
+func TestMultipartPreservesClaimMetadataAcrossChunks(t *testing.T) {
+	s := testService(t)
+	body := "resumable metadata"
+	digest := sha256.Sum256([]byte(body))
+	hash := hex.EncodeToString(digest[:])
+	patch := func(offset int, chunk string, query string) int {
+		r := httptest.NewRequest(http.MethodPatch, "https://relay.test/"+hash+query, strings.NewReader(chunk))
+		r.Header.Set("Content-Type", "application/octet-stream")
+		r.Header.Set("Upload-Type", "text/plain")
+		r.Header.Set("Upload-Length", strconv.Itoa(len(body)))
+		r.Header.Set("Upload-Offset", strconv.Itoa(offset))
+		return record(s.Handler(), r).Code
+	}
+	if got := patch(0, body[:9], "?filename=message.txt&path=notes%2Fmessage.txt"); got != http.StatusNoContent {
+		t.Fatalf("partial status = %d", got)
+	}
+	if got := patch(9, body[9:], ""); got != http.StatusCreated {
+		t.Fatalf("complete status = %d", got)
+	}
+	entries, err := s.ListClaimMetadata(context.Background(), "uploader")
+	if err != nil || len(entries) != 1 || entries[0].Name != "message.txt" || entries[0].Path != "notes/message.txt" {
+		t.Fatalf("metadata = %+v, %v", entries, err)
+	}
+}
+
 func TestMultipartAcceptsEmptyFile(t *testing.T) {
 	service := testService(t)
 	digest := sha256.Sum256(nil)

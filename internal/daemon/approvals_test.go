@@ -175,6 +175,62 @@ func TestBrowseApprovalsStatesAndAccess(t *testing.T) {
 	}
 }
 
+func TestBrowseApprovalsIncludesWikiProposalsAndMerges(t *testing.T) {
+	_, tenant, owner, _, moderator, member := wikiProposalTenant(t, "propose")
+	now := time.Now().Unix()
+	proposal := wikiArticle(t, tenant, testAgentSecret, "Approvals", now-200)
+	wikiArticle(t, tenant, wikiOwnerSecret, "Approvals", now-300)
+	merge := wikiPublish(t, tenant, wikiMemberSecret, kindWikiMerge, now-100, "Please take this change.", []string{"a", "30818:" + owner + ":approvals"}, []string{"p", owner}, []string{"e", proposal.ID, "", "source"})
+	result, err := approvalCall(t, tenant, owner, "browseapprovals", map[string]any{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	items := wikiItems(result, "items")
+	if approvalByID(items, proposal.ID) == nil || approvalByID(items, merge.ID) == nil {
+		t.Fatalf("wiki approvals missing: %v", items)
+	}
+	proposalItem := approvalByID(items, proposal.ID)
+	if proposalItem["type"] != approvalWikiProposal || proposalItem["state"] != "open" || proposalItem["about"].(map[string]any)["url"] != "http://relay.test/wiki/approvals?version="+proposal.ID {
+		t.Fatalf("proposal approval %v", proposalItem)
+	}
+	mergeItem := approvalByID(items, merge.ID)
+	if mergeItem["type"] != approvalWikiMerge || mergeItem["state"] != "open" || !strings.Contains(mergeItem["about"].(map[string]any)["url"].(string), "?merge="+merge.ID) {
+		t.Fatalf("merge approval %v", mergeItem)
+	}
+	if got, err := approvalCall(t, tenant, member, "browseapprovals", map[string]any{}); err != nil || len(wikiItems(got, "items")) != 0 {
+		t.Fatalf("member saw wiki approvals: %v %v", got, err)
+	}
+	wikiPublish(t, tenant, wikiOwnerSecret, kindReaction, now-50, "+", []string{"e", proposal.ID})
+	wikiPublish(t, tenant, wikiOwnerSecret, kindReaction, now-40, "-", []string{"e", merge.ID})
+	result, err = approvalCall(t, tenant, moderator, "browseapprovals", map[string]any{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if approvalByID(wikiItems(result, "items"), proposal.ID) == nil {
+		t.Fatal("moderator cannot see proposal")
+	}
+	if approvalByID(wikiItems(result, "items"), proposal.ID)["state"] != "answered" {
+		t.Fatalf("proposal state %v", result)
+	}
+	detail, err := approvalCall(t, tenant, moderator, "browseapproval", map[string]any{"id": proposal.ID})
+	if err != nil || detail["item"].(map[string]any)["state"] != "answered" {
+		t.Fatalf("proposal detail %v %v", detail, err)
+	}
+	if _, err := approvalCall(t, tenant, member, "browseapproval", map[string]any{"id": proposal.ID}); err == nil || !strings.HasPrefix(err.Error(), "not found:") {
+		t.Fatalf("proposal detail leaked to member: %v", err)
+	}
+	detail, err = approvalCall(t, tenant, owner, "browseapproval", map[string]any{"id": merge.ID})
+	if err != nil || detail["item"].(map[string]any)["state"] != "answered" {
+		t.Fatalf("merge detail %v %v", detail, err)
+	}
+	proposal2 := wikiArticle(t, tenant, testAgentSecret, "Reply stays open", now-20)
+	wikiPublish(t, tenant, wikiOwnerSecret, kindComment, now-10, "A note", []string{"e", proposal2.ID})
+	detail, err = approvalCall(t, tenant, owner, "browseapproval", map[string]any{"id": proposal2.ID})
+	if err != nil || detail["item"].(map[string]any)["state"] != "open" {
+		t.Fatalf("wiki reply settled proposal: %v %v", detail, err)
+	}
+}
+
 func TestApprovalRequestsWakeDevicesWithActionsAndCountOnBadge(t *testing.T) {
 	_, tenant := testTenant(t)
 	ctx := context.Background()

@@ -149,9 +149,31 @@ test("nested folder components upload and decrypt large files without exposing k
   const key = new URLSearchParams(new URL(url).hash.slice(1)).get("key");
   for (const {url: target, init} of server.requests) {
     assert.equal(target.href.includes(key), false);
+    assert.equal(target.searchParams.has("filename"), false);
+    assert.equal(target.searchParams.has("path"), false);
     if (init.body) assert.equal(new TextDecoder().decode(init.body).includes("héllo"), false);
   }
   assert.ok(server.blobs.size >= 8);
+});
+
+test("plain uploads retain names and folder paths within the current library folder", async () => {
+  const {window, FileUpload} = load(true);
+  window.location.href = "https://relay.test/files?view=library&path=Projects";
+  const requests = [];
+  window.tiny.signedFetch = async (target, method, bytes) => requests.push({target, method, bytes});
+  const upload = new FileUpload();
+  upload.connectedCallback();
+  upload.controller = new AbortController();
+  await upload.storePlain([folderFile("image", "Trip/photos/snow & sun.jpg"), new File(["notes"], "notes.txt")]);
+  const first = new URL(requests[0].target, window.location.href);
+  assert.equal(first.pathname, "/upload");
+  assert.equal(first.searchParams.get("filename"), "snow & sun.jpg");
+  assert.equal(first.searchParams.get("path"), "Projects/Trip/photos/snow & sun.jpg");
+  assert.equal(new URL(requests[1].target, window.location.href).searchParams.get("path"), "Projects/notes.txt");
+  assert.equal(new TextDecoder().decode(requests[0].bytes), "image");
+  window.location.href = "https://relay.test/files?view=sites&path=weather";
+  await upload.storePlain([new File(["file"], "new.txt")]);
+  assert.equal(new URL(requests[2].target, window.location.href).searchParams.get("path"), "new.txt");
 });
 
 test("directory fanout stays invisible while 175 entries remain browsable", async t => {
@@ -189,7 +211,7 @@ test("plain uploads store every chosen file and refresh the listing", async () =
   const form = upload.querySelector("form");
   form.elements.namedItem("file").files = [new File(["one"], "a.txt", {type: "text/plain"}), new File(["two"], "b.bin")];
   assert.equal(await upload.run(form), undefined);
-  assert.deepEqual(sent, [{path: "/upload", method: "PUT", size: 3, type: "text/plain"}, {path: "/upload", method: "PUT", size: 3, type: "application/octet-stream"}]);
+  assert.deepEqual(sent, [{path: "/upload?filename=a.txt&path=a.txt", method: "PUT", size: 3, type: "text/plain"}, {path: "/upload?filename=b.bin&path=b.bin", method: "PUT", size: 3, type: "application/octet-stream"}]);
   assert.equal(refreshed, 1);
   assert.equal(upload.out.textContent, "Stored 2 files.");
 });
@@ -317,6 +339,8 @@ test("large uploads hand signed requests to Background Fetch and read the parked
     assert.ok(started, "background fetch was not started");
     assert.equal(started.requests.length, 2);
     assert.equal(started.requests[0].method, "PATCH");
+    assert.equal(new URL(started.requests[0].url).searchParams.get("filename"), "big.bin");
+    assert.equal(new URL(started.requests[1].url).searchParams.get("path"), "big.bin");
     assert.equal(started.requests[1].headers.get("upload-offset"), String(5 * 1024 * 1024));
     assert.match(started.requests[0].headers.get("authorization"), /^Nostr PATCH:/);
     assert.equal(started.options.uploadTotal, bytes.byteLength);

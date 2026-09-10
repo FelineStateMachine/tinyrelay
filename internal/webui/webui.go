@@ -530,6 +530,13 @@ func (a *App) browse(writer http.ResponseWriter, request *http.Request) {
 		}
 	}
 	switch method {
+	case "browsefiles":
+		view := request.URL.Query().Get("view")
+		if view == "" {
+			view = "library"
+		}
+		query["view"] = view
+		query["path"] = request.URL.Query().Get("path")
 	case "browserepo":
 		view := request.URL.Query().Get("view")
 		if view == "" || view == "home" {

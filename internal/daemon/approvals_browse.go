@@ -123,6 +123,40 @@ func (t *Tenant) browseApproval(ctx context.Context, actor, id string) (any, err
 	if len(id) != 64 {
 		return nil, errors.New("invalid: approval id")
 	}
+	if item, ok, err := t.wikiApprovalByID(ctx, actor, id); err != nil {
+		return nil, err
+	} else if ok {
+		answers, err := t.approvalAnswers(ctx, []approvalItem{item}, time.Now().Unix())
+		if err != nil {
+			return nil, err
+		}
+		approvalSettle(&item, answers[id], time.Now().Unix())
+		if item.Type == approvalWikiProposal {
+			if err := t.settleWikiProposal(ctx, &item, t.wikiRoles()); err != nil {
+				return nil, err
+			}
+		} else if item.Type == approvalWikiMerge {
+			status, err := t.wikiMergeStatus(ctx, item.ID, actor)
+			if err != nil {
+				return nil, err
+			}
+			if status.Status == wikiMergeOpen {
+				item.State = "open"
+				item.Answer = nil
+			} else {
+				item.State = "answered"
+				item.Answer, err = t.wikiReactionAnswer(ctx, status.Reaction)
+				if err != nil {
+					return nil, err
+				}
+			}
+		}
+		history := answers[id]
+		if history == nil {
+			history = []event.Event{}
+		}
+		return map[string]any{"item": item, "answers": history}, nil
+	}
 	session := browseSession(t, actor)
 	rows, err := t.Query(ctx, []event.Filter{{IDs: []string{id}, Kinds: approvalKinds, Limit: intPtr(1)}}, session)
 	if err != nil {

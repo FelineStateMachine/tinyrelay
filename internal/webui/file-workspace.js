@@ -186,19 +186,21 @@
     }
     // storeBackground hands one blob to the browser's Background Fetch with
     // every request signed up front, then waits for the parked descriptor.
-    async storeBackground(bytes, {hash, type, name, fragment}) {
+    async storeBackground(bytes, {hash, type, name, fragment, metadata}) {
       const registration = await navigator.serviceWorker.ready;
       const base = new URL(tiny.localPath("/"), location.href).href;
       const authorize = (target, method, body) => tiny.authorization(target, method, body);
       let requests;
       const probe = await fetch(base, {method: "OPTIONS"}).catch(() => null);
       if (probe && /(?:^|,|\s)PATCH(?:,|\s|$)/i.test(probe.headers.get("allow") || "")) {
-        const planned = await upload().plan(bytes, {url: base, hash, type, authorize});
-        requests = planned.requests.map(
-          item => new Request(item.url, {method: item.method, headers: item.headers, body: item.body})
-        );
+        const planned = await upload().plan(bytes, {url: base, hash, type});
+        requests = await Promise.all(planned.requests.map(async item => {
+          const target = this.uploadTarget(item.url, metadata);
+          const headers = {...item.headers, authorization: await authorize(target, item.method, item.body)};
+          return new Request(target, {method: item.method, headers, body: item.body});
+        }));
       } else {
-        const target = base.replace(/\/$/, "") + "/upload";
+        const target = this.uploadTarget(base.replace(/\/$/, "") + "/upload", metadata);
         requests = [
           new Request(target, {
             method: "PUT",
@@ -429,17 +431,24 @@
       }
     }
     async storePlain(files) {
+      const query = new URL(location.href).searchParams;
+      const parent = (!query.get("view") || query.get("view") === "library") ? query.get("path") || "" : "";
       for (const [index, file] of files.entries()) {
         checkAbort(this.controller.signal);
         this.say("Uploading " + file.name + " (" + (index + 1) + " of " + files.length + ")…");
         const bytes = new Uint8Array(await file.arrayBuffer());
         const type = file.type || "application/octet-stream";
+        const selectedPath = file.webkitRelativePath || file.name;
+        const metadata = {filename: file.name, path: parent ? parent + "/" + selectedPath : selectedPath};
         if (files.length === 1 && bytes.byteLength >= BACKGROUND_BYTES && backgroundAvailable()) {
-          await this.storeBackground(bytes, {hash: await tiny.sha256hex(bytes), type, name: file.name});
+          await this.storeBackground(bytes, {hash: await tiny.sha256hex(bytes), type, name: file.name, metadata});
           continue;
         }
-        await tiny.signedFetch("/upload", "PUT", bytes, {contentType: type, signal: this.controller.signal});
+        await tiny.signedFetch(this.uploadTarget("/upload", metadata), "PUT", bytes, {contentType: type, signal: this.controller.signal});
       }
+    }
+    uploadTarget(target, metadata) {
+      return metadata ? target + "?" + new URLSearchParams(metadata) : target;
     }
     // storeSealed encrypts one file with a fresh AES-GCM key. The ciphertext
     // and key stay in memory so a retry resumes without re-encrypting.

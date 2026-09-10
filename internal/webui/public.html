@@ -25,7 +25,7 @@
 </section>
 {{end}}
 
-{{define "signin"}}<section>
+{{define "signin"}}<section id="signin">
 <h1>{{if .Actor}}Your account{{else}}Sign in{{end}}</h1>
 {{if .Notice}}<p role="status">{{.Notice}}</p>{{end}}
 {{if .Actor}}<p>Signed in as {{template "nostrKey" .Actor}}.</p>

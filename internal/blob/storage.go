@@ -27,7 +27,7 @@ func (s *Service) Put(ctx context.Context, options PutOptions) (Blob, error) {
 }
 
 func (s *Service) putOptions(ctx context.Context, options PutOptions) (Blob, bool, error) {
-	return s.putValidatedWithCommit(ctx, options.Reader, options.Type, options.Uploader, options.Hash, nil, options.Commit)
+	return s.putValidatedWithMetadata(ctx, options.Reader, options.Type, options.Uploader, options.Hash, options.Name, options.Path, nil, options.Commit)
 }
 
 // Get opens a verified metadata-backed blob for streaming to another service.
@@ -128,6 +128,9 @@ func (s *Service) Delete(ctx context.Context, sha string) error {
 		if _, err := tx.ExecContext(ctx, "DELETE FROM blobs WHERE sha256=?", sha); err != nil {
 			return fmt.Errorf("delete blob metadata: %w", err)
 		}
+		if _, err := tx.ExecContext(ctx, "DELETE FROM blob_claim_metadata WHERE sha256=?", sha); err != nil {
+			return fmt.Errorf("delete blob claim metadata: %w", err)
+		}
 		return nil
 	}); err != nil {
 		return err
@@ -157,6 +160,9 @@ func (s *Service) DeleteForUploader(ctx context.Context, sha, uploader string) e
 		}
 		if changed == 0 {
 			return sql.ErrNoRows
+		}
+		if _, err := tx.ExecContext(ctx, "DELETE FROM blob_claim_metadata WHERE sha256=? AND uploader=?", sha, uploader); err != nil {
+			return fmt.Errorf("delete blob claim metadata: %w", err)
 		}
 		var remaining int
 		if err := tx.QueryRowContext(ctx, "SELECT count(*) FROM blob_claims WHERE sha256=?", sha).Scan(&remaining); err != nil {
@@ -199,10 +205,19 @@ func (s *Service) put(ctx context.Context, source io.Reader, typ, uploader, clai
 }
 
 func (s *Service) putValidated(ctx context.Context, source io.Reader, typ, uploader, claimed string, validate func(string) error) (Blob, bool, error) {
-	return s.putValidatedWithCommit(ctx, source, typ, uploader, claimed, validate, nil)
+	return s.putValidatedWithMetadata(ctx, source, typ, uploader, claimed, "", "", validate, nil)
 }
 
 func (s *Service) putValidatedWithCommit(ctx context.Context, source io.Reader, typ, uploader, claimed string, validate func(string) error, commit func(context.Context, *sql.Tx, Blob, bool) error) (Blob, bool, error) {
+	return s.putValidatedWithMetadata(ctx, source, typ, uploader, claimed, "", "", validate, commit)
+}
+
+func (s *Service) putValidatedWithMetadata(ctx context.Context, source io.Reader, typ, uploader, claimed, name, path string, validate func(string) error, commit func(context.Context, *sql.Tx, Blob, bool) error) (Blob, bool, error) {
+	var err error
+	name, path, err = claimMetadata(name, path)
+	if err != nil {
+		return Blob{}, false, err
+	}
 	limits := s.currentLimits()
 	streamLimit := limits.MaxFileBytes
 	quotaStream := false
@@ -249,13 +264,13 @@ func (s *Service) putValidatedWithCommit(ctx context.Context, source io.Reader, 
 			return Blob{}, false, err
 		}
 	}
-	return s.installUpload(ctx, uploadCandidate{path: tmpName, hash: sha, size: count, typ: typ, uploader: uploader, commit: commit})
+	return s.installUpload(ctx, uploadCandidate{path: tmpName, hash: sha, size: count, typ: typ, uploader: uploader, name: name, metadataPath: path, commit: commit})
 }
 
 type uploadCandidate struct {
-	path, hash, typ, uploader, reservation string
-	size                                   int64
-	commit                                 func(context.Context, *sql.Tx, Blob, bool) error
+	path, hash, typ, uploader, reservation, name, metadataPath string
+	size                                                       int64
+	commit                                                     func(context.Context, *sql.Tx, Blob, bool) error
 }
 
 func (s *Service) installUpload(ctx context.Context, candidate uploadCandidate) (Blob, bool, error) {
@@ -302,6 +317,9 @@ func (s *Service) installUpload(ctx context.Context, candidate uploadCandidate) 
 			}
 			if uploader != "" {
 				if _, err := tx.ExecContext(ctx, claimSQL, sha, uploader, time.Now().Unix(), terms.ExpiresAt); err != nil {
+					return err
+				}
+				if err := s.saveClaimMetadata(ctx, tx, sha, uploader, candidate.name, candidate.metadataPath); err != nil {
 					return err
 				}
 			}
@@ -373,6 +391,9 @@ func (s *Service) installUpload(ctx context.Context, candidate uploadCandidate) 
 		if entry.Uploader != "" {
 			if _, err := tx.ExecContext(ctx, claimSQL, entry.SHA256, entry.Uploader, entry.Uploaded, terms.ExpiresAt); err != nil {
 				return fmt.Errorf("record blob claim: %w", err)
+			}
+			if err := s.saveClaimMetadata(ctx, tx, entry.SHA256, entry.Uploader, candidate.name, candidate.metadataPath); err != nil {
+				return err
 			}
 		}
 		if candidate.reservation != "" {

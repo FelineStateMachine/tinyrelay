@@ -262,6 +262,7 @@ func parseTemplates(a *App) (*template.Template, error) {
 		"str":             plainString,
 		"datetime":        datetime,
 		"when":            when,
+		"fileSize":        fileSize,
 		"markdown":        a.markdown,
 		"chatMarkdown":    a.chatMarkdown,
 		"hasPrefix":       strings.HasPrefix,

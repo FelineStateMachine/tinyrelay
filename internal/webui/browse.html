@@ -12,24 +12,27 @@
 {{end}}</section>
 {{end}}
 
-{{define "files"}}<section>
+{{define "files"}}{{$data := asMap .Event}}{{$view := or (str (index $data "view")) (.Query.Get "view") "library"}}<section id="file-library">
 <h1>Files</h1>
-<form method="get" action="/files" id="file-search"><label>Search <input name="q" value="{{.Query.Get "q"}}" placeholder="hash, type or uploader" autocomplete="off"></label> <button>Search</button>{{if .Query.Get "q"}} <a href="/files">clear</a>{{end}}</form>
+<nav id="file-views" aria-label="File collections"><a href="/files"{{if eq $view "library"}} aria-current="page"{{end}}>My files</a><a href="/files?view=sites"{{if eq $view "sites"}} aria-current="page"{{end}}>Sites</a><a href="/files?view=rooms"{{if eq $view "rooms"}} aria-current="page"{{end}}>Rooms</a>{{if index $data "can_manage"}}<a href="/files?view=storage"{{if eq $view "storage"}} aria-current="page"{{end}}>Storage</a>{{end}}</nav>
+<p id="file-context">{{if eq $view "sites"}}Published assets, organized by site.{{else if eq $view "rooms"}}Attachments from rooms you can access.{{else if eq $view "storage"}}All stored files, newest first.{{else}}Your uploads and folders. Site assets and room attachments have their own collections.{{end}}</p>
+<form method="get" action="/files" id="file-search"><input type="hidden" name="view" value="{{$view}}">{{with .Query.Get "path"}}<input type="hidden" name="path" value="{{.}}">{{end}}<label>Search <input name="q" value="{{.Query.Get "q"}}" placeholder="Name, type or hash" autocomplete="off"></label> <button>Search</button>{{if .Query.Get "q"}} <a href="{{browsePageURL "/files" .Query "q" ""}}">Clear</a>{{end}}</form>
+{{with index $data "breadcrumbs"}}<nav id="file-breadcrumbs" aria-label="Folder path">{{range $i, $raw := .}}{{$crumb := asMap $raw}}{{if $i}} / {{end}}<a href="{{str (index $crumb "open")}}">{{str (index $crumb "name")}}</a>{{end}}</nav>{{end}}
 {{if .Error}}{{template "alert" .Error}}
 {{else if .Feed}}<table id="rows">
-<thead><tr><th>hash</th><th>type</th><th>uploaded</th></tr></thead>
+<thead><tr><th scope="col">Name</th><th scope="col">Details</th><th scope="col">Added</th></tr></thead>
 <tbody>
-{{range .Feed}}{{$f := asMap .}}<tr><td><a href="/file?sha={{urlquery (str (index $f "sha256"))}}">{{shortID (index $f "sha256")}}</a></td><td>{{str (index $f "type")}} <small>{{str (index $f "size")}} B</small></td><td>{{when (index $f "uploaded")}}</td></tr>
+{{range .Feed}}{{$f := asMap .}}{{$kind := str (index $f "kind")}}{{$hash := str (index $f "sha256")}}{{$name := or (str (index $f "name")) (shortID $hash)}}{{$open := or (str (index $f "open")) (printf "/file?hash=%s" (urlquery $hash))}}<tr data-kind="{{$kind}}"><td><a href="{{$open}}">{{if and $hash (hasPrefix (str (index $f "type")) "image/")}}<img loading="lazy" src="/files/raw?hash={{urlquery $hash}}" alt="">{{else}}<span data-file-icon aria-hidden="true">{{if or (eq $kind "folder") (eq $kind "site") (eq $kind "room")}}▱{{else}}▤{{end}}</span>{{end}}<span>{{$name}}</span></a>{{with index $f "context_url"}}<small><a href="{{.}}">{{str (index $f "context")}}</a></small>{{end}}</td><td>{{if eq $kind "folder"}}Folder{{else if eq $kind "site"}}Site{{else if eq $kind "room"}}Room{{else}}{{fileSize (index $f "size")}}<small>{{str (index $f "type")}}</small>{{end}}</td><td>{{with index $f "uploaded"}}<time datetime="{{datetime .}}">{{when .}}</time>{{end}}</td></tr>
 {{end}}</tbody>
 </table>
-{{else}}<p>No files were reported.</p>
+{{else}}<p id="file-empty">{{if .Query.Get "q"}}No files match this search.{{else if eq $view "sites"}}No site files here yet.{{else if eq $view "rooms"}}No room attachments here yet.{{else if .Query.Get "path"}}This folder is empty.{{else}}No files here yet. Use Upload to add files or a folder.{{end}}</p>
 {{end}}{{with (asMap .Event).next_cursor}}<p id="pages"><a href="{{browsePageURL "/files" $.Query "cursor" .}}">next page</a></p>
 {{end}}</section>
 {{end}}
 
 {{define "file"}}{{if .Error}}<section><h1>File</h1>{{template "alert" .Error}}</section>
 {{else}}{{$file := asMap .Event}}{{$hash := or (.Query.Get "hash") (.Query.Get "sha")}}<section id="file-view">
-<h1>File</h1>
+<h1>{{or (str (index $file "name")) "File"}}</h1>
 <table id="facts">
 <tr><th>sha256</th><td><code>{{str (index $file "sha256")}}</code></td></tr>
 <tr><th>type</th><td>{{str (index $file "type")}}</td></tr>
@@ -39,7 +42,7 @@
 </table>
 <file-workspace-root hash="{{str (index $file "sha256")}}" type="{{str (index $file "type")}}" hidden></file-workspace-root>
 <noscript><p>Enable JavaScript to decrypt files and browse folder manifests locally. Raw downloads remain available above.</p></noscript>
-<file-tools hash="{{str (index $file "sha256")}}" type="{{str (index $file "type")}}" size="{{str (index $file "size")}}" name="{{shortID (index $file "sha256")}}"></file-tools>
+<file-tools hash="{{str (index $file "sha256")}}" type="{{str (index $file "type")}}" size="{{str (index $file "size")}}" name="{{or (str (index $file "name")) (shortID (index $file "sha256"))}}"></file-tools>
 {{$type := str (index $file "type")}}{{$raw := printf "/files/raw?hash=%s" (urlquery (str (index $file "sha256")))}}{{if hasPrefix $type "image/"}}<div id="media"><img src="{{$raw}}" alt=""></div>
 {{else if hasPrefix $type "video/"}}<div id="media"><video controls src="{{$raw}}"></video></div>
 {{else if hasPrefix $type "audio/"}}<div id="media"><audio controls src="{{$raw}}"></audio></div>
@@ -58,7 +61,7 @@
 {{else}}{{$open := approvalViews .Event .URL "open"}}{{$done := approvalViews .Event .URL "answered" "expired"}}{{if $open}}{{range $item := $open}}<approval-item id="approval-{{$item.ID}}" data-type="{{$item.Type}}" data-state="{{$item.State}}">
 <header>{{template "nostrKey" $item.Asker}} in {{$item.Where}} | <time datetime="{{datetime $item.CreatedAt}}">{{when $item.CreatedAt}}</time>{{if $item.Expires}} | expires <time datetime="{{datetime $item.Expires}}">{{when $item.Expires}}</time>{{end}}</header>
 <p>{{$item.Title}}</p>{{with $item.Body}}<p>{{.}}</p>{{end}}{{with $item.About}}<pre>{{.}}</pre>{{end}}
-<footer>{{if ne $item.Type "question"}}<nostr-react event="{{$item.ID}}" pubkey="{{$item.Asker}}" kind="{{$item.Kind}}"><button name="reaction" value="+">Approve</button> <button name="reaction" value="-">Deny</button></nostr-react> {{end}}<details><summary>Reply</summary><nostr-compose kind="1111" root="{{$item.ID}}" root-pubkey="{{$item.Asker}}" root-kind="{{$item.Kind}}"{{with $item.Coordinate}} coordinate="{{.}}"{{end}}><label>Reply <textarea name="content" required></textarea></label><button>Sign and reply</button></nostr-compose></details> <a href="{{$item.Open}}">open</a></footer>
+<footer>{{if ne $item.Type "question"}}<nostr-react event="{{$item.ID}}" pubkey="{{$item.Asker}}" kind="{{$item.Kind}}"><button name="reaction" value="+">{{if eq $item.Type "wiki-proposal"}}Accept{{else if eq $item.Type "wiki-merge"}}Accept{{else}}Approve{{end}}</button> <button name="reaction" value="-">{{if eq $item.Type "wiki-proposal"}}Reject{{else if eq $item.Type "wiki-merge"}}Reject{{else}}Deny{{end}}</button></nostr-react> {{end}}<details><summary>Reply</summary><nostr-compose kind="1111" root="{{$item.ID}}" root-pubkey="{{$item.Asker}}" root-kind="{{$item.Kind}}"{{with $item.Coordinate}} coordinate="{{.}}"{{end}}><label>Reply <textarea name="content" required></textarea></label><button>Sign and reply</button></nostr-compose></details> <a href="{{$item.Open}}">open</a></footer>
 </approval-item>
 {{end}}{{else}}<p>Nothing waits for your decision.</p>
 {{end}}{{if $done}}<h3>Answered</h3>

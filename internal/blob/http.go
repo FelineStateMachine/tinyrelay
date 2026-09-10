@@ -78,12 +78,17 @@ func (s *Service) upload(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, http.StatusBadRequest, errors.New("invalid: X-SHA-256 must be lowercase hex"))
 		return
 	}
-	blob, created, err := s.putValidated(r.Context(), r.Body, contentType(r.Header.Get("content-type")), pubkey, claimed, func(actual string) error {
+	name, metadataPath, err := claimMetadata(r.URL.Query().Get("filename"), r.URL.Query().Get("path"))
+	if err != nil {
+		s.fail(w, http.StatusBadRequest, err)
+		return
+	}
+	blob, created, err := s.putValidatedWithMetadata(r.Context(), r.Body, contentType(r.Header.Get("content-type")), pubkey, claimed, name, metadataPath, func(actual string) error {
 		if s.config.ValidateUpload != nil {
 			return s.config.ValidateUpload(r, actual)
 		}
 		return nil
-	})
+	}, nil)
 	if err != nil {
 		s.fail(w, statusFor(err), err)
 		return
@@ -252,8 +257,13 @@ func (s *Service) list(w http.ResponseWriter, r *http.Request, pubkey string) {
 		s.fail(w, http.StatusBadRequest, errors.New("invalid: bad pubkey"))
 		return
 	}
-	if _, err := s.authorize(r, ActionList); err != nil {
+	viewer, err := s.authorize(r, ActionList)
+	if err != nil {
 		s.fail(w, http.StatusUnauthorized, err)
+		return
+	}
+	if viewer != pubkey && !s.isOwner(viewer) {
+		s.fail(w, http.StatusForbidden, errors.New("restricted: cannot list another uploader's blobs"))
 		return
 	}
 	limit, err := parseListLimit(r.URL.Query().Get("limit"))

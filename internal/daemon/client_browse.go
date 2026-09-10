@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"net/url"
 	"sort"
 	"strings"
 	"time"
@@ -237,112 +236,6 @@ func (t *Tenant) browseRepoEvents(ctx context.Context, actor string, r gitrelay.
 	return result, nil
 }
 
-func (t *Tenant) browseFiles(ctx context.Context, actor string, q clientBrowseRequest) (any, error) {
-	if !t.Policy().Features.Files {
-		return nil, errors.New("not found: files are disabled")
-	}
-	if actor == "" {
-		return nil, errors.New("auth-required: sign in to browse your files")
-	}
-	role, err := t.community.Role(ctx, actor)
-	if err != nil {
-		return nil, err
-	}
-	var entries []blob.Blob
-	var next string
-	if role == "owner" || role == "moderator" {
-		entries, next, err = t.browseAllFiles(ctx, q)
-	} else if strings.TrimSpace(q.Query) != "" {
-		// ListPage is uploader scoped and cannot filter server-side. Walk its
-		// cursor until the requested number of matches is collected.
-		cursor := q.Cursor
-		for len(entries) < q.Limit {
-			var page []blob.Blob
-			page, next, err = t.blobs.ListPage(ctx, actor, q.Limit-len(entries), cursor)
-			if err != nil {
-				break
-			}
-			for _, entry := range page {
-				if blobMatchesQuery(entry, q.Query) {
-					entries = append(entries, entry)
-					if len(entries) == q.Limit {
-						break
-					}
-				}
-			}
-			if next == "" {
-				break
-			}
-			cursor = next
-		}
-	} else {
-		entries, next, err = t.blobs.ListPage(ctx, actor, q.Limit, q.Cursor)
-	}
-	if err != nil {
-		return nil, err
-	}
-	items := []map[string]any{}
-	for _, entry := range entries {
-		if q.Query != "" && !blobMatchesQuery(entry, q.Query) {
-			continue
-		}
-		items = append(items, t.browseBlobMetadata(entry))
-	}
-	return map[string]any{"items": items, "next_cursor": next}, nil
-}
-
-func (t *Tenant) browseAllFiles(ctx context.Context, q clientBrowseRequest) ([]blob.Blob, string, error) {
-	query := "SELECT sha256,size,type,uploader,uploaded FROM blobs WHERE sha256>?"
-	args := []any{q.Cursor}
-	if q.Query != "" {
-		query += " AND (instr(lower(sha256), ?) > 0 OR instr(lower(type), ?) > 0 OR instr(lower(uploader), ?) > 0)"
-		needle := strings.ToLower(strings.TrimSpace(q.Query))
-		args = append(args, needle, needle, needle)
-	}
-	query += " ORDER BY sha256 LIMIT ?"
-	args = append(args, q.Limit+1)
-	rows, err := t.store.DB().QueryContext(ctx, query, args...)
-	if err != nil {
-		return nil, "", err
-	}
-	defer rows.Close()
-	entries := []blob.Blob{}
-	for rows.Next() {
-		var entry blob.Blob
-		if err := rows.Scan(&entry.SHA256, &entry.Size, &entry.Type, &entry.Uploader, &entry.Uploaded); err != nil {
-			return nil, "", err
-		}
-		entries = append(entries, entry)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, "", err
-	}
-	next := ""
-	if len(entries) > q.Limit {
-		entries = entries[:q.Limit]
-		next = entries[len(entries)-1].SHA256
-	}
-	return entries, next, nil
-}
-
-func blobMatchesQuery(entry blob.Blob, query string) bool {
-	needle := strings.ToLower(strings.TrimSpace(query))
-	if needle == "" {
-		return true
-	}
-	return strings.Contains(strings.ToLower(entry.SHA256), needle) ||
-		strings.Contains(strings.ToLower(entry.Type), needle) ||
-		strings.Contains(strings.ToLower(entry.Uploader), needle)
-}
-
-func (t *Tenant) browseBlobMetadata(entry blob.Blob) map[string]any {
-	portable := blob.BlossomURI{Hash: entry.SHA256, Extension: "bin", Author: entry.Uploader, Size: entry.Size}
-	if origin, err := url.Parse(t.publicURL); err == nil && strings.Trim(origin.Path, "/") == "" {
-		portable.Servers = []string{origin.Scheme + "://" + origin.Host}
-	}
-	return map[string]any{"sha256": entry.SHA256, "size": entry.Size, "type": entry.Type, "uploader": entry.Uploader, "uploaded": entry.Uploaded, "url": strings.TrimRight(t.publicURL, "/") + "/" + entry.SHA256, "download_url": strings.TrimRight(t.publicURL, "/") + "/files/raw?hash=" + url.QueryEscape(entry.SHA256), "blossom_uri": portable.String()}
-}
-
 func (t *Tenant) browseFile(ctx context.Context, actor, hash string) (any, error) {
 	if !t.Policy().Features.Files {
 		return nil, errors.New("not found: files are disabled")
@@ -365,6 +258,17 @@ func (t *Tenant) browseFile(ctx context.Context, actor, hash string) (any, error
 	}
 	binary := bytes.IndexByte(data, 0) >= 0 || (!utf8.Valid(data) && !truncated)
 	result := t.browseBlobMetadata(entry)
+	if actor != "" {
+		var name, filePath string
+		if err := t.store.DB().QueryRowContext(ctx, `SELECT name,path FROM blob_claim_metadata WHERE sha256=? AND uploader=? ORDER BY updated_at DESC,path LIMIT 1`, entry.SHA256, actor).Scan(&name, &filePath); err == nil {
+			if name != "" {
+				result["name"] = name
+			}
+			if filePath != "" {
+				result["path"] = filePath
+			}
+		}
+	}
 	result["binary"], result["truncated"] = binary, truncated
 	if entry.Type == "application/octet-stream" {
 		if detected := blob.DetectMediaType(data); detected != "application/octet-stream" {
