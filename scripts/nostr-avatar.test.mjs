@@ -8,7 +8,7 @@ const avatarSource = source.slice(source.indexOf("  class NostrAvatar "), source
 const key = "a".repeat(64);
 
 function setup(userPromise) {
-  const images = [];
+  const images = [], requests = [];
   const document = {
     createTextNode: text => ({textContent: text}),
     createElement: name => {
@@ -17,7 +17,7 @@ function setup(userPromise) {
       return image;
     }
   };
-  const window = {tinyNames: {load: () => typeof userPromise === "function" ? userPromise() : userPromise}};
+  const window = {tinyNames: {load: request => { requests.push(request); return typeof userPromise === "function" ? userPromise() : userPromise; }}};
   const HTMLElement = class {
     constructor() { this.attributes = {}; this.children = []; }
     getAttribute(name) { return this.attributes[name] ?? null; }
@@ -28,11 +28,11 @@ function setup(userPromise) {
   const Constructor = vm.runInNewContext(`${avatarSource}\nNostrAvatar`, {HTMLElement, window, document, URL, Promise, String, setTimeout, el});
   const component = new Constructor();
   component.attributes.pubkey = key;
-  return {component, images};
+  return {component, images, requests};
 }
 
-test("loads a safe profile image with privacy attributes", async () => {
-  const {component, images} = setup(Promise.resolve({image: "https://cdn.example/avatar.png"}));
+test("loads a fresh profile image with privacy attributes", async () => {
+  const {component, requests} = setup(Promise.resolve({image: "https://cdn.example/avatar.png"}));
   component.connectedCallback();
   await new Promise(resolve => setTimeout(resolve, 0));
   const image = component.children[0];
@@ -40,6 +40,8 @@ test("loads a safe profile image with privacy attributes", async () => {
   assert.equal(image.loading, "lazy");
   assert.equal(image.referrerPolicy, "no-referrer");
   assert.equal(image.alt, "");
+  assert.equal(requests[0].pubkey, key);
+  assert.equal(requests[0].refresh, true);
 });
 
 test("keeps the two character fallback for missing or unsafe pictures", async () => {

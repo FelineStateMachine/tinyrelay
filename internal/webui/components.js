@@ -721,7 +721,7 @@
         restore();
         return;
       }
-      Promise.resolve(load({pubkey})).then(user => {
+      Promise.resolve(load({pubkey, refresh: true})).then(user => {
         const raw = user?.image;
         let url;
         try {

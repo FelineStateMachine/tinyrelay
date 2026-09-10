@@ -31,6 +31,7 @@ const writeCache = cache => {
 
 const users = new Map(); // pubkey -> NostrUser, from cache or the relay
 const pending = new Map(); // pubkey -> [resolve]
+const refreshed = new Set(); // pubkeys explicitly refreshed once in this document
 let timer = null;
 
 const userFor = (pubkey, entry) => entry?.event ? nostrUserFromEvent(entry.event) : bareNostrUser(pubkey);
@@ -54,6 +55,7 @@ const flush = async () => {
     cache[key] = {event, at: now};
     const user = userFor(key, cache[key]);
     users.set(key, user);
+    refreshed.add(key);
     for (const resolve of pending.get(key) || []) resolve(user);
     pending.delete(key);
   }
@@ -63,12 +65,13 @@ const flush = async () => {
 
 // load answers like @nostr/gadgets' loadNostrUser: a NostrUser from cache,
 // refreshed from this relay when stale, with a placeholder while unknown.
-const load = ({pubkey}) => {
+const load = ({pubkey, refresh = false}) => {
   const key = String(pubkey || "").toLowerCase();
   if (!/^[0-9a-f]{64}$/.test(key)) return Promise.resolve(bareNostrUser(key || "0".repeat(64)));
+  const force = refresh && !refreshed.has(key);
   const cached = readCache()[key];
   const now = Math.floor(Date.now() / 1000);
-  if (cached && now - cached.at < (cached.event ? FRESH : MISSING)) return Promise.resolve(users.get(key) || userFor(key, cached));
+  if (!force && cached && now - cached.at < (cached.event ? FRESH : MISSING)) return Promise.resolve(users.get(key) || userFor(key, cached));
   return new Promise(resolve => {
     pending.set(key, [...(pending.get(key) || []), resolve]);
     if (!timer) timer = setTimeout(flush, BATCH);
