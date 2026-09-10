@@ -44,9 +44,26 @@ async page => {
   await run("file picker previews and publishes an image", async () => {
     const picker = page.locator('room-compose input[name="attachments"]');
     check(await picker.count() === 1, "attachment picker missing");
+    const attach = page.locator('room-compose [data-attach]');
+    check(await attach.count() === 1, "compact attach button missing");
+    check(!await picker.isVisible(), "native file picker should be hidden behind the attach button");
+    // Check the native chooser separately with CLI click/upload commands;
+    // its modal state is managed outside run-code by playwright-cli.
     await picker.setInputFiles("output/playwright/room-attachments/browser-upload.png");
     await page.waitForSelector("room-files li");
     check((await page.locator("room-files").textContent()).includes("browser-upload.png"), "pending file preview missing");
+    check(await page.locator("room-files img").count() === 1, "image attachment thumbnail missing");
+    await page.waitForFunction(() => {
+      const img = document.querySelector("room-files img");
+      return img?.complete && img.naturalWidth > 0;
+    });
+    check(await page.locator("room-files img").first().evaluate(img => img.complete && img.naturalWidth > 0), "image attachment thumbnail did not load");
+    const remove = page.getByRole("button", {name: "Remove browser-upload.png", exact: true});
+    check(await remove.count() === 1, "attachment remove button missing");
+    await remove.click();
+    check(await page.locator("room-files li").count() === 0, "attachment remove did not clear preview");
+    await picker.setInputFiles("output/playwright/room-attachments/browser-upload.png");
+    await page.waitForSelector("room-files li");
     await page.locator('room-compose textarea[name="content"]').fill("Browser upload");
     const request = page.waitForRequest(req => req.method() === "PUT" && req.url().includes("/rooms/attachments-qa/attachments"));
     await page.locator("room-compose").getByRole("button", {name: "Send", exact: true}).click();
@@ -75,6 +92,46 @@ async page => {
     check(metrics.image, "image did not load after reload");
     await page.screenshot({path: "output/playwright/room-attachments/room-mobile.png"});
     return metrics;
+  });
+
+  await run("composer stays compact and touch friendly", async () => {
+    await page.setViewportSize({width: 360, height: 420});
+    const compose = page.locator("room-compose");
+    const input = compose.locator('input[name="attachments"]');
+    check(await input.count() === 1, "attachment input missing");
+    const metrics = await page.evaluate(() => {
+      const node = document.querySelector("room-compose");
+      const attach = node?.querySelector('button[aria-label*="Attach" i], label[for], label');
+      const send = node?.querySelector('button[type="submit"], button:not([type])');
+      const box = element => element?.getBoundingClientRect();
+      const attachBox = box(attach), sendBox = box(send);
+      return {
+        composeHeight: box(node)?.height || 0,
+        viewportHeight: innerHeight,
+        scrollWidth: document.documentElement.scrollWidth,
+        viewportWidth: innerWidth,
+        attachWidth: attachBox?.width || 0,
+        attachHeight: attachBox?.height || 0,
+        sendWidth: sendBox?.width || 0,
+        sendHeight: sendBox?.height || 0,
+        placeholder: node?.querySelector("textarea")?.getAttribute("placeholder") || ""
+      };
+    });
+    check(metrics.scrollWidth <= metrics.viewportWidth, "composer overflows horizontally");
+    check(metrics.composeHeight <= 90, "empty composer occupies too much of the viewport");
+    check(metrics.attachWidth >= 40 && metrics.attachHeight >= 40, "attach control is too small to tap");
+    check(metrics.sendWidth >= 40 && metrics.sendHeight >= 40, "send control is too small to tap");
+    check(!/[0-9a-f]{16,}/i.test(metrics.placeholder), "composer exposes an internal identifier in its placeholder");
+    await page.screenshot({path: "output/playwright/room-attachments/room-mobile-composer.png"});
+    await page.setViewportSize({width: 1440, height: 900});
+    const desktop = await page.evaluate(() => ({
+      width: innerWidth,
+      scrollWidth: document.documentElement.scrollWidth,
+      composeHeight: document.querySelector("room-compose")?.getBoundingClientRect().height || 0
+    }));
+    check(desktop.scrollWidth <= desktop.width, "desktop composer overflows horizontally");
+    await page.screenshot({path: "output/playwright/room-attachments/room-desktop-composer.png"});
+    return {mobile: metrics, desktop};
   });
 
   await run("JavaScript-disabled SSR still renders media", async () => {

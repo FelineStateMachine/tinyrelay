@@ -12,13 +12,14 @@ const roomsSource = source.slice(source.indexOf("  // Rooms: the compose bar"), 
 // A small document: enough of the DOM for the room elements to render
 // messages, find their targets and keep the list bounded.
 export class FakeNode {
-  constructor(tag) { this.localName = tag; this.childNodes = []; this.attributes = {}; this.dataset = {}; this.parent = null; this.id = ""; }
+  constructor(tag) { this.localName = tag; this.childNodes = []; this.attributes = {}; this.dataset = {}; this.style = {}; this.parent = null; this.id = ""; }
   get children() { return this.childNodes.filter(node => node instanceof FakeNode); }
   get firstElementChild() { return this.children[0] || null; }
   get isConnected() { return Boolean(this.parent) && (this.parent === document || this.parent.isConnected); }
   append(...nodes) { for (const node of nodes) { if (node instanceof FakeNode) { node.remove(); node.parent = this; this.childNodes.push(node); } else if (String(node)) this.childNodes.push(String(node)); } }
   insertBefore(node, before) { if (!before) return this.append(node); node.remove(); const index = this.childNodes.indexOf(before); node.parent = this; this.childNodes.splice(index, 0, node); }
   remove() { if (this.parent) { this.parent.childNodes = this.parent.childNodes.filter(node => node !== this); this.parent = null; } }
+  focus() { this.focused = true; }
   replaceWith(node) { if (!this.parent) return; const index = this.parent.childNodes.indexOf(this); node.remove(); node.parent = this.parent; this.parent.childNodes[index] = node; this.parent = null; }
   replaceChildren(...nodes) { this.children.forEach(node => { node.parent = null; }); this.childNodes = []; this.append(...nodes); }
   get textContent() { return this.childNodes.map(node => typeof node === "string" ? node : node.textContent).join(""); }
@@ -59,7 +60,7 @@ document.querySelector = selector => document.body.querySelector(selector);
 document.querySelectorAll = selector => document.body.querySelectorAll(selector);
 
 export function setup({attributes = {}, result = {accepted: true}, change = false} = {}) {
-  const sent = [], navigated = [];
+  const sent = [], navigated = [], previewURLs = [], revokedURLs = [];
   const secret = generateSecretKey(), pubkey = getPublicKey(secret);
   document.body.childNodes = [];
   const content = new FakeNode("div"); content.id = "content"; content.scrollHeight = 500; content.clientHeight = 400; content.scrollTop = 100;
@@ -78,8 +79,11 @@ export function setup({attributes = {}, result = {accepted: true}, change = fals
     connectedCallback() { this.form = {requestSubmit() {}}; }
     report(message) { this.message = message; }
   }
+  class TestURL extends URL {}
+  TestURL.createObjectURL = file => { const url = "blob:room-preview-" + (previewURLs.length + 1); previewURLs.push({file, url}); return url; };
+  TestURL.revokeObjectURL = url => revokedURLs.push(url);
   const sandbox = {
-    document, HTMLElement, FormElement, URL, Uint8Array, AbortController, encodeURIComponent, setTimeout, clearTimeout,
+    document, HTMLElement, FormElement, URL: TestURL, Uint8Array, AbortController, encodeURIComponent, setTimeout, clearTimeout,
     location: {href: "https://relay.test/r/work/rooms/build", origin: "https://relay.test"},
     getComputedStyle: () => ({overflowY: "auto"}),
     window: {scrollY: 0, innerHeight: 800, scrollTo() {}, NostrSigner: {verifyEvent, decodeNpub: value => { const decoded = nip19.decode(value); if (decoded.type !== "npub") throw Error("not an npub"); return decoded.data; }}, nostr: {signEvent: async event => { const copy = JSON.parse(JSON.stringify(event)); if (change) copy.content = "changed"; return finalizeEvent(copy, secret); }}},
@@ -95,7 +99,7 @@ export function setup({attributes = {}, result = {accepted: true}, change = fals
   };
   sandbox.sources = [];
   const classes = vm.runInNewContext(`${roomsSource}\n({RoomCompose, RoomCreate, RoomAction, RoomLive, rooms: tiny.rooms})`, sandbox);
-  return {...classes, sandbox, sent, navigated, pubkey, list, content, form: values => ({elements: Object.fromEntries(Object.entries(values).map(([name, value]) => [name, {name, value}])), reset() { this.resets = (this.resets || 0) + 1; }})};
+  return {...classes, sandbox, sent, navigated, previewURLs, revokedURLs, pubkey, list, content, form: values => ({elements: Object.fromEntries(Object.entries(values).map(([name, value]) => [name, {name, value, style: {}, scrollHeight: 0}])), reset() { this.resets = (this.resets || 0) + 1; }})};
 }
 const npub = nip19.npubEncode("d".repeat(64));
 // Values built inside the sandbox belong to another realm; compare them as plain data.
@@ -142,6 +146,60 @@ const descriptorFor = (file, bytes) => {
   const sha256 = createHash("sha256").update(bytes).digest("hex");
   return {sha256, size: file.size, type: file.type, url: "https://relay.test/r/work/media/" + sha256 + ".png"};
 };
+
+test("room-compose previews images, keeps preview URLs across rerenders and revokes removed previews", () => {
+  const s = setup({attributes: {room: "build"}}), compose = new s.RoomCompose();
+  const content = new FakeNode("textarea"); content.name = "content";
+  const files = new FakeNode("room-files"), image = selectedFile("photo.png", "image/png"), svg = selectedFile("icon.svg", "image/svg+xml"), pdf = selectedFile("report.pdf", "application/pdf");
+  compose.append(content, files);
+  compose.connectedCallback();
+  compose.form = {elements: {content}};
+  compose.addFiles([image, svg, pdf]);
+  assert.equal(s.previewURLs.length, 1, "only safe raster images get local previews");
+  assert.equal(files.querySelectorAll("img").length, 1);
+  const previewURL = s.previewURLs[0].url;
+  assert.equal(files.querySelector("img").src, previewURL);
+  compose.renderFiles();
+  assert.equal(s.previewURLs.length, 1, "rerendering must not allocate another object URL");
+  files.querySelectorAll("button")[0].emit("click", {});
+  assert.deepEqual(s.revokedURLs, [previewURL]);
+  assert.equal(compose.pendingFiles.length, 2);
+  compose.releasePreviews();
+  assert.equal(s.revokedURLs.length, 1, "releasePreviews must be idempotent after removal");
+});
+
+test("room-compose keeps a failed preview for retry, releases it on send and recreates it after reconnect", async () => {
+  const s = setup({attributes: {room: "build"}}), compose = new s.RoomCompose(), files = new FakeNode("room-files"), content = new FakeNode("textarea");
+  content.name = "content";
+  compose.append(content, files);
+  compose.connectedCallback();
+  const form = s.form({content: "a chart"});
+  compose.form = form;
+  const file = selectedFile("photo.png");
+  let publishes = 0;
+  const publish = s.sandbox.tiny.signedFetch;
+  s.sandbox.tiny.signedFetch = async (path, method, bytes, options) => {
+    if (path !== "/events") return Response.json(descriptorFor(file, bytes));
+    if (++publishes === 1) throw Error("connection lost");
+    return publish(path, method, bytes, options);
+  };
+  compose.addFiles([file]);
+  const previewURL = compose.pendingFiles[0].preview;
+  await assert.rejects(compose.submit(form), /connection lost/);
+  assert.equal(compose.pendingFiles.length, 1);
+  assert.equal(compose.pendingFiles[0].preview, previewURL);
+  await compose.submit(form);
+  assert.deepEqual(s.revokedURLs, [previewURL], "successful send releases the object URL");
+  assert.equal(compose.pendingFiles.length, 0);
+
+  compose.addFiles([file]);
+  const reconnectedURL = compose.pendingFiles[0].preview;
+  compose.disconnectedCallback();
+  assert.deepEqual(s.revokedURLs, [previewURL, reconnectedURL], "disconnect releases pending previews");
+  compose.connectedCallback();
+  assert.equal(compose.pendingFiles[0].preview, s.previewURLs[2].url, "reconnect can create a fresh preview for the same file");
+  assert.notEqual(compose.pendingFiles[0].preview, reconnectedURL);
+});
 
 test("room-compose uploads only on send, then publishes Buzz metadata and an attachment-only message", async () => {
   const s = setup({attributes: {room: "build"}}), compose = new s.RoomCompose();

@@ -1077,8 +1077,16 @@
   class RoomCompose extends FormElement {
     connectedCallback() {
       super.connectedCallback();
+      this.renderFiles();
+      this.resizeContent();
       if (this.keys) return;
       this.keys = true;
+      this.querySelector("[data-attach]")?.addEventListener("click", () => {
+        this.form.elements.attachments.click();
+      });
+      this.addEventListener("input", event => {
+        if (event.target.name === "content") this.resizeContent();
+      });
       this.addEventListener("keydown", event => {
         if (event.key !== "Enter" || event.shiftKey || event.isComposing || !event.target.matches?.("textarea")) return;
         event.preventDefault();
@@ -1108,10 +1116,26 @@
         event.preventDefault();
         this.chooseFiles(event.dataTransfer.files);
       });
-      this.renderFiles();
     }
 
-    disconnectedCallback() { this.uploadController?.abort(); }
+    disconnectedCallback() {
+      this.uploadController?.abort();
+      this.releasePreviews();
+    }
+
+    resizeContent() {
+      const content = this.form?.elements?.content;
+      if (!content) return;
+      content.style.height = "auto";
+      content.style.height = content.scrollHeight + "px";
+    }
+
+    releasePreviews() {
+      for (const entry of this.pendingFiles || []) {
+        if (entry.preview) URL.revokeObjectURL(entry.preview);
+        delete entry.preview;
+      }
+    }
 
     busy(on) {
       super.busy(on);
@@ -1141,16 +1165,34 @@
       if (!target) return;
       const list = el("ul");
       pending.forEach((entry, index) => {
-        const row = el("li"), remove = el("button", "Remove");
+        const row = el("li"), remove = el("button", "×");
         remove.type = "button";
         remove.disabled = Boolean(this.submitting);
         remove.setAttribute("aria-label", "Remove " + entry.file.name);
+        remove.title = "Remove " + entry.file.name;
         remove.addEventListener("click", () => {
           if (this.submitting) return;
+          if (entry.preview) URL.revokeObjectURL(entry.preview);
           this.pendingFiles.splice(index, 1);
           this.renderFiles();
+          const next = target.querySelectorAll("button")[Math.min(index, this.pendingFiles.length - 1)];
+          (next || this.querySelector("[data-attach]"))?.focus();
         });
-        row.append(el("span", entry.file.name), " ", el("small", entry.descriptor ? "uploaded" : Math.ceil(entry.file.size / 1024) + " KB"), " ", remove);
+        let preview;
+        if (entry.file.type.startsWith("image/") && entry.file.type !== "image/svg+xml") {
+          entry.preview ||= URL.createObjectURL(entry.file);
+          preview = el("img");
+          preview.src = entry.preview;
+          preview.alt = "";
+        } else {
+          preview = el("span", entry.file.type.startsWith("video/") ? "Video" : entry.file.type.startsWith("audio/") ? "Audio" : "File");
+          preview.dataset.preview = "";
+          preview.setAttribute("aria-hidden", "true");
+        }
+        const name = el("span", entry.file.name);
+        name.title = entry.file.name;
+        const size = entry.file.size < 1024 * 1024 ? Math.ceil(entry.file.size / 1024) + " KB" : (entry.file.size / (1024 * 1024)).toFixed(1) + " MB";
+        row.append(preview, name, el("small", entry.descriptor ? "Uploaded" : size), remove);
         list.append(row);
       });
       target.replaceChildren(...(pending.length ? [list] : []));
@@ -1218,8 +1260,10 @@
         this.report("Signing…");
         const event = await signAndPublish(this.event(content, files), controller.signal);
         form.reset();
+        this.releasePreviews();
         this.pendingFiles = [];
         this.renderFiles();
+        this.resizeContent();
         this.report("");
         roomAppend(event, {room: this.getAttribute("room"), inThread: event.kind === 12, own: true});
       } finally { this.uploadController = null; }

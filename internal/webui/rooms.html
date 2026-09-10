@@ -31,7 +31,7 @@
 {{template "roomMessage" .}}{{else}}<p id="empty">No messages yet.</p>{{end}}
 </div>
 {{if not (.Query.Get "cursor")}}<room-live room="{{$id}}"></room-live>
-{{if .Actor}}<room-compose room="{{$id}}" pubkey="{{.Actor}}"><textarea name="content" rows="2" placeholder="Message #{{$id}}. Mention with @npub or @hex." required></textarea>{{if .Policy.Features.Files}}{{template "roomFilePicker" .}}{{end}}<p><button>Send</button></p></room-compose>
+{{if .Actor}}<room-compose room="{{$id}}" pubkey="{{.Actor}}">{{if .Policy.Features.Files}}<room-files aria-label="Attachments" aria-live="polite"></room-files>{{end}}<room-compose-bar>{{if .Policy.Features.Files}}{{template "roomFilePicker" .}}{{end}}<textarea name="content" rows="1" aria-label="Message" placeholder="Message…" title="Mention someone with @npub or @hex" required></textarea><button type="submit" aria-label="Send" title="Send message">{{template "roomSendIcon" .}}</button></room-compose-bar></room-compose>
 <noscript><p>Sending needs JavaScript and a connected signer.</p></noscript>
 {{else}}<p id="guest"><a href="/signin">Sign in</a> to send messages.</p>
 {{end}}{{end}}</section>
@@ -50,13 +50,14 @@
 </div>
 {{with index $data "next_cursor"}}<p id="pages"><a href="/rooms/{{$id}}/thread/{{$root.ID}}?cursor={{urlquery (str .)}}">load earlier</a></p>{{end}}
 {{if not (.Query.Get "cursor")}}<room-live room="{{$id}}" root="{{$root.ID}}"></room-live>
-{{if .Actor}}<room-compose room="{{$id}}" pubkey="{{.Actor}}" kind="12" root="{{$root.ID}}" root-pubkey="{{$root.PubKey}}"><textarea name="content" rows="2" placeholder="Reply in this thread" required></textarea>{{if .Policy.Features.Files}}{{template "roomFilePicker" .}}{{end}}<p><button>Reply</button></p></room-compose>
+{{if .Actor}}<room-compose room="{{$id}}" pubkey="{{.Actor}}" kind="12" root="{{$root.ID}}" root-pubkey="{{$root.PubKey}}">{{if .Policy.Features.Files}}<room-files aria-label="Attachments" aria-live="polite"></room-files>{{end}}<room-compose-bar>{{if .Policy.Features.Files}}{{template "roomFilePicker" .}}{{end}}<textarea name="content" rows="1" aria-label="Reply" placeholder="Reply in this thread…" required></textarea><button type="submit" aria-label="Reply" title="Send reply">{{template "roomSendIcon" .}}</button></room-compose-bar></room-compose>
 <noscript><p>Replying needs JavaScript and a connected signer.</p></noscript>
 {{else}}<p id="guest"><a href="/signin">Sign in</a> to reply.</p>
 {{end}}{{end}}</section>
 {{end}}{{end}}
 
-{{define "roomFilePicker"}}<label>Attach files <input type="file" name="attachments" multiple></label><small>Paste or drop files. Up to 8 files, 32 MiB each.</small><room-files aria-live="polite"></room-files>{{end}}
+{{define "roomFilePicker"}}<button type="button" data-attach aria-label="Attach files" title="Attach files, or paste or drop them. Up to 8 files, 32 MiB each."><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m21 11-8.5 8.5a6 6 0 0 1-8.5-8.5l9-9a4 4 0 0 1 5.7 5.7l-9 9a2 2 0 0 1-2.8-2.8l8.5-8.5"/></svg></button><input type="file" name="attachments" aria-label="Attach files" multiple hidden>{{end}}
+{{define "roomSendIcon"}}<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 19V5m-7 7 7-7 7 7"/></svg>{{end}}
 
 {{/* One message. room-live builds the same markup for messages that arrive on the stream. */}}
 {{define "roomMessage"}}<room-message id="msg-{{.ID}}" data-id="{{.ID}}" data-kind="{{.Kind}}" data-updated-at="{{.UpdatedAt}}" data-pubkey="{{.PubKey}}"{{if .Agent}} data-agent{{end}}{{if .Notice}} data-notice{{end}}{{if .Edited}} data-edited{{end}}>
