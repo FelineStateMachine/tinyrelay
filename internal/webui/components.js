@@ -698,6 +698,49 @@
     }
   }
 
+  class NostrAvatar extends HTMLElement {
+    connectedCallback() {
+      this.render();
+    }
+
+    attributeChangedCallback() { this.render(); }
+
+    static get observedAttributes() { return ["pubkey"]; }
+
+    render() {
+      const pubkey = String(this.getAttribute("pubkey") || "").toLowerCase();
+      const fallback = pubkey.slice(0, 2).toUpperCase();
+      const serial = (this.serial || 0) + 1;
+      this.serial = serial;
+      const restore = () => {
+        if (serial !== this.serial) return;
+        this.replaceChildren(document.createTextNode(fallback));
+      };
+      const load = window.tinyNames?.load;
+      if (!load || !/^[0-9a-f]{64}$/.test(pubkey)) {
+        restore();
+        return;
+      }
+      Promise.resolve(load({pubkey})).then(user => {
+        const raw = user?.image;
+        let url;
+        try {
+          const candidate = new URL(raw);
+          if (candidate.protocol === "http:" || candidate.protocol === "https:") url = candidate.href;
+        } catch {}
+        if (!url || serial !== this.serial) return restore();
+        const image = el("img");
+        image.src = url;
+        image.alt = "";
+        image.loading = "lazy";
+        image.referrerPolicy = "no-referrer";
+        image.setAttribute("aria-hidden", "true");
+        image.addEventListener("error", restore, {once: true});
+        this.replaceChildren(image);
+      }).catch(restore);
+    }
+  }
+
   // PageLink is the crumb that names the current page. A tap copies the
   // page's public address, the one the server put in url, and shows
   // "copied" for a moment. Without JavaScript it is plain text.
@@ -1337,6 +1380,7 @@
   customElements.define("push-toggle", PushToggle);
   customElements.define("share-link", ShareLink);
   customElements.define("nostr-key", NostrKey);
+  customElements.define("nostr-avatar", NostrAvatar);
   customElements.define("page-link", PageLink);
   customElements.define("json-view", JsonView);
 

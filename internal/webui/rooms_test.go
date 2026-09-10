@@ -143,6 +143,10 @@ func TestRoomPageRendersMessagesOldestFirstWithMarkers(t *testing.T) {
 		`<h1>General <small>open room</small></h1>`, `<p>Where General happens.</p>`,
 		`<a href="/rooms/general?cursor=cursor-1">load earlier</a>`,
 		`<room-message id="msg-` + roomHello + `" data-id="` + roomHello + `" data-kind="9" data-updated-at="1757203650" data-pubkey="` + roomAgent + `" data-agent data-edited>`,
+		`<nostr-avatar pubkey="` + roomAgent + `" aria-hidden="true">BB</nostr-avatar>`,
+		`<room-message id="msg-` + roomChat + `" data-id="` + roomChat + `" data-kind="9" data-updated-at="1757202000" data-pubkey="` + roomOwner + `" data-own><nostr-avatar pubkey="` + roomOwner + `" aria-hidden="true">AA</nostr-avatar>`,
+		`</b><span data-own-label>you</span>`,
+		`<section id="room" data-viewer="` + roomOwner + `">`,
 		`<a href="https://example.com/docs" rel="noopener">https://example.com/docs</a>.`,
 		`<a href="/open?target=nostr%3Anpub1ttrypewl3au52wqux86r22yt506c077k3maj02a0jste97wrvd5sjfutc2">nostr:npub1`,
 		`&lt;script&gt;alert(1)&lt;/script&gt;`,
@@ -202,6 +206,7 @@ func TestThreadPageRendersRootRepliesAndReplyCompose(t *testing.T) {
 	for _, want := range []string{
 		`<p id="crumbs"><a href="/rooms/general">General</a></p>`, `<h1>Thread <small>1 reply</small></h1>`,
 		`<div id="root"><room-message id="msg-` + roomThread + `"`, `<div id="messages">`, `id="msg-` + roomReply + `"`,
+		`data-viewer="` + roomOwner + `"`, `<span data-own-label>you</span>`,
 		`<room-live room="general" root="` + roomThread + `"></room-live>`,
 		`<room-compose room="general" pubkey="` + roomOwner + `" kind="12" root="` + roomThread + `" root-pubkey="` + roomAgent + `">`,
 		`&raquo; <page-link url="http://relay.example/rooms/general/thread/` + roomThread + `" title="Copy the page address">rooms/general/thread/` + shortID(roomThread) + `</page-link></span>`,

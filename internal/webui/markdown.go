@@ -17,7 +17,7 @@ import (
 type blockRenderer func(lang, source string) (string, bool)
 
 // renderMarkdown turns a small, common subset of Markdown into HTML: ATX
-// headings, paragraphs, fenced code, unordered and ordered lists, inline
+// headings, paragraphs, tables, fenced code, unordered and ordered lists, inline
 // code, emphasis, and links. Every piece of text is escaped first and only
 // the tags this function emits reach the page, so untrusted README files and
 // relay descriptions cannot inject markup. Anything else stays plain text.
@@ -65,6 +65,11 @@ func markdownHTML(source string, breaks bool, blocks blockRenderer) template.HTM
 		line := lines[i]
 		marker, lang, fenced := views.OpenFence(line)
 		switch {
+		case !fenced && i+1 < len(lines) && isTableCandidate(line, lines[i+1]):
+			flush()
+			table, end := renderTable(lines, i)
+			out.WriteString(table)
+			i = end
 		case fenced:
 			flush()
 			var code []string
@@ -113,6 +118,127 @@ func markdownHTML(source string, breaks bool, blocks blockRenderer) template.HTM
 	}
 	flush()
 	return template.HTML(out.String())
+}
+
+var tableDelimiter = regexp.MustCompile(`^:?-{3,}:?$`)
+
+func isTableCandidate(header, delimiter string) bool {
+	headerCells, headerHasPipes := splitTableRow(header)
+	delimiterCells, delimiterHasPipes := splitTableRow(delimiter)
+	if !headerHasPipes || !delimiterHasPipes || len(headerCells) == 0 || len(headerCells) != len(delimiterCells) {
+		return false
+	}
+	for _, cell := range delimiterCells {
+		if !tableDelimiter.MatchString(strings.TrimSpace(cell)) {
+			return false
+		}
+	}
+	return true
+}
+
+func splitTableRow(line string) ([]string, bool) {
+	line = strings.TrimSpace(line)
+	var cells []string
+	var cell strings.Builder
+	inCode := false
+	hasPipe := false
+	for i := 0; i < len(line); i++ {
+		if line[i] == '`' {
+			inCode = !inCode
+		}
+		if line[i] == '|' && !inCode && !escapedAt(line, i) {
+			hasPipe = true
+			cells = append(cells, strings.TrimSpace(cell.String()))
+			cell.Reset()
+			continue
+		}
+		cell.WriteByte(line[i])
+	}
+	cells = append(cells, strings.TrimSpace(cell.String()))
+	if len(cells) > 1 && cells[0] == "" {
+		cells = cells[1:]
+	}
+	if len(cells) > 1 && cells[len(cells)-1] == "" {
+		cells = cells[:len(cells)-1]
+	}
+	return cells, hasPipe
+}
+
+func escapedAt(value string, index int) bool {
+	backslashes := 0
+	for index > 0 && value[index-1] == '\\' {
+		backslashes++
+		index--
+	}
+	return backslashes%2 == 1
+}
+
+func renderTable(lines []string, start int) (string, int) {
+	header, _ := splitTableRow(lines[start])
+	separator, _ := splitTableRow(lines[start+1])
+	alignments := tableAlignments(separator)
+	var out strings.Builder
+	out.WriteString(`<div data-markdown-table="" role="region" aria-label="Table" tabindex="0"><table><thead><tr>`)
+	for i, cell := range header {
+		out.WriteString(`<th scope="col"` + tableAlignAttribute(alignments[i]) + `>` + inlineMarkdown(unescapeTablePipes(cell)) + `</th>`)
+	}
+	out.WriteString(`</tr></thead><tbody>`)
+	end := start + 1
+	for end+1 < len(lines) {
+		cells, pipes := splitTableRow(lines[end+1])
+		if !isTableBodyRow(lines[end+1], pipes) {
+			break
+		}
+		if len(cells) > len(header) {
+			cells = cells[:len(header)]
+		}
+		for len(cells) < len(header) {
+			cells = append(cells, "")
+		}
+		out.WriteString("<tr>")
+		for i, cell := range cells {
+			out.WriteString(`<td` + tableAlignAttribute(alignments[i]) + `>` + inlineMarkdown(unescapeTablePipes(cell)) + `</td>`)
+		}
+		out.WriteString("</tr>")
+		end++
+	}
+	out.WriteString(`</tbody></table></div>` + "\n")
+	return out.String(), end
+}
+
+func isTableBodyRow(line string, pipes bool) bool {
+	if !pipes || strings.TrimSpace(line) == "" || strings.HasPrefix(strings.TrimSpace(line), "#") {
+		return false
+	}
+	_, _, fenced := views.OpenFence(line)
+	return !fenced
+}
+
+func tableAlignments(cells []string) []string {
+	alignments := make([]string, len(cells))
+	for i, cell := range cells {
+		cell = strings.TrimSpace(cell)
+		switch {
+		case strings.HasPrefix(cell, ":") && strings.HasSuffix(cell, ":"):
+			alignments[i] = "center"
+		case strings.HasSuffix(cell, ":"):
+			alignments[i] = "right"
+		case strings.HasPrefix(cell, ":"):
+			alignments[i] = "left"
+		}
+	}
+	return alignments
+}
+
+func tableAlignAttribute(alignment string) string {
+	if alignment == "" {
+		return ""
+	}
+	return ` data-align="` + alignment + `"`
+}
+
+func unescapeTablePipes(value string) string {
+	return strings.ReplaceAll(value, `\|`, `|`)
 }
 
 var (

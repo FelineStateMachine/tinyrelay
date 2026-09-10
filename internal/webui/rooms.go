@@ -289,19 +289,20 @@ func clock(value any) string {
 // roomItem is one message as the page shows it: the event's fields, the
 // author's markers, the thread state and the reactions it has received.
 type roomItem struct {
-	ID, PubKey, Kind, Content, Room, Root, Role, Notice string
-	CreatedAt, UpdatedAt                                int64
-	Agent, InThread, Edited                             bool
-	Mentions                                            []string
-	Replies                                             int
-	Reactions                                           []reaction
-	Attachments                                         []roomAttachment
+	ID, PubKey, Avatar, Kind, Content, Room, Root, Role, Notice string
+	CreatedAt, UpdatedAt                                        int64
+	Agent, InThread, Edited, Own                                bool
+	Mentions                                                    []string
+	Replies                                                     int
+	Reactions                                                   []reaction
+	Attachments                                                 []roomAttachment
 }
 
 // roomItems turns a browse result's messages or replies into view items,
 // oldest first. Reactions and edits become summaries on their targets.
-func roomItems(value any, field string) []roomItem {
+func roomItems(value any, field string, actors ...string) []roomItem {
 	data := valueMap(value)
+	actor := firstString(actors)
 	room := plainString(valueMap(data["room"])["id"])
 	members := memberIndex(value)
 	replies := replyCounts(value)
@@ -322,13 +323,14 @@ func roomItems(value any, field string) []roomItem {
 		item.Replies = replies[item.ID]
 		item.Reactions = reactions[item.ID]
 		item.InThread = field == "replies"
+		item.Own = actor != "" && item.PubKey == actor && item.Notice == ""
 		items = append(items, item)
 	}
 	return items
 }
 
 // roomRoot is the thread page's root message, with the page's replies counted.
-func roomRoot(value any) roomItem {
+func roomRoot(value any, actors ...string) roomItem {
 	data := valueMap(value)
 	item, _ := newRoomItem(data["root"], plainString(valueMap(data["room"])["id"]), memberIndex(value))
 	if edit, found := editSummary(value)[item.ID][item.PubKey]; found && edit.CreatedAt >= item.CreatedAt {
@@ -337,7 +339,16 @@ func roomRoot(value any) roomItem {
 	}
 	item.Replies = len(roomSlice(value, "replies"))
 	item.InThread = true
+	actor := firstString(actors)
+	item.Own = actor != "" && item.PubKey == actor && item.Notice == ""
 	return item
+}
+
+func firstString(values []string) string {
+	if len(values) == 0 {
+		return ""
+	}
+	return values[0]
 }
 
 func newRoomItem(row any, room string, members map[string]map[string]any) (roomItem, bool) {
@@ -362,6 +373,9 @@ func newRoomItem(row any, room string, members map[string]map[string]any) (roomI
 		if roots := tagValues(row, "e"); len(roots) > 0 {
 			item.Root = roots[0]
 		}
+	}
+	if len(item.PubKey) >= 2 {
+		item.Avatar = strings.ToUpper(item.PubKey[:2])
 	}
 	if member := members[item.PubKey]; member != nil {
 		item.Role = plainString(member["role"])

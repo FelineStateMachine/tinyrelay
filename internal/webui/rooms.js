@@ -88,6 +88,86 @@
    node.append(text.slice(last));
    return node;
  };
+ const pipeEscaped = (value, index) => {
+   let slashes = 0;
+   for (let i = index - 1; i >= 0 && value[i] === "\\"; i--) slashes++;
+   return slashes % 2 === 1;
+ };
+ const pipeRow = line => {
+   let value = String(line).trim();
+   if (!value.includes("|")) return null;
+   const leadingPipe = value.startsWith("|");
+   const trailingPipe = value.endsWith("|") && !pipeEscaped(value, value.length - 1);
+   if (value.startsWith("|")) value = value.slice(1);
+   const last = value.length - 1;
+   if (value.endsWith("|") && !pipeEscaped(value, last)) value = value.slice(0, -1);
+   const cells = [];
+   let hasPipe = false;
+   let cell = "", code = false;
+   for (let i = 0; i < value.length; i++) {
+     const character = value[i];
+     if (character === "`") { code = !code; cell += character; continue; }
+     if (character === "|" && pipeEscaped(value, i)) { cell = cell.slice(0, -1) + "|"; continue; }
+     if (character === "|" && !code) {
+       hasPipe = true; cells.push(cell.trim()); cell = ""; continue;
+     }
+     cell += character;
+   }
+   cells.push(cell.trim());
+   return (hasPipe || leadingPipe || trailingPipe) ? cells : null;
+ };
+ const tableDelimiter = cell => {
+   const value = String(cell).trim();
+   if (!/^:?-{3,}:?$/.test(value)) return null;
+   return value.startsWith(":") ? (value.endsWith(":") ? "center" : "left") : (value.endsWith(":") ? "right" : "");
+ };
+ const tableBodyLine = line => {
+   const value = String(line).trim();
+   return Boolean(value) && !value.startsWith("#") && !value.startsWith("```") && !value.startsWith("~~~");
+ };
+ const markdownTable = (lines, start) => {
+   const header = pipeRow(lines[start]), separator = pipeRow(lines[start + 1]);
+   if (!header || !separator || header.length !== separator.length) return null;
+   const align = separator.map(tableDelimiter);
+   if (align.some(value => value === null)) return null;
+   const rows = [];
+   let index = start + 2;
+   for (; index < lines.length; index++) {
+     if (!tableBodyLine(lines[index])) break;
+     const row = pipeRow(lines[index]);
+     if (!row) break;
+     rows.push(row);
+   }
+   const wrapper = el("div");
+   wrapper.dataset.markdownTable = "";
+   wrapper.setAttribute("data-markdown-table", "");
+   wrapper.setAttribute("role", "region");
+   wrapper.setAttribute("aria-label", "Table");
+   wrapper.setAttribute("tabindex", "0");
+   const table = el("table"), thead = el("thead"), heading = el("tr");
+   header.forEach((cell, column) => {
+     const th = el("th");
+     th.setAttribute("scope", "col");
+     if (align[column]) { th.dataset.align = align[column]; th.setAttribute("data-align", align[column]); }
+     chatInline(th, cell);
+     heading.append(th);
+   });
+   thead.append(heading);
+   const tbody = el("tbody");
+   rows.forEach(row => {
+     const tr = el("tr");
+     for (let column = 0; column < header.length; column++) {
+       const td = el("td");
+       if (align[column]) { td.dataset.align = align[column]; td.setAttribute("data-align", align[column]); }
+       chatInline(td, row[column] || "");
+       tr.append(td);
+     }
+     tbody.append(tr);
+   });
+   table.append(thead, tbody);
+   wrapper.append(table);
+   return {node: wrapper, end: index};
+ };
  const listItem = line => /^\s*(?:[-*+]|\d+[.)])\s+/.test(line);
  const chatMarkdown = (node, text) => {
    const lines = String(text).replace(/\r\n/g, "\n").split("\n");
@@ -101,11 +181,18 @@
    };
    for (let i = 0; i < lines.length; i++) {
      const line = lines[i];
-     if (line.startsWith("```")) {
+     const fence = line.trim().match(/^(`{3,}|~{3,})/);
+     const table = !fence && markdownTable(lines, i);
+     if (fence) {
        flush();
-       const code = [];
-       for (i++; i < lines.length && !lines[i].startsWith("```"); i++) code.push(lines[i]);
+       const code = [], marker = fence[1];
+       const closesFence = value => value.length >= marker.length && [...value].every(character => character === marker[0]);
+       for (i++; i < lines.length && !closesFence(lines[i].trim()); i++) code.push(lines[i]);
        const pre = el("pre"); pre.append(el("code", code.join("\n"))); node.append(pre);
+     } else if (table) {
+       flush();
+       node.append(table.node);
+       i = table.end - 1;
      } else if (line.startsWith("#")) {
        flush();
        const level = Math.min(6, line.length - line.replace(/^#+/, "").length);
@@ -245,23 +332,31 @@
    const node = el("room-message");
    const notice = event.kind === 44100 ? "joined the room" : event.kind === 44101 ? "left the room" : "";
    const pubkey = notice ? tagValue(event, "p") : event.pubkey;
+   const viewer = (document.getElementById("room") || document.getElementById("thread"))?.dataset.viewer;
    node.id = "msg-" + event.id;
    node.dataset.id = event.id;
    node.dataset.kind = String(event.kind);
    node.dataset.updatedAt = String(event.created_at);
    node.dataset.pubkey = pubkey;
    const member = members[pubkey];
+   const own = !notice && Boolean(viewer) && pubkey === viewer;
+   if (own) node.dataset.own = "";
    if (member?.agent) node.dataset.agent = "";
    if (notice) node.dataset.notice = "";
+   const avatar = el("nostr-avatar", pubkey.slice(0, 2).toUpperCase());
+   avatar.setAttribute("pubkey", pubkey);
+   avatar.setAttribute("aria-hidden", "true");
    const header = el("header"), name = el("b"), time = el("time", clock(event.created_at)), small = el("small");
    name.append(nameNode(pubkey));
    time.dateTime = new Date(event.created_at * 1000).toISOString().replace(/\.\d+Z$/, "Z");
    time.title = time.dateTime.slice(0, 16).replace("T", " ") + " UTC";
    small.append(time);
-   header.append(name, member?.role ? " | " + member.role : "", small);
+   header.append(name);
+   if (own) { const label = el("span", "you"); label.dataset.ownLabel = ""; header.append(label); }
+   header.append(member?.role ? " | " + member.role : "", small);
    const attachments = notice ? [] : roomAttachments(event);
    const body = notice ? el("p", notice) : chatMarkdown(el("div"), attachmentContent(event.content || "", attachments));
-   node.append(header, body);
+   node.append(avatar, header, body);
    const media = attachmentNodes(attachments); if (media) node.append(media);
    const footer = el("footer");
    const mentions = notice ? [] : (event.tags || []).filter(tag => tag[0] === "p" && isHex64(tag[1]) && tag[1] !== pubkey).map(tag => tag[1]);

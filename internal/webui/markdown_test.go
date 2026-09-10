@@ -54,3 +54,50 @@ func TestChatMarkdownBreaksLinesAndAutolinksOutsideLinksAndCode(t *testing.T) {
 		t.Fatalf("expected three links, got %s", got)
 	}
 }
+
+func TestMarkdownRendersTablesWithAlignmentAndInlineMarkdown(t *testing.T) {
+	source := "| Name | Count | Notes |\n| :--- | ---: | :---: |\n| **Ada** | 3 | [docs](https://example.com) |\n| Grace |  | `a | b` |"
+	got := string(renderMarkdown(source))
+	for _, want := range []string{
+		`<div data-markdown-table="" role="region" aria-label="Table" tabindex="0"><table>`,
+		`<thead><tr><th scope="col" data-align="left">Name</th><th scope="col" data-align="right">Count</th><th scope="col" data-align="center">Notes</th></tr></thead>`,
+		`<tbody><tr><td data-align="left"><strong>Ada</strong></td><td data-align="right">3</td><td data-align="center"><a href="https://example.com">docs</a></td></tr>`,
+		`<tr><td data-align="left">Grace</td><td data-align="right"></td><td data-align="center"><code>a | b</code></td></tr></tbody></table></div>`,
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("missing %q in %s", want, got)
+		}
+	}
+}
+
+func TestMarkdownTableEscapesPipesAndLeavesMalformedInputAsText(t *testing.T) {
+	got := string(renderMarkdown("a \\| b\n---\n\n| one | two |\n| --- |\n| three | four | five |"))
+	if strings.Contains(got, `data-markdown-table`) {
+		t.Fatalf("malformed table was rendered: %s", got)
+	}
+	if !strings.Contains(got, `a \| b ---`) || !strings.Contains(got, `| one | two |`) {
+		t.Fatalf("malformed table was not preserved as text: %s", got)
+	}
+
+	got = string(renderMarkdown("a \\| b | c\n--- | ---\nvalue \\| kept | ok"))
+	if !strings.Contains(got, `<th scope="col">a | b</th>`) || !strings.Contains(got, `<td>value | kept</td>`) {
+		t.Fatalf("escaped pipe was split or escaped incorrectly: %s", got)
+	}
+}
+
+func TestChatMarkdownAutolinksTableText(t *testing.T) {
+	got := string(renderChatMarkdown("| Link |\n| --- |\n| https://example.com/path |"))
+	if !strings.Contains(got, `<td><a href="https://example.com/path" rel="noopener">https://example.com/path</a></td>`) {
+		t.Fatalf("table cell was not autolinked: %s", got)
+	}
+}
+
+func TestMarkdownTableStopsBeforeHeadingsAndFences(t *testing.T) {
+	got := string(renderMarkdown("| Name | Value |\n| --- | --- |\n| one | two |\n# | Heading |\n\n```sh | example\n| code |\n```"))
+	if strings.Contains(got, "<td># | Heading |</td>") || strings.Contains(got, "<td>```sh | example</td>") {
+		t.Fatalf("table consumed a following block: %s", got)
+	}
+	if !strings.Contains(got, "<h1>| Heading |</h1>") || !strings.Contains(got, "<pre><code data-lang=\"sh\">| code |</code></pre>") {
+		t.Fatalf("following heading or fence was not rendered separately: %s", got)
+	}
+}

@@ -1,3 +1,4 @@
 - The middle dot character (U+00B7) is disallowed in project text and interfaces.
 - Write all documentation in AP style, with clear, concise organization. Documentation is a user-facing surface; omit incidental implementation notes.
+- After completing work in this project, commit the changes, push them and deploy to Slate. Verify the deployment before reporting completion.
 - Web UI markup carries no class attributes. Style ids, elements and custom element names in `internal/webui/style.css`, and render repeated or large data through the elements in `internal/webui/components.js` (`rpc-form`, `signed-form`, `publish-list`, `json-view`, `nostr-key`) and the `nostrEvent` and `jsonView` template partials. The shell is a rail, a content column, a panel and a command footer; `page.html` owns the rail and panel dispatch, each page template renders one `<section>` of content, and every page must render without JavaScript.
