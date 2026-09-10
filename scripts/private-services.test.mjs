@@ -6,10 +6,11 @@ import vm from "node:vm";
 const shared = await readFile(new URL("../internal/webui/tiny.js", import.meta.url), "utf8");
 const source = await readFile(new URL("../internal/webui/private-services.js", import.meta.url), "utf8");
 class Element {}
+const definitions = new Map();
 const sandbox = {
   URL, TextEncoder, HTMLElement: Element,
   document: {}, Response,
-  customElements: {define() {}},
+  customElements: {define(name, value) { if (definitions.has(name)) throw Error("duplicate definition"); definitions.set(name, value); }, get(name) { return definitions.get(name); }},
   tinySigner: {
     getPublicKey: async () => "a".repeat(64),
     nip44Encrypt: async (_pubkey, value) => "enc:" + value,
@@ -22,6 +23,11 @@ sandbox.window = sandbox;
  sandbox.tiny = {files: {}};
 vm.runInNewContext(shared + source, sandbox);
 const api = sandbox.tiny.files.privateServices;
+
+test("can be evaluated again after in-place navigation", async () => {
+  assert.doesNotThrow(() => vm.runInNewContext(source, sandbox));
+  assert.equal(definitions.size, 1);
+});
 
 test("accepts tenant paths while rejecting unsafe relay URLs", () => {
   assert.equal(api.validURL("wss://Relay.Example/r/Private"), true);

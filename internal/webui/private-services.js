@@ -194,5 +194,8 @@
   });
   window.tiny = window.tiny || {};
   window.tiny.files = {...window.tiny.files, privateServices: api};
-  customElements.define("private-services", PrivateServices);
+  // In-place navigation can request this bundle after a page already loaded
+  // it. Keep the browser's one-definition rule intact while refreshing the
+  // shared API above.
+  if (!customElements.get("private-services")) customElements.define("private-services", PrivateServices);
 })();
