@@ -89,10 +89,20 @@ func (t *Tenant) initServices(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	if err := t.initRoomAttachments(ctx); err != nil {
+		return err
+	}
 	t.community.ConfigurePolicy(t.Policy)
 	t.sites, err = sites.New(sites.Config{
 		Store: t.store,
 		GetBlob: func(ctx context.Context, hash string) (sites.Blob, error) {
+			rooms, err := t.roomAttachmentRooms(ctx, hash)
+			if err != nil {
+				return sites.Blob{}, err
+			}
+			if len(rooms) > 0 {
+				return sites.Blob{}, errors.New("restricted: room attachment cannot be served by a site")
+			}
 			entry, body, err := t.blobs.Get(ctx, hash)
 			if err != nil {
 				return sites.Blob{}, err
@@ -247,6 +257,7 @@ func (t *Tenant) authorizeBlob(r *http.Request, action blob.Action) (string, err
 	if action == blob.ActionGet || action == blob.ActionDelete || (action == blob.ActionUpload && (r.Method == http.MethodPut || r.Method == http.MethodPatch)) {
 		path := strings.TrimPrefix(r.URL.Path, "/")
 		path = strings.TrimPrefix(path, "nip96/")
+		path = strings.TrimPrefix(path, "media/")
 		hash = strings.Split(path, ".")[0]
 		if len(hash) != 64 || strings.Trim(hash, "0123456789abcdef") != "" {
 			hash = ""
@@ -294,6 +305,11 @@ func (t *Tenant) authorizeBlob(r *http.Request, action blob.Action) (string, err
 	}
 	if err != nil {
 		return "", err
+	}
+	if action == blob.ActionGet {
+		if err := t.roomAttachmentAccess(r.Context(), pubkey, hash); err != nil {
+			return "", err
+		}
 	}
 	if pubkey == "" {
 		if action == blob.ActionGet {

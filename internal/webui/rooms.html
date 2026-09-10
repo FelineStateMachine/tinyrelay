@@ -31,7 +31,7 @@
 {{template "roomMessage" .}}{{else}}<p id="empty">No messages yet.</p>{{end}}
 </div>
 {{if not (.Query.Get "cursor")}}<room-live room="{{$id}}"></room-live>
-{{if .Actor}}<room-compose room="{{$id}}" pubkey="{{.Actor}}"><textarea name="content" rows="2" placeholder="Message #{{$id}}. Mention with @npub or @hex." required></textarea><p><button>Send</button></p></room-compose>
+{{if .Actor}}<room-compose room="{{$id}}" pubkey="{{.Actor}}"><textarea name="content" rows="2" placeholder="Message #{{$id}}. Mention with @npub or @hex." required></textarea>{{if .Policy.Features.Files}}{{template "roomFilePicker" .}}{{end}}<p><button>Send</button></p></room-compose>
 <noscript><p>Sending needs JavaScript and a connected signer.</p></noscript>
 {{else}}<p id="guest"><a href="/signin">Sign in</a> to send messages.</p>
 {{end}}{{end}}</section>
@@ -50,15 +50,17 @@
 </div>
 {{with index $data "next_cursor"}}<p id="pages"><a href="/rooms/{{$id}}/thread/{{$root.ID}}?cursor={{urlquery (str .)}}">load earlier</a></p>{{end}}
 {{if not (.Query.Get "cursor")}}<room-live room="{{$id}}" root="{{$root.ID}}"></room-live>
-{{if .Actor}}<room-compose room="{{$id}}" pubkey="{{.Actor}}" kind="12" root="{{$root.ID}}" root-pubkey="{{$root.PubKey}}"><textarea name="content" rows="2" placeholder="Reply in this thread" required></textarea><p><button>Reply</button></p></room-compose>
+{{if .Actor}}<room-compose room="{{$id}}" pubkey="{{.Actor}}" kind="12" root="{{$root.ID}}" root-pubkey="{{$root.PubKey}}"><textarea name="content" rows="2" placeholder="Reply in this thread" required></textarea>{{if .Policy.Features.Files}}{{template "roomFilePicker" .}}{{end}}<p><button>Reply</button></p></room-compose>
 <noscript><p>Replying needs JavaScript and a connected signer.</p></noscript>
 {{else}}<p id="guest"><a href="/signin">Sign in</a> to reply.</p>
 {{end}}{{end}}</section>
 {{end}}{{end}}
 
+{{define "roomFilePicker"}}<label>Attach files <input type="file" name="attachments" multiple></label><small>Paste or drop files. Up to 8 files, 32 MiB each.</small><room-files aria-live="polite"></room-files>{{end}}
+
 {{/* One message. room-live builds the same markup for messages that arrive on the stream. */}}
-{{define "roomMessage"}}<room-message id="msg-{{.ID}}" data-id="{{.ID}}" data-kind="{{.Kind}}" data-pubkey="{{.PubKey}}"{{if .Agent}} data-agent{{end}}{{if .Notice}} data-notice{{end}}{{if .Edited}} data-edited{{end}}>
+{{define "roomMessage"}}<room-message id="msg-{{.ID}}" data-id="{{.ID}}" data-kind="{{.Kind}}" data-updated-at="{{.UpdatedAt}}" data-pubkey="{{.PubKey}}"{{if .Agent}} data-agent{{end}}{{if .Notice}} data-notice{{end}}{{if .Edited}} data-edited{{end}}>
 <header><b>{{template "nostrName" .PubKey}}</b>{{if .Role}} | {{.Role}}{{end}}<small><time datetime="{{datetime .CreatedAt}}" title="{{when .CreatedAt}}">{{clock .CreatedAt}}</time></small></header>
-{{if .Notice}}<p>{{.Notice}}</p>{{else}}<div>{{chatMarkdown .Content}}</div>{{end}}
+{{if .Notice}}<p>{{.Notice}}</p>{{else}}<div>{{chatMarkdown (roomAttachmentContent .Content .Attachments)}}</div>{{roomAttachmentMarkup .Attachments}}{{end}}
 {{if or .Mentions (and (not .InThread) (or (eq .Kind "11") .Root)) .Reactions .Edited}}<footer>{{if .Mentions}}<span>to {{range .Mentions}}{{template "nostrName" .}} {{end}}</span>{{end}}{{if not .InThread}}{{if eq .Kind "11"}}<a href="/rooms/{{.Room}}/thread/{{.ID}}">thread{{if .Replies}} | {{.Replies}} {{if eq .Replies 1}}reply{{else}}replies{{end}}{{end}}</a>{{else if .Root}}<a href="/rooms/{{.Room}}/thread/{{.Root}}">in thread</a>{{end}}{{end}}{{range .Reactions}}<span data-reaction="{{.Content}}">{{.Content}} {{.Count}}</span>{{end}}{{if .Edited}}<span data-edited>edited</span>{{end}}</footer>{{end}}
 </room-message>{{end}}

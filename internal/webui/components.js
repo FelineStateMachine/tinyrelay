@@ -845,6 +845,109 @@
     flush();
     return node;
   };
+  // NIP-92 references are matched outside code. Only standalone attachment
+  // lines are removed; prose links and examples keep their original text.
+  const attachmentURLPattern = /^https?:\/\/[^\s\x00-\x1f\x7f\\<>"']+$/;
+  const attachmentReference = /!?\[((?:\\.|[^\]\\])*)\]\(([^)\s]+)\)|(https?:\/\/[^\s<>"']+)/g;
+  const attachmentLines = (text, visit) => {
+    let marker = "";
+    return String(text || "").replace(/\r\n/g, "\n").split("\n").map(line => {
+      const trimmed = line.trim();
+      if (marker) {
+        if (trimmed.length >= marker.length && [...trimmed].every(c => c === marker[0])) marker = "";
+        return line;
+      }
+      const fence = trimmed.match(/^(`{3,}|~{3,})/);
+      if (fence) { marker = fence[1]; return line; }
+      return visit(line);
+    }).join("\n");
+  };
+  const attachmentOutsideCode = line => {
+    let out = "";
+    while (line.length) {
+      const start = line.indexOf("`");
+      if (start < 0) return out + line;
+      out += line.slice(0, start);
+      line = line.slice(start);
+      const delimiter = line.match(/^`+/)[0], end = line.indexOf(delimiter, delimiter.length);
+      if (end < 0) return out + line;
+      out += " ";
+      line = line.slice(end + delimiter.length);
+    }
+    return out;
+  };
+  const attachmentReferenceURL = match => match[2] || match[3].replace(/[.,;:!?)]+$/, "");
+  const attachmentURLVisible = (text, target) => {
+    let visible = false;
+    attachmentLines(text, line => {
+      for (const match of attachmentOutsideCode(line).matchAll(attachmentReference)) if (attachmentReferenceURL(match) === target) visible = true;
+      return line;
+    });
+    return visible;
+  };
+  const attachmentText = (text, limit) => [...String(text || "")].slice(0, limit).join("");
+  const roomAttachments = event => {
+    const out = [], seen = new Set(), content = String(event?.content || "");
+    for (const tag of (event?.tags || [])) {
+      if (!Array.isArray(tag) || tag[0] !== "imeta" || out.length >= 16) continue;
+      const item = {};
+      for (const field of tag.slice(1)) {
+        if (typeof field !== "string") continue;
+        const split = field.indexOf(" ");
+        if (split < 1) continue;
+        const key = field.slice(0, split), value = field.slice(split + 1);
+        if (!value) continue;
+        if (key === "url") item.url = value;
+        else if (key === "m") item.mime = value.toLowerCase();
+        else if (key === "x") item.hash = value;
+        else if (key === "size") item.size = /^-?\d+$/.test(value) ? Number(value) : 0;
+        else if (key === "filename" || key === "name") item.name = value;
+        else if (key === "alt") item.alt = value;
+      }
+      if (!attachmentURLPattern.test(item.url || "") || seen.has(item.url) || !attachmentURLVisible(content, item.url)) continue;
+      let parsed;
+      try { parsed = new URL(item.url); } catch { continue; }
+      if (!parsed.hostname || parsed.username || parsed.password) continue;
+      item.size = Number.isSafeInteger(item.size) && item.size > 0 && item.size <= 1099511627776 ? item.size : 0;
+      item.name = attachmentText(item.name, 255);
+      item.alt = attachmentText(item.alt, 500);
+      if (!item.name) item.name = item.alt;
+      if (!item.name) { try { item.name = decodeURIComponent(parsed.pathname.split("/").pop() || "Attachment"); } catch { item.name = "Attachment"; } }
+      seen.add(item.url);
+      out.push(item);
+    }
+    return out;
+  };
+  const attachmentContent = (text, items) => {
+    const urls = new Set(items.map(item => item.url));
+    return attachmentLines(text, line => {
+      const trimmed = line.trim(), match = [...trimmed.matchAll(attachmentReference)][0];
+      return match && match[0] === trimmed && urls.has(attachmentReferenceURL(match)) ? "" : line;
+    }).trim();
+  };
+  const attachmentSize = size => size < 1024 ? size + " B" : size < 1048576 ? Math.floor(size / 1024) + " KB" : Math.floor(size / 1048576) + " MB";
+  const attachmentNodes = items => {
+    if (!items.length) return null;
+    const box = el("div"); box.dataset.roomAttachments = "";
+    for (const item of items) {
+      const figure = el("figure"), name = item.name || "Attachment";
+      if (item.mime?.startsWith("image/") && item.mime !== "image/svg+xml") {
+        const link = el("a"), image = el("img");
+        link.href = item.url; link.rel = "noopener noreferrer"; link.setAttribute("fx-ignore", "");
+        image.src = item.url; image.alt = item.alt || name; image.loading = "lazy"; image.referrerPolicy = "no-referrer";
+        link.append(image); figure.append(link);
+      } else if (item.mime?.startsWith("video/") || item.mime?.startsWith("audio/")) {
+        const media = el(item.mime.startsWith("video/") ? "video" : "audio");
+        media.controls = true; media.preload = "none"; media.src = item.url; figure.append(media);
+      }
+      const caption = el("figcaption"), link = el("a", name);
+      link.href = item.url; link.download = name; link.dataset.download = ""; link.rel = "noopener noreferrer"; link.setAttribute("fx-ignore", "");
+      caption.append(link);
+      if (item.size > 0) caption.append(" ", el("small", attachmentSize(item.size)));
+      figure.append(caption); box.append(figure);
+    }
+    return box;
+  };
   const keyNode = hex => { const node = el("nostr-key", hex.slice(0, 12)); node.setAttribute("hex", hex); node.title = hex; return node; };
   // nameNode shows a person: the vendored nostr-name element replaces the short
   // id with the profile name published on this relay.
@@ -865,6 +968,7 @@
     node.id = "msg-" + event.id;
     node.dataset.id = event.id;
     node.dataset.kind = String(event.kind);
+    node.dataset.updatedAt = String(event.created_at);
     node.dataset.pubkey = pubkey;
     const member = members[pubkey];
     if (member?.agent) node.dataset.agent = "";
@@ -875,8 +979,10 @@
     time.title = time.dateTime.slice(0, 16).replace("T", " ") + " UTC";
     small.append(time);
     header.append(name, member?.role ? " | " + member.role : "", small);
-    const body = notice ? el("p", notice) : chatMarkdown(el("div"), event.content || "");
+    const attachments = notice ? [] : roomAttachments(event);
+    const body = notice ? el("p", notice) : chatMarkdown(el("div"), attachmentContent(event.content || "", attachments));
     node.append(header, body);
+    const media = attachmentNodes(attachments); if (media) node.append(media);
     const footer = el("footer");
     const mentions = notice ? [] : (event.tags || []).filter(tag => tag[0] === "p" && isHex64(tag[1]) && tag[1] !== pubkey).map(tag => tag[1]);
     if (mentions.length) { const span = el("span", "to "); mentions.forEach(key => span.append(nameNode(key), " ")); footer.append(span); }
@@ -934,9 +1040,15 @@
     const targets = (event.tags || []).filter(tag => tag[0] === "e");
     const target = targets.length && document.getElementById("msg-" + targets[targets.length - 1][1]);
     if (!target || target.dataset.pubkey !== event.pubkey || target.dataset.notice !== undefined) return;
+    const updatedAt = Number(event.created_at);
+    if (!Number.isFinite(updatedAt) || updatedAt < Number(target.dataset.updatedAt || 0)) return;
     const body = target.querySelector(":scope > div");
     if (!body) return;
-    body.replaceWith(chatMarkdown(el("div"), event.content || ""));
+    target.dataset.updatedAt = String(updatedAt);
+    const attachments = roomAttachments(event);
+    body.replaceWith(chatMarkdown(el("div"), attachmentContent(event.content || "", attachments)));
+    target.querySelector(":scope > [data-room-attachments]")?.remove();
+    const media = attachmentNodes(attachments); if (media) target.insertBefore(media, target.querySelector(":scope > footer"));
     if (target.dataset.edited !== undefined) return;
     target.dataset.edited = "";
     let footer = target.querySelector(":scope > footer");
@@ -947,13 +1059,14 @@
   };
   // signAndPublish signs one room event, checks it came back unchanged and
   // valid, and publishes it once.
-  const signAndPublish = async unsigned => {
+  const signAndPublish = async (unsigned, signal) => {
     if (!window.nostr?.signEvent) throw Error("Connect a signer first.");
     const expected = JSON.stringify(unsigned);
     const event = await window.nostr.signEvent(JSON.parse(expected));
     const actual = event && JSON.stringify({kind: event.kind, created_at: event.created_at, tags: event.tags, content: event.content});
     if (actual !== expected || !window.NostrSigner?.verifyEvent(event)) throw Error("The signer returned an invalid or changed event.");
-    const response = await tiny.signedFetch("/events", "POST", JSON.stringify(event), {contentType: "application/json"});
+    if (signal?.aborted) throw Error("Sending canceled.");
+    const response = await tiny.signedFetch("/events", "POST", JSON.stringify(event), {contentType: "application/json", signal});
     const result = await response.json();
     if (!response.ok || result.accepted !== true) throw Error(result.error || result.message || "The relay rejected the event.");
     return event;
@@ -971,9 +1084,79 @@
         event.preventDefault();
         this.form?.requestSubmit();
       });
+      this.addEventListener("change", event => {
+        if (event.target.name !== "attachments") return;
+        this.chooseFiles(event.target.files);
+        event.target.value = "";
+      });
+      this.addEventListener("paste", event => {
+        if (!this.querySelector("room-files")) return;
+        const files = [...(event.clipboardData?.files || [])];
+        if (!files.length) return;
+        event.preventDefault();
+        this.chooseFiles(files);
+      });
+      this.addEventListener("dragover", event => {
+        if (!this.querySelector("room-files") || ![...(event.dataTransfer?.types || [])].includes("Files")) return;
+        event.preventDefault();
+        if (!this.submitting) this.dataset.over = "";
+      });
+      this.addEventListener("dragleave", () => { delete this.dataset.over; });
+      this.addEventListener("drop", event => {
+        delete this.dataset.over;
+        if (!this.querySelector("room-files") || !event.dataTransfer?.files?.length) return;
+        event.preventDefault();
+        this.chooseFiles(event.dataTransfer.files);
+      });
+      this.renderFiles();
     }
 
-    event(content) {
+    disconnectedCallback() { this.uploadController?.abort(); }
+
+    busy(on) {
+      super.busy(on);
+      this.form?.querySelectorAll("input, textarea").forEach(input => { input.disabled = on; });
+    }
+
+    chooseFiles(files) {
+      try { this.addFiles(files); this.report(""); }
+      catch (error) { this.report(error.message, true); }
+    }
+
+    addFiles(files) {
+      if (this.submitting) return;
+      const chosen = [...files];
+      const pending = this.pendingFiles || [];
+      if (pending.length + chosen.length > 8) throw Error("Attach up to 8 files per message.");
+      if (chosen.some(file => file.size === 0 || file.size > 32 * 1024 * 1024)) throw Error("Each attachment must be between 1 byte and 32 MiB.");
+      this.pendingFiles = [...pending, ...chosen.map(file => ({file}))];
+      this.renderFiles();
+    }
+
+    renderFiles() {
+      const pending = this.pendingFiles || [];
+      const content = this.form?.elements?.content;
+      if (content) content.required = pending.length === 0;
+      const target = this.querySelector("room-files");
+      if (!target) return;
+      const list = el("ul");
+      pending.forEach((entry, index) => {
+        const row = el("li"), remove = el("button", "Remove");
+        remove.type = "button";
+        remove.disabled = Boolean(this.submitting);
+        remove.setAttribute("aria-label", "Remove " + entry.file.name);
+        remove.addEventListener("click", () => {
+          if (this.submitting) return;
+          this.pendingFiles.splice(index, 1);
+          this.renderFiles();
+        });
+        row.append(el("span", entry.file.name), " ", el("small", entry.descriptor ? "uploaded" : Math.ceil(entry.file.size / 1024) + " KB"), " ", remove);
+        list.append(row);
+      });
+      target.replaceChildren(...(pending.length ? [list] : []));
+    }
+
+    event(content, attachments = []) {
       const room = this.getAttribute("room") || "";
       if (!/^[a-z0-9_-]{1,64}$/.test(room)) throw Error("The room id is missing.");
       const kind = Number(this.getAttribute("kind") || 9);
@@ -986,17 +1169,60 @@
         if (isHex64(author) && author !== this.getAttribute("pubkey")) tags.push(["p", author]);
       }
       roomMentions(content).forEach(key => { if (!tags.some(tag => tag[0] === "p" && tag[1] === key)) tags.push(["p", key]); });
+      const lines = [];
+      attachments.forEach(file => {
+        tags.push(["imeta", "url " + file.url, "m " + file.type, "x " + file.sha256, "size " + file.size, "filename " + file.filename]);
+        const label = file.filename.replace(/[\\[\]]/g, "\\$&");
+        lines.push(file.type.startsWith("image/") ? `![image](${file.url})` : file.type.startsWith("video/") ? `![video](${file.url})` : `[${label}](${file.url})`);
+      });
+      content = [content, lines.join("\n")].filter(Boolean).join("\n\n");
       return {kind, created_at: now(), tags, content};
+    }
+
+    async uploadFiles(signal) {
+      const pending = this.pendingFiles || [];
+      for (const [index, entry] of pending.entries()) {
+        if (signal.aborted) throw Error("Upload canceled.");
+        if (entry.descriptor) continue;
+        const file = entry.file;
+        this.report("Uploading " + file.name + " (" + (index + 1) + " of " + pending.length + ")…");
+        const bytes = new Uint8Array(await file.arrayBuffer());
+        const hash = await tiny.sha256hex(bytes);
+        const filename = Array.from(file.name.replace(/[\u0000-\u001f\u007f]/g, " ").trim()).slice(0, 255).join("") || "file";
+        const path = "/rooms/" + encodeURIComponent(this.getAttribute("room")) + "/attachments?filename=" + encodeURIComponent(filename);
+        const response = await tiny.signedFetch(path, "PUT", bytes, {contentType: file.type || "application/octet-stream", signal});
+        if (signal.aborted) throw Error("Upload canceled.");
+        const descriptor = await response.json();
+        if (descriptor.sha256 !== hash || descriptor.size !== bytes.byteLength) throw Error("The upload descriptor has an unexpected hash or size.");
+        let url;
+        try { url = new URL(descriptor.url); } catch { throw Error("The upload descriptor has an invalid URL."); }
+        const prefix = tiny.localPath("/media/" + hash);
+        if (url.origin !== new URL(location.href).origin || url.username || url.password || url.search || url.hash || !(url.pathname === prefix || new RegExp("^" + prefix.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "\\.[a-z0-9]{1,16}$").test(url.pathname))) throw Error("The upload descriptor has an unexpected URL.");
+        if (!/^[a-z0-9!#$&^_.+-]+\/[a-z0-9!#$&^_.+-]+$/.test(descriptor.type || "")) throw Error("The upload descriptor has an invalid media type.");
+        entry.descriptor = {...descriptor, filename};
+        this.renderFiles();
+      }
+      return pending.map(entry => entry.descriptor);
     }
 
     async submit(form) {
       const content = (form.elements.content?.value || "").trim();
-      if (!content) return;
-      this.report("Signing…");
-      const event = await signAndPublish(this.event(content));
-      form.reset();
-      this.report("");
-      roomAppend(event, {room: this.getAttribute("room"), inThread: event.kind === 12, own: true});
+      if (!content && !this.pendingFiles?.length) return;
+      this.event(content);
+      if (!window.nostr?.signEvent) throw Error("Connect a signer first.");
+      const controller = new AbortController();
+      this.uploadController = controller;
+      try {
+        const files = await this.uploadFiles(controller.signal);
+        if (controller.signal.aborted) throw Error("Upload canceled.");
+        this.report("Signing…");
+        const event = await signAndPublish(this.event(content, files), controller.signal);
+        form.reset();
+        this.pendingFiles = [];
+        this.renderFiles();
+        this.report("");
+        roomAppend(event, {room: this.getAttribute("room"), inThread: event.kind === 12, own: true});
+      } finally { this.uploadController = null; }
     }
   }
 
@@ -1113,7 +1339,7 @@
       roomAppend(event, {room: this.getAttribute("room"), inThread: Boolean(root)});
     }
   }
-  tiny.rooms = Object.freeze({keyHex, roomMentions, roomID, messageNode, roomAppend, roomReact, roomEdit, linkify, chatMarkdown});
+  tiny.rooms = Object.freeze({keyHex, roomMentions, roomID, messageNode, roomAppend, roomReact, roomEdit, linkify, chatMarkdown, roomAttachments, attachmentContent, attachmentNodes});
 
   // JsonView renders any JSON value. Arrays of objects become tables, objects
   // become definition lists, scalar arrays become lists, and deep nesting

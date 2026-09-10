@@ -142,7 +142,7 @@ func TestRoomPageRendersMessagesOldestFirstWithMarkers(t *testing.T) {
 	for _, want := range []string{
 		`<h1>General <small>open room</small></h1>`, `<p>Where General happens.</p>`,
 		`<a href="/rooms/general?cursor=cursor-1">load earlier</a>`,
-		`<room-message id="msg-` + roomHello + `" data-id="` + roomHello + `" data-kind="9" data-pubkey="` + roomAgent + `" data-agent data-edited>`,
+		`<room-message id="msg-` + roomHello + `" data-id="` + roomHello + `" data-kind="9" data-updated-at="1757203650" data-pubkey="` + roomAgent + `" data-agent data-edited>`,
 		`<a href="https://example.com/docs" rel="noopener">https://example.com/docs</a>.`,
 		`<a href="/open?target=nostr%3Anpub1ttrypewl3au52wqux86r22yt506c077k3maj02a0jste97wrvd5sjfutc2">nostr:npub1`,
 		`&lt;script&gt;alert(1)&lt;/script&gt;`,

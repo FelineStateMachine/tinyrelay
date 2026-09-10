@@ -347,6 +347,9 @@ func (t *Tenant) browseFile(ctx context.Context, actor, hash string) (any, error
 	if !t.Policy().Features.Files {
 		return nil, errors.New("not found: files are disabled")
 	}
+	if err := t.roomAttachmentAccess(ctx, actor, hash); err != nil {
+		return nil, err
+	}
 	entry, body, err := t.blobs.Get(ctx, hash)
 	if err != nil {
 		return nil, err

@@ -104,6 +104,7 @@ type reaction struct {
 type roomEdit struct {
 	PubKey, Content string
 	CreatedAt       int64
+	Tags            [][]string
 }
 
 // editSummary maps message ids to the newest edit (kind 40003, Buzz's
@@ -111,7 +112,7 @@ type roomEdit struct {
 // replies, so a stranger's edit never shadows the author's own.
 func editSummary(value any) map[string]map[string]roomEdit {
 	edits := map[string]map[string]roomEdit{}
-	for _, field := range []string{"messages", "replies"} {
+	for _, field := range []string{"messages", "replies", "edits"} {
 		for _, row := range roomSlice(value, field) {
 			e := valueMap(row)
 			if plainString(e["kind"]) != "40003" {
@@ -122,7 +123,7 @@ func editSummary(value any) map[string]map[string]roomEdit {
 				continue
 			}
 			target := targets[len(targets)-1]
-			edit := roomEdit{PubKey: plainString(e["pubkey"]), Content: plainString(e["content"]), CreatedAt: unixSeconds(e["created_at"])}
+			edit := roomEdit{PubKey: plainString(e["pubkey"]), Content: plainString(e["content"]), CreatedAt: unixSeconds(e["created_at"]), Tags: roomTags(row)}
 			if edits[target] == nil {
 				edits[target] = map[string]roomEdit{}
 			}
@@ -248,11 +249,12 @@ func clock(value any) string {
 // author's markers, the thread state and the reactions it has received.
 type roomItem struct {
 	ID, PubKey, Kind, Content, Room, Root, Role, Notice string
-	CreatedAt                                           int64
+	CreatedAt, UpdatedAt                                int64
 	Agent, InThread, Edited                             bool
 	Mentions                                            []string
 	Replies                                             int
 	Reactions                                           []reaction
+	Attachments                                         []roomAttachment
 }
 
 // roomItems turns a browse result's messages or replies into view items,
@@ -273,7 +275,8 @@ func roomItems(value any, field string) []roomItem {
 		}
 		// Only the author edits their own message, and only forward in time.
 		if edit, found := edits[item.ID][item.PubKey]; found && edit.CreatedAt >= item.CreatedAt {
-			item.Content, item.Edited = edit.Content, true
+			item.Content, item.Attachments, item.Edited = edit.Content, roomAttachments(map[string]any{"content": edit.Content, "tags": edit.Tags}), true
+			item.UpdatedAt = edit.CreatedAt
 		}
 		item.Replies = replies[item.ID]
 		item.Reactions = reactions[item.ID]
@@ -287,6 +290,10 @@ func roomItems(value any, field string) []roomItem {
 func roomRoot(value any) roomItem {
 	data := valueMap(value)
 	item, _ := newRoomItem(data["root"], plainString(valueMap(data["room"])["id"]), memberIndex(value))
+	if edit, found := editSummary(value)[item.ID][item.PubKey]; found && edit.CreatedAt >= item.CreatedAt {
+		item.Content, item.Attachments, item.Edited = edit.Content, roomAttachments(map[string]any{"content": edit.Content, "tags": edit.Tags}), true
+		item.UpdatedAt = edit.CreatedAt
+	}
 	item.Replies = len(roomSlice(value, "replies"))
 	item.InThread = true
 	return item
@@ -295,6 +302,8 @@ func roomRoot(value any) roomItem {
 func newRoomItem(row any, room string, members map[string]map[string]any) (roomItem, bool) {
 	e := valueMap(row)
 	item := roomItem{ID: plainString(e["id"]), PubKey: plainString(e["pubkey"]), Kind: plainString(e["kind"]), Content: plainString(e["content"]), Room: room, CreatedAt: unixSeconds(e["created_at"])}
+	item.UpdatedAt = item.CreatedAt
+	item.Attachments = roomAttachments(row)
 	switch item.Kind {
 	case "7", "40003":
 		return roomItem{}, false

@@ -1,6 +1,7 @@
 package daemon
 
 import (
+	"database/sql"
 	"errors"
 	"io"
 	"mime"
@@ -40,7 +41,7 @@ func (t *Tenant) tryBrowseHTTP(w http.ResponseWriter, r *http.Request) bool {
 	if r.URL.Path == "/repo/raw" {
 		err = t.sourceDownload(w, r, actor)
 	} else {
-		err = t.fileDownload(w, r)
+		err = t.fileDownload(w, r, actor)
 	}
 	if err != nil {
 		browseHTTPError(w, err)
@@ -53,11 +54,13 @@ func (t *Tenant) tryBrowseHTTP(w http.ResponseWriter, r *http.Request) bool {
 func browseHTTPError(w http.ResponseWriter, err error) {
 	status := http.StatusBadRequest
 	switch {
+	case strings.HasPrefix(err.Error(), "conflict:"):
+		status = http.StatusConflict
 	case strings.HasPrefix(err.Error(), "auth-required:"):
 		status = http.StatusUnauthorized
 	case strings.HasPrefix(err.Error(), "restricted:"), strings.HasPrefix(err.Error(), "blocked:"):
 		status = http.StatusForbidden
-	case errors.Is(err, os.ErrNotExist), strings.HasPrefix(err.Error(), "not found:"):
+	case errors.Is(err, os.ErrNotExist), errors.Is(err, sql.ErrNoRows), strings.HasPrefix(err.Error(), "not found:"):
 		status = http.StatusNotFound
 	}
 	http.Error(w, err.Error(), status)
@@ -91,11 +94,14 @@ func mediaInline(typ string) bool {
 	return strings.HasPrefix(typ, "image/") || strings.HasPrefix(typ, "video/") || strings.HasPrefix(typ, "audio/") || typ == "application/pdf"
 }
 
-func (t *Tenant) fileDownload(w http.ResponseWriter, r *http.Request) error {
+func (t *Tenant) fileDownload(w http.ResponseWriter, r *http.Request, actor string) error {
 	if !t.Policy().Features.Files {
 		return os.ErrNotExist
 	}
 	hash := r.URL.Query().Get("hash")
+	if err := t.roomAttachmentAccess(r.Context(), actor, hash); err != nil {
+		return err
+	}
 	entry, body, err := t.blobs.Get(r.Context(), hash)
 	if err != nil {
 		return err

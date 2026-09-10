@@ -99,6 +99,10 @@ type PutOptions struct {
 	Type     string
 	Uploader string
 	Hash     string
+	// Commit records ownership metadata in the blob transaction. The final
+	// argument reports whether the blob is new. An error rolls back all claims.
+	// New bytes remain unavailable until their ownership metadata is durable.
+	Commit func(context.Context, *sql.Tx, Blob, bool) error
 }
 
 type Service struct {
@@ -207,8 +211,12 @@ func (s *Service) Put(ctx context.Context, options PutOptions) (Blob, error) {
 	if options.Reader == nil {
 		return Blob{}, errors.New("blob reader is required")
 	}
-	entry, _, err := s.put(ctx, options.Reader, options.Type, options.Uploader, options.Hash)
+	entry, _, err := s.putOptions(ctx, options)
 	return entry, err
+}
+
+func (s *Service) putOptions(ctx context.Context, options PutOptions) (Blob, bool, error) {
+	return s.putValidatedWithCommit(ctx, options.Reader, options.Type, options.Uploader, options.Hash, nil, options.Commit)
 }
 
 // Get opens a verified metadata-backed blob for streaming to another service.
@@ -608,10 +616,14 @@ func (s *Service) delete(w http.ResponseWriter, r *http.Request, sha string) {
 }
 
 func (s *Service) put(ctx context.Context, source io.Reader, typ, uploader, claimed string) (Blob, bool, error) {
-	return s.putValidated(ctx, source, typ, uploader, claimed, nil)
+	return s.putValidatedWithCommit(ctx, source, typ, uploader, claimed, nil, nil)
 }
 
 func (s *Service) putValidated(ctx context.Context, source io.Reader, typ, uploader, claimed string, validate func(string) error) (Blob, bool, error) {
+	return s.putValidatedWithCommit(ctx, source, typ, uploader, claimed, validate, nil)
+}
+
+func (s *Service) putValidatedWithCommit(ctx context.Context, source io.Reader, typ, uploader, claimed string, validate func(string) error, commit func(context.Context, *sql.Tx, Blob, bool) error) (Blob, bool, error) {
 	limits := s.currentLimits()
 	streamLimit := limits.MaxFileBytes
 	quotaStream := false
@@ -658,12 +670,13 @@ func (s *Service) putValidated(ctx context.Context, source io.Reader, typ, uploa
 			return Blob{}, false, err
 		}
 	}
-	return s.installUpload(ctx, uploadCandidate{path: tmpName, hash: sha, size: count, typ: typ, uploader: uploader})
+	return s.installUpload(ctx, uploadCandidate{path: tmpName, hash: sha, size: count, typ: typ, uploader: uploader, commit: commit})
 }
 
 type uploadCandidate struct {
 	path, hash, typ, uploader, reservation string
 	size                                   int64
+	commit                                 func(context.Context, *sql.Tx, Blob, bool) error
 }
 
 func (s *Service) installUpload(ctx context.Context, candidate uploadCandidate) (Blob, bool, error) {
@@ -701,14 +714,35 @@ func (s *Service) installUpload(ctx context.Context, candidate uploadCandidate) 
 					return Blob{}, false, ErrQuotaExceeded
 				}
 			}
-			if err := s.claim(ctx, sha, uploader, terms.ExpiresAt); err != nil {
-				return Blob{}, false, err
-			}
 		}
-		if candidate.reservation != "" {
-			if _, err := s.store.DB().ExecContext(ctx, "DELETE FROM multipart_uploads WHERE id=?", candidate.reservation); err != nil {
+		if err := s.store.WithTx(ctx, func(tx *sql.Tx) error {
+			if candidate.commit != nil {
+				if err := candidate.commit(ctx, tx, existing, false); err != nil {
+					return err
+				}
+			}
+			if uploader != "" {
+				if _, err := tx.ExecContext(ctx, claimSQL, sha, uploader, time.Now().Unix(), terms.ExpiresAt); err != nil {
+					return err
+				}
+			}
+			if candidate.reservation != "" {
+				if _, err := tx.ExecContext(ctx, "DELETE FROM multipart_uploads WHERE id=?", candidate.reservation); err != nil {
+					return err
+				}
+			}
+			return nil
+		}); err != nil {
+			return Blob{}, false, err
+		}
+		// A crash after a scoped metadata commit may leave the bytes missing.
+		// A retry supplies those same verified bytes without losing the scope.
+		if _, err := os.Stat(filepath.Join(s.root, sha)); errors.Is(err, os.ErrNotExist) {
+			if err := s.installBlobFile(candidate.path, sha); err != nil {
 				return Blob{}, false, err
 			}
+		} else if err != nil {
+			return Blob{}, false, err
 		}
 		return existing, false, nil
 	} else if !errors.Is(err, sql.ErrNoRows) {
@@ -733,12 +767,20 @@ func (s *Service) installUpload(ctx context.Context, candidate uploadCandidate) 
 	if terms.Encrypted && !encryptedTypes[typ] {
 		return Blob{}, false, ErrNotEncrypted
 	}
-	final := filepath.Join(s.root, sha)
-	if err := os.Rename(candidate.path, final); err != nil && !errors.Is(err, os.ErrExist) {
-		return Blob{}, false, fmt.Errorf("install blob: %w", err)
+	stage := ""
+	if candidate.commit != nil {
+		stage = filepath.Join(s.root, ".scoped-"+sha)
+		if err := os.Rename(candidate.path, stage); err != nil {
+			return Blob{}, false, fmt.Errorf("stage scoped blob: %w", err)
+		}
+		if err := syncDirectory(s.root); err != nil {
+			return Blob{}, false, fmt.Errorf("sync staged blob directory: %w", err)
+		}
 	}
-	if err := syncDirectory(s.root); err != nil {
-		return Blob{}, false, fmt.Errorf("sync blob directory: %w", err)
+	if candidate.commit == nil {
+		if err := s.installBlobFile(candidate.path, sha); err != nil {
+			return Blob{}, false, err
+		}
 	}
 	now := time.Now().UTC().Unix()
 	entry := Blob{SHA256: sha, Size: count, Type: typ, Uploader: uploader, Uploaded: now}
@@ -759,15 +801,38 @@ func (s *Service) installUpload(ctx context.Context, candidate uploadCandidate) 
 				return fmt.Errorf("release upload reservation: %w", err)
 			}
 		}
+		if candidate.commit != nil {
+			if err := candidate.commit(ctx, tx, entry, true); err != nil {
+				return err
+			}
+		}
 		return nil
 	})
 	if err != nil {
+		if stage != "" {
+			_ = os.Remove(stage)
+		}
 		return Blob{}, false, err
+	}
+	if candidate.commit != nil {
+		if err := s.installBlobFile(stage, sha); err != nil {
+			return Blob{}, false, err
+		}
 	}
 	if saved, err := s.lookup(ctx, sha); err == nil {
 		return saved, saved.Uploader == uploader && saved.Uploaded == now, nil
 	}
 	return entry, true, nil
+}
+
+func (s *Service) installBlobFile(source, hash string) error {
+	if err := os.Rename(source, filepath.Join(s.root, hash)); err != nil {
+		return fmt.Errorf("install blob: %w", err)
+	}
+	if err := syncDirectory(s.root); err != nil {
+		return fmt.Errorf("sync blob directory: %w", err)
+	}
+	return nil
 }
 
 func (s *Service) quotaUsage(ctx context.Context, uploader string) (int64, error) {
@@ -883,6 +948,19 @@ func reconcile(ctx context.Context, store *storage.Store, root string) error {
 			continue
 		}
 		name := entry.Name()
+		if strings.HasPrefix(name, ".scoped-") {
+			sha := strings.TrimPrefix(name, ".scoped-")
+			if !shaPattern.MatchString(sha) {
+				if err := os.Remove(filepath.Join(root, name)); err != nil {
+					return fmt.Errorf("remove invalid staged blob: %w", err)
+				}
+				continue
+			}
+			if err := reconcileStaged(ctx, store, root, name, sha); err != nil {
+				return err
+			}
+			continue
+		}
 		if strings.HasPrefix(name, ".upload-") || strings.HasPrefix(name, ".multipart-chunk-") {
 			if err := os.Remove(filepath.Join(root, name)); err != nil {
 				return fmt.Errorf("remove abandoned upload: %w", err)
@@ -909,6 +987,52 @@ func reconcile(ctx context.Context, store *storage.Store, root string) error {
 		}
 	}
 	return nil
+}
+
+func reconcileStaged(ctx context.Context, store *storage.Store, root, name, sha string) error {
+	var size int64
+	if err := store.DB().QueryRowContext(ctx, "SELECT size FROM blobs WHERE sha256=?", sha).Scan(&size); errors.Is(err, sql.ErrNoRows) {
+		if removeErr := os.Remove(filepath.Join(root, name)); removeErr != nil && !errors.Is(removeErr, os.ErrNotExist) {
+			return removeErr
+		}
+		return nil
+	} else if err != nil {
+		return fmt.Errorf("check staged blob %q: %w", sha, err)
+	}
+	file, err := os.Open(filepath.Join(root, name))
+	if err != nil {
+		return err
+	}
+	info, err := file.Stat()
+	if err != nil {
+		_ = file.Close()
+		return err
+	}
+	if info.Size() != size {
+		_ = file.Close()
+		return fmt.Errorf("staged blob %q has size %d, want %d", sha, info.Size(), size)
+	}
+	hasher := sha256.New()
+	if _, err := io.Copy(hasher, file); err != nil {
+		_ = file.Close()
+		return err
+	}
+	if err := file.Close(); err != nil {
+		return err
+	}
+	if hex.EncodeToString(hasher.Sum(nil)) != sha {
+		return fmt.Errorf("staged blob %q failed content hash", sha)
+	}
+	if _, err := os.Stat(filepath.Join(root, sha)); errors.Is(err, os.ErrNotExist) {
+		if err := os.Rename(filepath.Join(root, name), filepath.Join(root, sha)); err != nil {
+			return err
+		}
+	} else if err != nil {
+		return err
+	} else {
+		_ = os.Remove(filepath.Join(root, name))
+	}
+	return syncDirectory(root)
 }
 
 func recoverBlob(ctx context.Context, store *storage.Store, root, name string) error {

@@ -152,7 +152,11 @@ func (t *Tenant) browseRoom(ctx context.Context, actor string, q roomBrowseReque
 	if err != nil {
 		return nil, err
 	}
-	return map[string]any{"room": summary, "members": members, "messages": messages, "next_cursor": next}, nil
+	edits, err := t.roomEdits(ctx, actor, room.ID, messages)
+	if err != nil {
+		return nil, err
+	}
+	return map[string]any{"room": summary, "members": members, "messages": messages, "edits": edits, "next_cursor": next}, nil
 }
 
 func (t *Tenant) browseThread(ctx context.Context, actor string, q roomBrowseRequest) (any, error) {
@@ -178,7 +182,14 @@ func (t *Tenant) browseThread(ctx context.Context, actor string, q roomBrowseReq
 	if err != nil {
 		return nil, err
 	}
-	return map[string]any{"room": room, "root": roots[0], "replies": replies, "next_cursor": next}, nil
+	targets := make([]event.Event, 0, len(replies)+1)
+	targets = append(targets, roots[0])
+	targets = append(targets, replies...)
+	edits, err := t.roomEdits(ctx, actor, room.ID, targets)
+	if err != nil {
+		return nil, err
+	}
+	return map[string]any{"room": room, "root": roots[0], "replies": replies, "edits": edits, "next_cursor": next}, nil
 }
 
 // roomMessages pages a room filter newest first through the read gate. The
@@ -205,4 +216,70 @@ func (t *Tenant) roomMessages(ctx context.Context, actor string, filter event.Fi
 		next = collaborationCursor(collaborationItemFrom(last))
 	}
 	return rows, next, nil
+}
+
+// roomEdits returns the newest author-owned edit for each visible message.
+// It deliberately queries independently of the timeline cursor: an edit is
+// a replacement for its target and may have been published after the page
+// containing that target was read. A thread page has at most 100 replies
+// plus its root; each target contributes at most one replacement.
+func (t *Tenant) roomEdits(ctx context.Context, actor, roomID string, targets []event.Event) ([]event.Event, error) {
+	if len(targets) == 0 {
+		return []event.Event{}, nil
+	}
+	validTargets := make([]event.Event, 0, len(targets))
+	for _, target := range targets {
+		if len(target.ID) != 64 || !hexLower(target.ID) || target.PubKey == "" ||
+			(target.Kind != event.KIND_CHAT && target.Kind != event.KIND_THREAD && target.Kind != event.KIND_THREAD_REPLY && target.Kind != event.KIND_RICH_CONTENT) {
+			continue
+		}
+		validTargets = append(validTargets, target)
+		if len(validTargets) == 101 {
+			break
+		}
+	}
+	if len(validTargets) == 0 {
+		return []event.Event{}, nil
+	}
+	newest := make(map[string]event.Event, len(validTargets))
+	for _, target := range validTargets {
+		since := target.CreatedAt
+		filter := event.Filter{Kinds: []int{event.KIND_CONTENT_EDIT}, Authors: []string{target.PubKey}, Tags: map[string][]string{"h": {roomID}, "e": {target.ID}}, Since: &since}
+		var cursor *storage.EventCursor
+		for {
+			edits, next, err := t.roomMessages(ctx, actor, filter, cursor, 100)
+			if err != nil {
+				return nil, err
+			}
+			for _, edit := range edits {
+				if lastRoomEditTarget(edit) == target.ID {
+					newest[target.ID] = edit
+					break
+				}
+			}
+			if _, found := newest[target.ID]; found || next == "" {
+				break
+			}
+			cursor, err = parseCollaborationCursor(next)
+			if err != nil {
+				return nil, err
+			}
+		}
+	}
+	result := make([]event.Event, 0, len(newest))
+	for _, edit := range newest {
+		result = append(result, edit)
+	}
+	sortEventsNewestFirst(result)
+	return result, nil
+}
+
+func lastRoomEditTarget(e event.Event) string {
+	target := ""
+	for _, tag := range e.Tags {
+		if len(tag) >= 2 && tag[0] == "e" {
+			target = tag[1]
+		}
+	}
+	return target
 }

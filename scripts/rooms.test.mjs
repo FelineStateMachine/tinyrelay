@@ -4,27 +4,32 @@ import fs from "node:fs";
 import vm from "node:vm";
 import { finalizeEvent, generateSecretKey, getPublicKey, verifyEvent } from "nostr-tools/pure";
 import * as nip19 from "nostr-tools/nip19";
+import { createHash } from "node:crypto";
 
 const source = fs.readFileSync("internal/webui/components.js", "utf8");
 const roomsSource = source.slice(source.indexOf("  // Rooms: the compose bar"), source.indexOf("  // JsonView renders any JSON value."));
 
 // A small document: enough of the DOM for the room elements to render
 // messages, find their targets and keep the list bounded.
-class FakeNode {
+export class FakeNode {
   constructor(tag) { this.localName = tag; this.childNodes = []; this.attributes = {}; this.dataset = {}; this.parent = null; this.id = ""; }
   get children() { return this.childNodes.filter(node => node instanceof FakeNode); }
   get firstElementChild() { return this.children[0] || null; }
   get isConnected() { return Boolean(this.parent) && (this.parent === document || this.parent.isConnected); }
   append(...nodes) { for (const node of nodes) { if (node instanceof FakeNode) { node.remove(); node.parent = this; this.childNodes.push(node); } else if (String(node)) this.childNodes.push(String(node)); } }
+  insertBefore(node, before) { if (!before) return this.append(node); node.remove(); const index = this.childNodes.indexOf(before); node.parent = this; this.childNodes.splice(index, 0, node); }
   remove() { if (this.parent) { this.parent.childNodes = this.parent.childNodes.filter(node => node !== this); this.parent = null; } }
   replaceWith(node) { if (!this.parent) return; const index = this.parent.childNodes.indexOf(this); node.remove(); node.parent = this.parent; this.parent.childNodes[index] = node; this.parent = null; }
+  replaceChildren(...nodes) { this.children.forEach(node => { node.parent = null; }); this.childNodes = []; this.append(...nodes); }
   get textContent() { return this.childNodes.map(node => typeof node === "string" ? node : node.textContent).join(""); }
   set textContent(value) { this.childNodes = value ? [String(value)] : []; }
   setAttribute(name, value) { if (name === "id") this.id = value; else this.attributes[name] = String(value); }
   getAttribute(name) { return name === "id" ? this.id || null : this.attributes[name] ?? null; }
-  hasAttribute(name) { return name.startsWith("data-") ? name.slice(5) in this.dataset : name in this.attributes; }
+  removeAttribute(name) { delete this.attributes[name]; }
+  hasAttribute(name) { return name.startsWith("data-") ? name.slice(5).replace(/-([a-z])/g, (_, c) => c.toUpperCase()) in this.dataset : name in this.attributes; }
   matches(selector) { return selector === this.localName; }
-  addEventListener() {}
+  addEventListener(name, handler) { this.listeners ||= {}; (this.listeners[name] ||= []).push(handler); }
+  emit(name, event) { (this.listeners?.[name] || []).forEach(handler => handler(event)); }
   querySelector(selector) { return this.querySelectorAll(selector)[0] || null; }
   querySelectorAll(selector) {
     const steps = selector.replace(/^:scope\s*>\s*/, "> ").trim().split(/\s*>\s*|\s+/).filter(Boolean);
@@ -40,8 +45,8 @@ class FakeNode {
   descendants() { return this.children.flatMap(node => [node, ...node.descendants()]); }
   matchesSimple(step) {
     if (step.startsWith("#")) return this.id === step.slice(1);
-    const [, tag, attr] = step.match(/^([a-z-]+)(?:\[([a-z-]+)\])?$/) || [];
-    return tag === this.localName && (!attr || this.hasAttribute(attr));
+    const [, tag, attr] = step.match(/^([a-z-]+)?(?:\[([a-z-]+)\])?$/) || [];
+    return (!tag || tag === this.localName) && (!attr || this.hasAttribute(attr));
   }
 }
 const document = new FakeNode("#document");
@@ -53,7 +58,7 @@ document.getElementById = id => document.body.descendants().find(node => node.id
 document.querySelector = selector => document.body.querySelector(selector);
 document.querySelectorAll = selector => document.body.querySelectorAll(selector);
 
-function setup({attributes = {}, result = {accepted: true}, change = false} = {}) {
+export function setup({attributes = {}, result = {accepted: true}, change = false} = {}) {
   const sent = [], navigated = [];
   const secret = generateSecretKey(), pubkey = getPublicKey(secret);
   document.body.childNodes = [];
@@ -74,10 +79,11 @@ function setup({attributes = {}, result = {accepted: true}, change = false} = {}
     report(message) { this.message = message; }
   }
   const sandbox = {
-    document, HTMLElement, FormElement, URL, encodeURIComponent, setTimeout, clearTimeout,
+    document, HTMLElement, FormElement, URL, Uint8Array, AbortController, encodeURIComponent, setTimeout, clearTimeout,
+    location: {href: "https://relay.test/r/work/rooms/build", origin: "https://relay.test"},
     getComputedStyle: () => ({overflowY: "auto"}),
     window: {scrollY: 0, innerHeight: 800, scrollTo() {}, NostrSigner: {verifyEvent, decodeNpub: value => { const decoded = nip19.decode(value); if (decoded.type !== "npub") throw Error("not an npub"); return decoded.data; }}, nostr: {signEvent: async event => { const copy = JSON.parse(JSON.stringify(event)); if (change) copy.content = "changed"; return finalizeEvent(copy, secret); }}},
-    tiny: {localPath: path => "/r/work" + path, navigate: async (href, push) => { navigated.push({href, push}); }, signedFetch: async (path, method, body, options) => { sent.push({path, method, options, event: JSON.parse(body)}); return Response.json(result); }},
+    tiny: {localPath: path => "/r/work" + path, sha256hex: async bytes => createHash("sha256").update(bytes).digest("hex"), navigate: async (href, push) => { navigated.push({href, push}); }, signedFetch: async (path, method, body, options) => { sent.push({path, method, options, event: JSON.parse(body)}); return Response.json(result); }},
     el: (tag, text) => { const node = new FakeNode(tag); if (text !== undefined) node.textContent = text; return node; },
     isHex64: value => typeof value === "string" && /^[0-9a-f]{64}$/.test(value)
   };
@@ -129,6 +135,81 @@ test("room-compose replies in a thread with the root and its author, and refuses
   assert.equal(changed.sent.length, 0);
   const refused = setup({attributes: {room: "build"}, result: {accepted: false, message: "restricted: members only"}});
   await assert.rejects(new refused.RoomCompose().submit(refused.form({content: "x"})), /members only/);
+});
+
+const selectedFile = (name = "chart.png", type = "image/png", text = "image bytes") => ({name, type, size: Buffer.byteLength(text), arrayBuffer: async () => Uint8Array.from(Buffer.from(text)).buffer});
+const descriptorFor = (file, bytes) => {
+  const sha256 = createHash("sha256").update(bytes).digest("hex");
+  return {sha256, size: file.size, type: file.type, url: "https://relay.test/r/work/media/" + sha256 + ".png"};
+};
+
+test("room-compose uploads only on send, then publishes Buzz metadata and an attachment-only message", async () => {
+  const s = setup({attributes: {room: "build"}}), compose = new s.RoomCompose();
+  const uploads = [], publish = s.sandbox.tiny.signedFetch;
+  const file = selectedFile("my chart.png");
+  s.sandbox.tiny.signedFetch = async (path, method, bytes, options) => {
+    if (path === "/events") return publish(path, method, bytes, options);
+    uploads.push({path, method, bytes, options});
+    return Response.json(descriptorFor(file, bytes));
+  };
+  compose.addFiles([file]);
+  assert.equal(uploads.length, 0);
+  const form = s.form({content: ""});
+  await compose.submit(form);
+  assert.equal(uploads.length, 1);
+  assert.equal(uploads[0].path, "/rooms/build/attachments?filename=my%20chart.png");
+  assert.equal(uploads[0].method, "PUT");
+  assert.equal(uploads[0].options.contentType, "image/png");
+  const descriptor = descriptorFor(file, uploads[0].bytes);
+  assert.equal(s.sent[0].event.content, `![image](${descriptor.url})`);
+  same(s.sent[0].event.tags, [["h", "build"], ["imeta", "url " + descriptor.url, "m image/png", "x " + descriptor.sha256, "size " + file.size, "filename my chart.png"]]);
+  assert.equal(verifyEvent(s.sent[0].event), true);
+  assert.equal(compose.pendingFiles.length, 0);
+  assert.equal(form.resets, 1);
+});
+
+test("room-compose retains uploaded files after a publish failure and does not upload them twice on retry", async () => {
+  const s = setup({attributes: {room: "build"}}), compose = new s.RoomCompose(), file = selectedFile();
+  let uploads = 0, publishes = 0;
+  const publish = s.sandbox.tiny.signedFetch;
+  s.sandbox.tiny.signedFetch = async (path, method, bytes, options) => {
+    if (path !== "/events") { uploads++; return Response.json(descriptorFor(file, bytes)); }
+    if (++publishes === 1) throw Error("connection lost");
+    return publish(path, method, bytes, options);
+  };
+  compose.addFiles([file]);
+  const form = s.form({content: "a chart"});
+  await assert.rejects(compose.submit(form), /connection lost/);
+  assert.equal(compose.pendingFiles.length, 1);
+  assert.equal(form.resets, undefined);
+  await compose.submit(form);
+  assert.equal(uploads, 1);
+  assert.equal(publishes, 2);
+  assert.equal(s.sent[0].event.content.startsWith("a chart\n\n![image]"), true);
+});
+
+test("room-compose refuses oversized selections and untrusted upload descriptors without publishing", async () => {
+  const s = setup({attributes: {room: "build"}}), compose = new s.RoomCompose(), file = selectedFile();
+  assert.throws(() => compose.addFiles([{...file, size: 32 * 1024 * 1024 + 1}]), /32 MiB/);
+  assert.throws(() => compose.addFiles(Array.from({length: 9}, (_, i) => selectedFile(i + ".png"))), /8 files/);
+  compose.addFiles([file]);
+  for (const change of [d => ({...d, sha256: "0".repeat(64)}), d => ({...d, size: 1}), d => ({...d, url: "https://another.test/media/" + d.sha256 + ".png"})]) {
+    s.sandbox.tiny.signedFetch = async (_path, _method, bytes) => Response.json(change(descriptorFor(file, bytes)));
+    await assert.rejects(compose.submit(s.form({content: ""})), /descriptor|hash|size|URL/i);
+    assert.equal(s.sent.length, 0);
+    assert.equal(compose.pendingFiles.length, 1);
+  }
+});
+
+test("room-compose does not publish after leaving during an upload", async () => {
+  const s = setup({attributes: {room: "build"}}), compose = new s.RoomCompose(), file = selectedFile();
+  s.sandbox.tiny.signedFetch = async (_path, _method, bytes) => {
+    compose.disconnectedCallback();
+    return Response.json(descriptorFor(file, bytes));
+  };
+  compose.addFiles([file]);
+  await assert.rejects(compose.submit(s.form({content: ""})), /cancel/i);
+  assert.equal(s.sent.length, 0);
 });
 
 test("room-create derives the id from the name and signs 9007 before opening the room", async () => {
@@ -262,3 +343,27 @@ test("chat markdown renders the shared subset without ever parsing markup", () =
   assert.equal(pre.querySelectorAll("a").length, 0);
 });
 
+test("room attachment renderer matches visible imeta URLs and preserves prose and code", () => {
+  const s = setup(), url = "https://cdn.example.test/report.pdf";
+  const event = {content: "See [report](" + url + ") and `" + url + "`", tags: [["imeta", "url " + url, "m application/pdf", "filename report.pdf"]]};
+  const items = s.rooms.roomAttachments(event);
+  assert.equal(items.length, 1);
+  assert.equal(s.rooms.attachmentContent(event.content, items), event.content);
+  assert.equal(s.rooms.roomAttachments({content: "```\n" + url + "\n```", tags: event.tags}).length, 0);
+  assert.equal(s.rooms.roomAttachments({content: url + "-backup", tags: event.tags}).length, 0);
+  assert.equal(s.rooms.roomAttachments({content: url, tags: [["imeta", "url " + url, "m image/png"], ["imeta", "url " + url, "m image/png"]]}).length, 1);
+});
+
+test("room attachment renderer replaces edited media without stale nodes", () => {
+  const s = setup(), id = "a".repeat(64), author = "b".repeat(64), oldURL = "https://cdn.example.test/old.png", newURL = "https://cdn.example.test/new.mp4";
+  const node = s.rooms.messageNode({id, pubkey: author, kind: 9, created_at: 1, content: oldURL, tags: [["imeta", "url " + oldURL, "m image/png"]]});
+  s.list.append(node);
+  s.rooms.roomEdit({id: "c".repeat(64), pubkey: author, kind: 40003, created_at: 3, content: newURL, tags: [["e", id], ["imeta", "url " + newURL, "m video/mp4"]]});
+  assert.equal(node.querySelectorAll("img").length, 0);
+  assert.equal(node.querySelectorAll("video").length, 1);
+  s.rooms.roomEdit({pubkey: author, kind: 40003, created_at: 2, content: oldURL, tags: [["e", id], ["imeta", "url " + oldURL, "m image/png"]]});
+  assert.equal(node.querySelectorAll("video").length, 1, "older edit must not replace newer media");
+  s.rooms.roomEdit({pubkey: author, kind: 40003, created_at: 4, content: "Attachment removed", tags: [["e", id]]});
+  assert.equal(node.querySelectorAll("video").length, 0);
+  assert.equal(node.querySelectorAll("[data-room-attachments]").length, 0);
+});

@@ -324,6 +324,9 @@ func parseTemplates(a *App) (*template.Template, error) {
 		"age":             age,
 		"clock":           clock,
 		"roomAdmin":       roomAdmin,
+
+		"roomAttachmentContent": roomAttachmentContent,
+		"roomAttachmentMarkup":  roomAttachmentMarkup,
 	}
 	tmpl, err := template.New("webui").Funcs(funcs).ParseFS(templateFS, "*.html")
 	if err != nil {

@@ -47,3 +47,30 @@ npx --package @playwright/cli playwright-cli -s=tiny-ux run-code \
 The menu checks cover public pages, hosted viewers and management pages with JavaScript enabled and disabled. They verify that mobile navigation starts closed, opens with a click or keyboard input, and leaves content in place. Desktop navigation remains visible.
 
 Each browser check returns its results and failure count. A real phone signer is still needed to verify the operating system handoff and approval screens.
+
+## Room attachments
+
+Build the relay, create a disposable tenant on port 18459, and seed the room fixture:
+
+```sh
+go build -o /tmp/tiny-room-attachments ./cmd/tiny
+/tmp/tiny-room-attachments tenant create --data-dir /tmp/tinyrelay-room-attachments --name main \
+  --owner 5ac640e5df8f7945381c31f435288ba3f587fbd68efb27abaf941792f9c36369
+/tmp/tiny-room-attachments serve --data-dir /tmp/tinyrelay-room-attachments --default-tenant main \
+  --listen 127.0.0.1:18459 --allow-private-relays
+node scripts/qa/room-attachments-fixture.mjs --relay http://127.0.0.1:18459 \
+  --data /tmp/tinyrelay-room-attachments
+```
+
+Sign in as the fixture owner using the local NIP-46 bunker, then run the browser check:
+
+```sh
+BUNKER_USER_SECRET=fc1d06a0fd5e622dcf448d0b3c2fccc891a5ecf74546a7675460d92441fecfdd \
+  node scripts/qa/nip46-bunker.mjs
+npx --package @playwright/cli playwright-cli -s=tiny-room-attachments open \
+  http://127.0.0.1:18459/signin --headed
+npx --package @playwright/cli playwright-cli -s=tiny-room-attachments run-code \
+  --filename scripts/qa/room-attachments-browser.js
+```
+
+Screenshots are saved under `output/playwright/room-attachments/`.

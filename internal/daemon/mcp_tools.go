@@ -108,6 +108,8 @@ func (t *Tenant) mcpTools() (*mcp.Registry, error) {
 	add("read_pull_request", "Read a pull request, its replies, authorized updates and available diff.", collaborationDetail, mcpReads, t.mcpBrowse("browsepull"))
 	add("list_files", "List stored files visible to your account.", mcp.Object(map[string]any{"cursor": mcpText, "limit": mcpLimit, "q": mcpText}), mcpReads, t.mcpBrowse("browsefiles"))
 	add("read_file", "Read a stored file's metadata and available preview by SHA-256 hash.", mcp.Object(map[string]any{"hash": mcpHash}, "hash"), mcpReads, t.mcpBrowse("browsefile"))
+	add("upload_attachment", "Upload a bounded file for a room message. Returns its Blossom URL and NIP-92 metadata; pass the descriptor as an attachment to a room write tool.", mcp.Object(map[string]any{"room": mcpRoomID, "data": map[string]any{"type": "string", "description": "Standard Base64 file bytes, at most 700 KiB of encoded data. Use PUT /rooms/<id>/attachments for larger files."}, "type": map[string]any{"type": "string", "minLength": 1, "maxLength": 255}, "filename": map[string]any{"type": "string", "minLength": 1, "maxLength": 255}}, "room", "data", "type"), mcpPublishes, t.mcpUploadAttachment)
+	add("read_attachment", "Read a stored attachment your key may access. Images and audio are returned as native MCP content; other files return Base64 data. Reads are limited to 4 MiB.", mcp.Object(map[string]any{"sha256": mcpHash, "max_bytes": map[string]any{"type": "integer", "minimum": 1, "maximum": 4 * 1024 * 1024}}, "sha256"), mcpReads, t.mcpReadAttachment)
 	add("read_status", "Read service health, storage and job status. Requires an owner or moderator key.", mcp.Object(nil), mcpReads, t.mcpBrowse("browsestatus"))
 	add("read_management", "Read relay configuration, jobs, backups, delivery status or members with your key's permissions. gitstorage requires owner and repo.", mcp.Object(map[string]any{"method": map[string]any{"type": "string", "enum": mcpReadMethods}, "owner": mcpPubKey, "repo": mcpID}, "method"), mcpReads, func(ctx context.Context, call mcp.Call) (mcp.Result, error) {
 		method := call.String("method")
@@ -218,9 +220,10 @@ func (t *Tenant) mcpTools() (*mcp.Registry, error) {
 	add("create_pull_request", "Open a pull request on a hosted repository. Pass owner, repo, title, commit and clone (plus optional content, merge_base and labels) to receive the unsigned kind 1618 event, sign it, then call again with the signed event.", mcp.Object(map[string]any{"event": mcpEvent, "owner": mcpPubKey, "repo": mcpID, "title": mcpText, "content": mcpText, "commit": mcpCommit, "clone": map[string]any{"type": "string", "description": "HTTP or HTTPS clone URL without credentials."}, "merge_base": mcpCommit, "labels": map[string]any{"type": "array", "items": mcpText}}), mcpPublishes, t.mcpWrite(mcpBuildPull, mcpCheckPull, mcpPullShape))
 	add("comment", "Reply to an issue, pull request or comment with a NIP-22 kind 1111 event. Pass owner, repo, root, root_kind, root_pubkey and content (plus parent, parent_kind and parent_pubkey to answer a comment) to receive the unsigned event, sign it, then call again with the signed event. To review one line of a pull request or patch diff, add file, line and side (old for the base, new for the change).", mcp.Object(map[string]any{"event": mcpEvent, "owner": mcpPubKey, "repo": mcpID, "root": mcpHash, "root_kind": mcpRootKind, "root_pubkey": mcpPubKey, "parent": mcpHash, "parent_kind": map[string]any{"type": "integer", "enum": []int{1111, 1617, 1618, 1621}}, "parent_pubkey": mcpPubKey, "content": mcpText, "file": map[string]any{"type": "string", "minLength": 1, "description": "Path of the diff file the comment is about."}, "line": map[string]any{"type": "integer", "minimum": 1, "description": "Line number on the chosen side of the diff."}, "side": map[string]any{"type": "string", "enum": []string{"old", "new"}}}), mcpPublishes, t.mcpWrite(mcpBuildComment, mcpCheckComment, mcpCommentShape))
 	add("set_status", "Change the status of an issue or pull request. The author, repository owner and maintainers may do this. Pass owner, repo, root, root_pubkey and status to receive the unsigned event, sign it, then call again with the signed event.", mcp.Object(map[string]any{"event": mcpEvent, "owner": mcpPubKey, "repo": mcpID, "root": mcpHash, "root_pubkey": mcpPubKey, "status": map[string]any{"type": "string", "enum": []string{"open", "resolved", "merged", "closed", "draft"}}}), mcpPublishes, t.mcpWrite(mcpBuildStatus, mcpCheckStatus, mcpStatusShape))
-	add("post_message", "Post a kind 9 chat message in a room. Pass room and content (plus mentions, a list of public keys) to receive the unsigned event, sign it, then call again with the signed event. Posting in an open room joins it.", mcp.Object(map[string]any{"event": mcpEvent, "room": mcpRoomID, "content": mcpText, "mentions": map[string]any{"type": "array", "items": mcpPubKey}}), mcpPublishes, t.mcpWrite(mcpBuildMessage, mcpCheckMessage, mcpMessageShape))
-	add("start_thread", "Start a kind 11 thread in a room. Pass room and content (plus an optional title) to receive the unsigned event, sign it, then call again with the signed event.", mcp.Object(map[string]any{"event": mcpEvent, "room": mcpRoomID, "title": mcpText, "content": mcpText}), mcpPublishes, t.mcpWrite(mcpBuildThread, mcpCheckThread, mcpThreadShape))
-	add("reply_in_thread", "Reply to a thread in a room with a kind 12 event. Pass room, root (the thread's event id), root_pubkey and content to receive the unsigned event, sign it, then call again with the signed event.", mcp.Object(map[string]any{"event": mcpEvent, "room": mcpRoomID, "root": mcpHash, "root_pubkey": mcpPubKey, "content": mcpText}), mcpPublishes, t.mcpWrite(mcpBuildReply, mcpCheckReply, mcpReplyShape))
+	attachments := map[string]any{"type": "array", "items": mcpAttachment, "maxItems": 8}
+	add("post_message", "Post a kind 9 chat message in a room. Pass room and content or attachments, plus optional mentions, to receive an unsigned event. Sign it, then call again with event. Posting in an open room joins it.", mcp.Object(map[string]any{"event": mcpEvent, "room": mcpRoomID, "content": mcpText, "mentions": map[string]any{"type": "array", "items": mcpPubKey}, "attachments": attachments}), mcpPublishes, t.mcpWrite(mcpBuildMessage, mcpCheckMessage, mcpMessageShape))
+	add("start_thread", "Start a kind 11 thread in a room. Pass room and content or attachments, plus an optional title, to receive an unsigned event. Sign it, then call again with event.", mcp.Object(map[string]any{"event": mcpEvent, "room": mcpRoomID, "title": mcpText, "content": mcpText, "attachments": attachments}), mcpPublishes, t.mcpWrite(mcpBuildThread, mcpCheckThread, mcpThreadShape))
+	add("reply_in_thread", "Reply with a kind 12 event. Pass room, root and content or attachments, plus optional root_pubkey, to receive an unsigned event. Sign it, then call again with event.", mcp.Object(map[string]any{"event": mcpEvent, "room": mcpRoomID, "root": mcpHash, "root_pubkey": mcpPubKey, "content": mcpText, "attachments": attachments}), mcpPublishes, t.mcpWrite(mcpBuildReply, mcpCheckReply, mcpReplyShape))
 	add("react", "React to an event with a kind 7 reaction: + to like or approve, - to dislike or decline, or one emoji. Pass target, target_pubkey and content (plus room for a room message) to receive the unsigned event, sign it, then call again with the signed event. A + or - from a wiki merge request's destination author answers the request.", mcp.Object(map[string]any{"event": mcpEvent, "target": mcpHash, "target_pubkey": mcpPubKey, "content": map[string]any{"type": "string", "minLength": 1, "description": "+, - or one emoji."}, "room": mcpRoomID}), mcpPublishes, t.mcpWrite(mcpBuildReact, mcpCheckReact, mcpReactShape))
 	add("publish_wiki_page", "Publish or replace your version of a kind 30818 wiki page in Djot markup. Pass d (the page name), title and content, plus optional summary and, to fork another author's version, fork_author and fork_event, to receive the unsigned event, sign it, then call again with the signed event.", mcp.Object(map[string]any{"event": mcpEvent, "d": mcpPageName, "title": mcpText, "summary": mcpText, "content": mcpText, "fork_author": mcpPubKey, "fork_event": mcpHash}), mcpPublishes, t.mcpWrite(mcpBuildWikiPage, mcpCheckWikiPage, mcpWikiShape))
 	add("propose_wiki_merge", "Ask a wiki author to take in changes from another version with a kind 818 merge request. Pass d, destination (the author asked), source (the proposed version's event id) and content, plus an optional base version id, to receive the unsigned event, sign it, then call again with the signed event. The destination author answers with a + or - reaction.", mcp.Object(map[string]any{"event": mcpEvent, "d": mcpPageName, "destination": mcpPubKey, "source": mcpHash, "base": mcpHash, "content": mcpText}), mcpPublishes, t.mcpWrite(mcpBuildWikiMerge, mcpCheckWikiMerge, mcpMergeShape))
@@ -549,10 +552,14 @@ func mcpBuildMessage(call mcp.Call) (mcpUnsigned, error) {
 	if err != nil {
 		return mcpUnsigned{}, err
 	}
-	content := call.String("content")
-	if strings.TrimSpace(content) == "" {
-		return mcpUnsigned{}, errors.New("content is required")
+	content, attachmentTags, err := mcpRoomContent(call)
+	if err != nil {
+		return mcpUnsigned{}, err
 	}
+	if strings.TrimSpace(content) == "" {
+		return mcpUnsigned{}, errors.New("content or attachments is required")
+	}
+	tags = append(tags, attachmentTags...)
 	return mcpUnsigned{Kind: event.KIND_CHAT, CreatedAt: time.Now().Unix(), Tags: mcpPubKeys(call, "mentions", tags), Content: content}, nil
 }
 
@@ -562,12 +569,17 @@ func mcpBuildThread(call mcp.Call) (mcpUnsigned, error) {
 		return mcpUnsigned{}, err
 	}
 	title, content := strings.TrimSpace(call.String("title")), call.String("content")
+	content, attachmentTags, err := mcpRoomContent(call)
+	if err != nil {
+		return mcpUnsigned{}, err
+	}
 	if strings.TrimSpace(content) == "" {
-		return mcpUnsigned{}, errors.New("content is required")
+		return mcpUnsigned{}, errors.New("content or attachments is required")
 	}
 	if title != "" {
 		tags = append(tags, []string{"subject", title})
 	}
+	tags = append(tags, attachmentTags...)
 	return mcpUnsigned{Kind: event.KIND_THREAD, CreatedAt: time.Now().Unix(), Tags: tags, Content: content}, nil
 }
 
@@ -576,14 +588,16 @@ func mcpBuildReply(call mcp.Call) (mcpUnsigned, error) {
 	if err != nil {
 		return mcpUnsigned{}, err
 	}
-	root, rootPubKey, content := call.String("root"), call.String("root_pubkey"), call.String("content")
+	root, rootPubKey := call.String("root"), call.String("root_pubkey")
+	content, attachmentTags, err := mcpRoomContent(call)
 	if root == "" || strings.TrimSpace(content) == "" {
-		return mcpUnsigned{}, errors.New("root and content are required")
+		return mcpUnsigned{}, errors.New("root and content or attachments are required")
 	}
 	tags = append(tags, []string{"e", root})
 	if rootPubKey != "" {
 		tags = append(tags, []string{"p", rootPubKey})
 	}
+	tags = append(tags, attachmentTags...)
 	return mcpUnsigned{Kind: event.KIND_THREAD_REPLY, CreatedAt: time.Now().Unix(), Tags: tags, Content: content}, nil
 }
 
@@ -760,7 +774,7 @@ func mcpCheckMessage(e event.Event) error {
 	if strings.TrimSpace(e.Content) == "" {
 		return errors.New("content must not be empty")
 	}
-	return nil
+	return mcpCheckAttachments(e)
 }
 
 func mcpCheckThread(e event.Event) error {
@@ -770,7 +784,7 @@ func mcpCheckThread(e event.Event) error {
 	if strings.TrimSpace(e.Content) == "" {
 		return errors.New("content must not be empty")
 	}
-	return nil
+	return mcpCheckAttachments(e)
 }
 
 func mcpCheckReply(e event.Event) error {
@@ -783,7 +797,7 @@ func mcpCheckReply(e event.Event) error {
 	if strings.TrimSpace(e.Content) == "" {
 		return errors.New("content must not be empty")
 	}
-	return nil
+	return mcpCheckAttachments(e)
 }
 
 func mcpCheckReact(e event.Event) error {

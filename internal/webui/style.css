@@ -287,6 +287,7 @@ room-message>p,room-message>div{margin:0;font:14px/1.45 var(--sans);overflow-wra
 room-message>p a,room-message>div a{color:var(--accent)}
 room-message>div p{margin:0 0 6px}room-message>div>:last-child{margin-bottom:0}room-message>div ul,room-message>div ol{margin:0 0 6px 20px;padding:0}
 room-message>div pre{margin:0 0 6px;padding:6px 8px;background:var(--rail);border:1px solid var(--line);overflow:auto;font:12px/1.4 var(--mono);white-space:pre}room-message>div code{font:12px var(--mono)}room-message>div h1,room-message>div h2,room-message>div h3,room-message>div h4{margin:4px 0 6px;font-size:14px;border:0}
+room-message>[data-room-attachments]{margin-top:8px}room-message>[data-room-attachments] figure{display:inline-block;vertical-align:top;margin:0 12px 12px 0;max-width:100%;min-width:0}room-message>[data-room-attachments] img{display:block;width:auto;max-width:100%;max-height:360px;border:1px solid var(--line);object-fit:contain}room-message>[data-room-attachments] video{display:block;width:420px;max-width:100%;max-height:360px}room-message>[data-room-attachments] audio{display:block;width:360px;max-width:100%}room-message>[data-room-attachments] figcaption{margin-top:4px;font:12px var(--mono);overflow-wrap:anywhere}room-message>[data-room-attachments] a[data-download]{color:var(--accent)}room-message>[data-room-attachments] small{color:var(--muted);font:11px var(--mono)}
 room-message>footer{font:12px var(--mono);color:var(--muted);margin-top:4px}
 room-message>footer>*+*::before{content:" | "}
 room-message[data-agent]>header b::after{content:" agent";color:var(--bark);font-size:11px}
@@ -295,6 +296,8 @@ room-live{display:block;font:11px var(--mono);color:var(--muted);text-align:righ
 room-compose{display:block;position:sticky;bottom:0;margin:8px -22px 0;padding:10px 22px 8px;background:var(--paper);border-top:1px solid var(--line)}
 room-compose textarea{min-height:3.2em;width:100%;font:14px var(--sans);max-width:720px;display:block}
 room-compose p{margin:6px 0 0}room-compose button{margin-right:6px}
+room-compose>form>label{display:inline-block;margin:6px 12px 0 0;font:12px var(--mono);color:var(--muted)}room-compose input[type=file]{max-width:100%;font:12px var(--mono)}room-compose>form>small{display:block;color:var(--muted);font:12px var(--sans);margin-top:4px}
+room-compose[data-over]{outline:2px dashed var(--accent);outline-offset:-4px}room-files{display:block}room-files ul{list-style:none;margin:6px 0 0;padding:0}room-files li{margin:4px 0;min-height:26px;font:12px var(--mono)}room-files li::after{content:"";display:block;clear:both}room-files li>span{display:inline-block;vertical-align:middle;overflow-wrap:anywhere;max-width:calc(100% - 145px)}room-files small{color:var(--muted);white-space:nowrap}room-files button{float:right;font-size:11px}
 room-compose output,room-create output,room-action output{display:block;font:12px var(--mono);color:var(--muted);margin-top:4px;overflow-wrap:anywhere}
 room-compose output[data-error],room-create output[data-error],room-action output[data-error]{color:var(--alert)}
 room-create{display:block;max-width:720px;border-bottom:1px solid var(--line);padding:10px 0}

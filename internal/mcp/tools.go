@@ -52,8 +52,10 @@ func (c Call) Int(key string) int {
 
 // Content is one unstructured content block of a tool result.
 type Content struct {
-	Type string `json:"type"`
-	Text string `json:"text"`
+	Type     string `json:"type"`
+	Text     string `json:"text,omitempty"`
+	Data     string `json:"data,omitempty"`
+	MimeType string `json:"mimeType,omitempty"`
 }
 
 // Result is what a tool returns. StructuredContent is mirrored into a text
