@@ -412,7 +412,7 @@ func TestCallbackDeliverySignsBodyRetriesAndPauses(t *testing.T) {
 	receiver := &callbackReceiver{status: http.StatusAccepted}
 	service := httptest.NewTLSServer(receiver)
 	defer service.Close()
-	tenant.callbackClient = service.Client()
+	tenant.callbacks.callbackClient = service.Client()
 	registered := addCallback(t, tenant, member, service.URL+"/wake?token=t0k3n", `{"kinds":[1621]}`)
 	id, secret := registered["id"].(string), registered["secret"].(string)
 	now := time.Now().Unix()
@@ -561,7 +561,7 @@ func TestCallbackDeliveryRechecksTheGateAndMembership(t *testing.T) {
 	receiver := &callbackReceiver{status: http.StatusOK}
 	service := httptest.NewTLSServer(receiver)
 	defer service.Close()
-	tenant.callbackClient = service.Client()
+	tenant.callbacks.callbackClient = service.Client()
 	registered := addCallback(t, tenant, member, service.URL+"/wake", `{"kinds":[1]}`)
 	id := registered["id"].(string)
 	now := time.Now().Unix()

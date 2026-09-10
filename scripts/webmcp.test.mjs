@@ -19,6 +19,21 @@ async function browser({path = "/tools", failRegistration = "", fetch, signedFet
     tinySignedFetch: signedFetch
   };
   sandbox.window = sandbox;
+  const root = (path.match(/^\/r\/[^/]+/) || [""])[0];
+  sandbox.tiny = {signing: {publish: async (unsigned, {signal} = {}) => {
+    if (!sandbox.nostr?.signEvent) throw new Error("Connect a Nostr signer first.");
+    if (typeof sandbox.NostrSigner?.verifyEvent !== "function") throw new Error("The signer verifier is still loading. Try again.");
+    const expected = JSON.stringify(unsigned);
+    const event = await sandbox.nostr.signEvent(JSON.parse(expected));
+    const actual = event && JSON.stringify({kind: event.kind, created_at: event.created_at, tags: event.tags, content: event.content});
+    if (actual !== expected || sandbox.NostrSigner.verifyEvent(event) !== true) throw new Error("The signer returned an invalid or changed event.");
+    if (signal?.aborted) throw new Error("Sending canceled.");
+    if (!signedFetch) throw new Error("The signer is still loading. Try again.");
+    const response = await signedFetch(root + "/events", "POST", JSON.stringify(event), {contentType: "application/json", signal});
+    const value = JSON.parse(await response.text());
+    if (value.accepted !== true) throw new Error(value.message || "The relay rejected the message.");
+    return event;
+  }}};
   vm.runInNewContext(script, sandbox);
   await sandbox.tinyWebMCP.ready;
   return {tools, sandbox};
@@ -382,3 +397,14 @@ test("the profile tool reads through the session and defaults to the signed-in k
   assert.deepEqual(JSON.parse(requests[1].searchParams.get("params")), [{pubkey: "b".repeat(64)}]);
 });
 
+test("post_message fails closed when the signer verifier is unavailable", async () => {
+  const calls = [];
+  const {tools, sandbox} = await browser({path: "/r/work/tools", signedFetch: async (...args) => {
+    calls.push(args);
+    return new Response(JSON.stringify({accepted: true}));
+  }});
+  const {finalizeEvent, generateSecretKey} = await import("nostr-tools/pure");
+  sandbox.nostr = {signEvent: async event => finalizeEvent(JSON.parse(JSON.stringify(event)), generateSecretKey())};
+  await assert.rejects(tools.get("tiny.post_message").execute({room: "build", text: "hello"}), /verifier is still loading/);
+  assert.equal(calls.length, 0);
+});

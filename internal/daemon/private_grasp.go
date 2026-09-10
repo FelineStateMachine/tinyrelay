@@ -51,7 +51,7 @@ func (a PrivateAccess) Allowed() bool { return a.Member || a.Owner }
 // service contract enabled. Callers should use PrivateAccess before exposing
 // any tenant or repository metadata.
 func (t *Tenant) PrivateServiceEnabled() bool {
-	return t != nil && t.Policy().Features.Grasp08
+	return t != nil && t.Policy().PrivateServiceEnabled()
 }
 
 func (t *Tenant) PrivateProfile() PrivateServiceProfile {
@@ -60,7 +60,7 @@ func (t *Tenant) PrivateProfile() PrivateServiceProfile {
 	}
 	p := t.Policy()
 	return PrivateServiceProfile{
-		Enabled:        p.Features.Grasp08,
+		Enabled:        p.PrivateServiceEnabled(),
 		Protocol:       "GRASP-08",
 		Authentication: []string{"NIP-42", "NIP-98"},
 		Reads:          p.Reads,
@@ -128,5 +128,5 @@ func (t *Tenant) privateNIP11() map[string]any {
 }
 
 func privatePolicy(p policy.Policy) bool {
-	return p.Features.Grasp08 && p.Features.Grasp && p.Reads == "members"
+	return p.PrivateServiceEnabled()
 }

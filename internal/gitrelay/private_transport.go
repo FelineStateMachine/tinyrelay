@@ -16,6 +16,7 @@ import (
 	"strings"
 
 	"github.com/FelineStateMachine/tinyrelay/internal/auth"
+	"github.com/FelineStateMachine/tinyrelay/internal/policy"
 )
 
 // HTTPAuthSigner returns the authorization header for a private peer request.
@@ -214,24 +215,10 @@ func (g *GitRelay) privatePeer(source string) bool {
 }
 
 func (g *GitRelay) privatePeerBase(source string) string {
-	u, err := url.Parse(source)
-	if err != nil {
-		return ""
-	}
 	g.mu.RLock()
-	peers := g.privatePeers
+	peers := append([]string(nil), g.privatePeers...)
 	g.mu.RUnlock()
-	for _, configured := range peers {
-		peer, err := url.Parse(strings.TrimRight(strings.TrimSpace(configured), "/"))
-		if err != nil || normalizePeerScheme(peer.Scheme) != normalizePeerScheme(u.Scheme) || peer.Host != u.Host {
-			continue
-		}
-		base := strings.TrimRight(peer.Path, "/")
-		if base == "" || u.Path == base || strings.HasPrefix(u.Path, base+"/") {
-			return strings.TrimRight(peer.String(), "/")
-		}
-	}
-	return ""
+	return policy.PrivatePeerBase(source, peers)
 }
 
 func probePrivatePeer(ctx context.Context, source string, allowPrivate ...bool) error {
@@ -266,14 +253,4 @@ func probePrivatePeer(ctx context.Context, source string, allowPrivate ...bool) 
 		}
 	}
 	return errors.New("private peer does not advertise GRASP-08")
-}
-
-func normalizePeerScheme(scheme string) string {
-	if scheme == "ws" {
-		return "http"
-	}
-	if scheme == "wss" {
-		return "https"
-	}
-	return scheme
 }

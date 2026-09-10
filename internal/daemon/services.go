@@ -44,10 +44,8 @@ func (t *Tenant) initServices(ctx context.Context) error {
 	if err := t.initPush(ctx); err != nil {
 		return err
 	}
+	t.callbacks = newCallbackService(callbackServiceConfig{Store: t.store, Community: t.community, Gate: t.gate, Policy: t.Policy, PublicURL: t.publicURL, RelayURL: t.RelayURL(), Tenant: t.meta, Telemetry: t.app.telemetry})
 	if err := t.initCallbacks(ctx); err != nil {
-		return err
-	}
-	if err := t.initCustomViews(ctx); err != nil {
 		return err
 	}
 	t.blobs, err = blob.New(ctx, blob.Config{
@@ -117,7 +115,7 @@ func (t *Tenant) initServices(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	t.records, err = records.New(ctx, records.Config{Store: t.store, Policy: t.Policy, RelayURL: t.RelayURL(), GroupID: t.meta.Name, OnGenerated: t.generatedRecord, DeliverNotification: t.deliverNotification, PushNotification: t.enqueuePush, SetPolicy: func(next policy.Policy) error { return t.applyPolicy(context.Background(), next) }})
+	t.records, err = records.New(ctx, records.Config{Store: t.store, Community: t.community, Policy: t.Policy, RelayURL: t.RelayURL(), GroupID: t.meta.Name, OnGenerated: t.generatedRecord, DeliverNotification: t.deliverNotification, PushNotification: t.enqueuePush, SetPolicy: func(next policy.Policy) error { return t.applyPolicy(context.Background(), next) }})
 	if err != nil {
 		return err
 	}
@@ -126,8 +124,7 @@ func (t *Tenant) initServices(ctx context.Context) error {
 	t.replication, err = replication.NewService(replication.Config{Store: t.store, Owner: func() string { return t.Policy().Owner }, Policy: replication.Policy{Enabled: t.Policy().Delivery.Enabled, SelfPubKey: t.records.PublicKey()}, CurrentPolicy: func() replication.Policy {
 		p := t.Policy()
 		return replication.Policy{Enabled: p.Delivery.Enabled, ReadMembersOnly: p.Reads != "open", SelfPubKey: t.records.PublicKey(), SelfRelayURL: t.RelayURL()}
-	}, Directory: localDirectory{store: t.store}, Discovery: t.ReplicationDiscovery(t.app.cfg.DiscoveryRelays), Delivery: transport, Pull: transport, Push: transport, DataDir: t.meta.Paths.Root, Ingest: t.ingest, BackupProvider: t.ReplicationBackupProvider(),
-		ExtraHandlers: t.workHandlers(), WorkMiddleware: t.guardWork, ObserveWork: t.app.telemetry.ObserveWork})
+	}, Directory: localDirectory{store: t.store}, Discovery: t.ReplicationDiscovery(t.app.cfg.DiscoveryRelays), Delivery: transport, Pull: transport, Push: transport, DataDir: t.meta.Paths.Root, Ingest: t.ingest, BackupProvider: t.ReplicationBackupProvider()})
 	if err != nil {
 		return err
 	}
@@ -135,12 +132,18 @@ func (t *Tenant) initServices(ctx context.Context) error {
 	if err := t.reconcileAutomaticInbox(ctx, currentPolicy, currentPolicy); err != nil {
 		return err
 	}
+	t.customViews = newCustomViewService(customViewServiceConfig{Store: t.store, Community: t.community, Records: t.records, Git: t.git, Telemetry: t.app.telemetry, TenantName: t.meta.Name, PublicURL: t.publicURL, Loopback: func() bool { return loopbackPublicURL(t.publicURL) }, ResolveActor: t.resolveUIActor, BrowseRead: t.browseRead})
+	if err := t.customViews.initCustomViews(ctx); err != nil {
+		return err
+	}
+	t.followups = &eventFollowups{store: t.store, callbacks: t.callbacks, views: t.customViews, telemetry: t.app.telemetry, push: t.planReplicationPushFollowup}
 	t.git, err = gitrelay.New(gitrelay.Config{Store: t.store, Root: t.meta.Paths.Git, Policy: t.Policy, PublicURL: t.publicURL, AllowPrivateRelays: t.app.cfg.AllowPrivateRelays, PrivatePeers: t.Policy().PrivatePeers, HTTPAuth: t.privateHTTPAuth, GitSync: t.gitSync, EventSync: t.gitEventSync, AuthorizeHTTP: t.authorizeGit, Maintainers: t, OnPromote: func(ctx context.Context, id string, _ gitrelay.Repository) error {
 		return t.releaseGit(ctx, id)
 	}})
 	if err != nil {
 		return err
 	}
+	t.customViews.git = t.git
 	t.ui, err = webui.New(backend{tenant: t}, webui.Options{Actor: t.resolveUIActor, Version: t.app.cfg.Version, Revision: t.app.cfg.Revision})
 	if err != nil {
 		return err
@@ -148,11 +151,12 @@ func (t *Tenant) initServices(ctx context.Context) error {
 	if err := t.initMCP(); err != nil {
 		return err
 	}
+	workerRun := t.workRunner()
 	t.workCtx, t.workCancel = context.WithCancel(context.Background())
 	t.workWG.Add(1)
 	go func() {
 		defer t.workWG.Done()
-		if err := t.replication.Run(t.workCtx); err != nil && !errors.Is(err, context.Canceled) {
+		if err := workerRun(t.workCtx); err != nil && !errors.Is(err, context.Canceled) {
 			t.app.telemetry.Logger().Error("tenant worker stopped", "tenant", t.meta.Name, "error", err)
 			t.workErrMu.Lock()
 			t.workErr = err
@@ -208,7 +212,7 @@ func (b backend) Identity() string      { return b.tenant.records.PublicKey() }
 
 // CustomViews gives the page renderers the enabled custom views' names and
 // languages, never a transform or a secret.
-func (b backend) CustomViews() []views.View { return b.tenant.CustomViews() }
+func (b backend) CustomViews() []views.View { return b.tenant.customViews.CustomViews() }
 
 // ReadAllowed is consumed by the web UI private boundary. It deliberately
 // delegates to the same uncached membership check used by private Git and
@@ -605,11 +609,27 @@ func (t *Tenant) workHandlers() map[string]work.Handler {
 	}
 	handlers[notificationPush] = t.handleNotificationPush
 	handlers[callbackDelivery] = t.handleCallbackDelivery
-	handlers[viewTransform] = t.handleViewTransform
+	handlers[viewTransform] = t.customViews.handleViewTransform
+	handlers[eventFollowupKind] = t.followups.handle
 	return handlers
 }
 
 func (t *Tenant) releaseGit(ctx context.Context, id string) error {
+	var followup *storage.Intent
+	if t.followups != nil {
+		var raw []byte
+		err := t.store.DB().QueryRowContext(ctx, "SELECT raw FROM events WHERE id=?", id).Scan(&raw)
+		if err != nil && !errors.Is(err, sql.ErrNoRows) {
+			return err
+		}
+		if err == nil {
+			e, err := event.Parse(raw)
+			if err != nil {
+				return err
+			}
+			followup = t.followups.prepare(ctx, e, time.Now().Unix(), true)
+		}
+	}
 	released, err := t.router.CommitGenerated(ctx, func(ctx context.Context) (event.Event, error) {
 		var promoted event.Event
 		err := t.store.WithTx(ctx, func(tx *sql.Tx) error {
@@ -633,15 +653,19 @@ func (t *Tenant) releaseGit(ctx context.Context, id string) error {
 				return err
 			}
 			promoted, err = event.Parse(raw)
-			return err
+			if err != nil || followup == nil {
+				return err
+			}
+			return storage.AddIntents(ctx, tx, []storage.Intent{*followup}, time.Now().Unix())
 		})
 		return promoted, err
 	})
 	if err == nil && released.ID != "" {
 		// A repository state is hidden until its objects arrive, so agents
 		// that wait for pushes are woken here rather than at publish time.
-		t.notifyCallbacks(ctx, released)
-		t.queueCustomViews(ctx, released)
+		if t.customViews != nil && t.customViews.git != nil {
+			t.followups.try(ctx, followup)
+		}
 	}
 	return err
 }
@@ -651,42 +675,28 @@ func (t *Tenant) sweep(ctx context.Context, now int64) error {
 		return err
 	}
 	opts := storage.RetentionOptions{Now: now, Identity: t.records.PublicKey()}
-	rows, err := t.store.DB().QueryContext(ctx, "SELECT kind,days FROM community_retention")
+	rules, err := t.community.RetentionRules(ctx)
 	if err != nil {
 		return err
 	}
-	for rows.Next() {
-		var rule storage.RetentionRule
-		if err := rows.Scan(&rule.Kind, &rule.Days); err != nil {
-			rows.Close()
-			return err
+	for _, rule := range rules {
+		kind := -1
+		if rule.Kind != nil {
+			kind = *rule.Kind
 		}
-		opts.Rules = append(opts.Rules, rule)
+		opts.Rules = append(opts.Rules, storage.RetentionRule{Kind: kind, Days: rule.Days})
 	}
-	err = errors.Join(rows.Err(), rows.Close())
+	members, err := t.community.MembersForRetention(ctx)
 	if err != nil {
 		return err
 	}
-	rows, err = t.store.DB().QueryContext(ctx, "SELECT pubkey,keep_days FROM community_members WHERE keep_days>0")
-	if err != nil {
-		return err
-	}
-	for rows.Next() {
-		var member storage.MemberRetention
-		if err := rows.Scan(&member.PubKey, &member.Days); err != nil {
-			rows.Close()
-			return err
-		}
-		opts.Members = append(opts.Members, member)
-	}
-	err = errors.Join(rows.Err(), rows.Close())
-	if err != nil {
-		return err
+	for _, member := range members {
+		opts.Members = append(opts.Members, storage.MemberRetention{PubKey: member.PubKey, Days: member.Days})
 	}
 	if _, err := t.store.SweepRetention(ctx, opts); err != nil {
 		return err
 	}
-	return t.pruneAllViewArtifacts(ctx)
+	return t.customViews.pruneAllViewArtifacts(ctx)
 }
 func (t *Tenant) replacePolicy(p policy.Policy) {
 	t.mu.Lock()
@@ -732,61 +742,19 @@ func (t *Tenant) ingest(ctx context.Context, e event.Event, _ replication.Origin
 }
 
 func (t *Tenant) commitImported(ctx context.Context, e event.Event, origin replication.Origin) error {
-	_ = origin
 	if err := t.gate.Import(ctx, e, time.Now().Unix()); err != nil {
 		return err
 	}
-	if err := t.validatePrivateRepositoryPlacement(ctx, e); err != nil {
+	if err := t.validateStoredEvent(ctx, e); err != nil {
 		return err
 	}
-	if err := validateReviewAnchor(e); err != nil {
+	plan, err := t.prepareStoredEvent(ctx, e, origin, time.Now().Unix())
+	if err != nil {
 		return err
 	}
-	if t.sites != nil {
-		if err := sites.ValidateManifest(e); err != nil {
-			return err
-		}
-	}
-	opts := storage.SaveOptions{Now: time.Now().Unix(), SearchMode: t.Policy().Features.Search}
-	if t.sites != nil {
-		opts = t.sites.SaveOptions(e, opts.Now)
-		opts.SearchMode = t.Policy().Features.Search
-	}
-	if t.Policy().Features.Grasp && (e.Kind == event.KIND_REPO || e.Kind == event.KIND_REPO_STATE) {
-		repo, err := t.git.ValidateImported(ctx, e)
-		if err != nil {
-			return err
-		}
-		raw, err := json.Marshal(repo)
-		if err != nil {
-			return err
-		}
-		opts.Intents = append(opts.Intents, storage.Intent{Kind: "git-metadata", EventID: e.ID, Target: repo.Owner + ":" + repo.Identifier, Payload: string(raw)})
-		if e.Kind == event.KIND_REPO_STATE {
-			before := opts.BeforeCommit
-			opts.BeforeCommit = func(ctx context.Context, tx *sql.Tx) error {
-				if before != nil {
-					if err := before(ctx, tx); err != nil {
-						return err
-					}
-				}
-				_, err := tx.ExecContext(ctx, "INSERT OR REPLACE INTO pending_events(id,reason) VALUES(?,'git objects')", e.ID)
-				return err
-			}
-		}
-	}
-	if e.Kind == 30023 {
-		opts.Intents = append(opts.Intents, storage.Intent{Kind: "view-publish", EventID: e.ID, Target: "articles", Payload: "{}"})
-	}
-	opts.BeforeCommit = t.agentBeforeCommit(e, opts.Now, opts.BeforeCommit)
-	_, err := t.store.Save(ctx, e, opts)
+	_, err = t.store.Save(ctx, e, plan.options)
 	if err == nil {
-		t.notifyDevices(ctx, e)
-		t.notifyCallbacks(ctx, e)
-		t.queueCustomViews(ctx, e)
-		t.cascadeViewDeletion(ctx, e)
-		t.notifyWikiMerge(ctx, e)
-		t.notifyWikiProposal(ctx, e)
+		t.afterStoredEvent(ctx, e, plan.followups)
 	}
 	return err
 }

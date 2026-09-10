@@ -6,8 +6,8 @@ import { finalizeEvent, generateSecretKey, getPublicKey, verifyEvent } from "nos
 import * as nip19 from "nostr-tools/nip19";
 import { createHash } from "node:crypto";
 
-const source = fs.readFileSync("internal/webui/components.js", "utf8");
-const roomsSource = source.slice(source.indexOf("  // Rooms: the compose bar"), source.indexOf("  // JsonView renders any JSON value."));
+const roomsSource = fs.readFileSync("internal/webui/rooms.js", "utf8");
+const parity = JSON.parse(fs.readFileSync("internal/webui/room_parity.json", "utf8"));
 
 // A small document: enough of the DOM for the room elements to render
 // messages, find their targets and keep the list bounded.
@@ -97,8 +97,23 @@ export function setup({attributes = {}, result = {accepted: true}, change = fals
     emit(name, detail) { (this.listeners[name] || []).forEach(handler => handler(detail)); }
     close() { this.closed = true; }
   };
+  sandbox.tiny.ui = {FormElement, el: sandbox.el, isHex64: sandbox.isHex64};
+  sandbox.tiny.signing = {publish: async (unsigned, {signal} = {}) => {
+    const expected = JSON.stringify(unsigned);
+    const event = await sandbox.window.nostr.signEvent(JSON.parse(expected));
+    const actual = event && JSON.stringify({kind: event.kind, created_at: event.created_at, tags: event.tags, content: event.content});
+    if (actual !== expected || sandbox.window.NostrSigner.verifyEvent(event) !== true) throw Error("The signer returned an invalid or changed event.");
+    if (signal?.aborted) throw Error("Sending canceled.");
+    const response = await sandbox.tiny.signedFetch("/events", "POST", JSON.stringify(event), {contentType: "application/json", signal});
+    const body = await response.json();
+    if (!response.ok || body.accepted !== true) throw Error(body.error || body.message || "The relay rejected the event.");
+    return event;
+  }};
+  sandbox.window.tiny = sandbox.tiny;
+  sandbox.customElements = {define() {}};
   sandbox.sources = [];
-  const classes = vm.runInNewContext(`${roomsSource}\n({RoomCompose, RoomCreate, RoomAction, RoomLive, rooms: tiny.rooms})`, sandbox);
+  vm.runInNewContext(roomsSource, sandbox);
+  const classes = {...sandbox.tiny.roomElements, rooms: sandbox.tiny.rooms};
   return {...classes, sandbox, sent, navigated, previewURLs, revokedURLs, pubkey, list, content, form: values => ({elements: Object.fromEntries(Object.entries(values).map(([name, value]) => [name, {name, value, style: {}, scrollHeight: 0}])), reset() { this.resets = (this.resets || 0) + 1; }})};
 }
 const npub = nip19.npubEncode("d".repeat(64));
@@ -424,4 +439,14 @@ test("room attachment renderer replaces edited media without stale nodes", () =>
   s.rooms.roomEdit({pubkey: author, kind: 40003, created_at: 4, content: "Attachment removed", tags: [["e", id]]});
   assert.equal(node.querySelectorAll("video").length, 0);
   assert.equal(node.querySelectorAll("[data-room-attachments]").length, 0);
+});
+
+test("room rendering follows the shared parity fixture", () => {
+  for (const fixture of parity) {
+    const s = setup();
+    const items = s.rooms.roomAttachments({content: fixture.content, tags: fixture.tags});
+    assert.deepEqual(JSON.parse(JSON.stringify(items.map(item => item.url))), fixture.attachments);
+    const node = s.rooms.chatMarkdown(new FakeNode("div"), fixture.content);
+    assert.equal(node.textContent, fixture.text);
+  }
 });

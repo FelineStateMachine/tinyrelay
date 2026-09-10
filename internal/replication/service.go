@@ -9,7 +9,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/FelineStateMachine/tinyrelay/internal/event"
@@ -34,10 +33,7 @@ type Config struct {
 	Ingest          func(context.Context, event.Event, Origin) error
 	ExecuteExternal func(context.Context, JobSpec) error
 	BackupProvider  BackupProvider
-	ExtraHandlers   map[string]work.Handler
-	ObserveWork     func(kind, outcome string, duration time.Duration)
 	Workers         int
-	WorkMiddleware  func(work.Handler) work.Handler
 }
 
 type Service struct {
@@ -168,7 +164,9 @@ func (s *Service) RunJob(ctx context.Context, id string) error {
 	return nil
 }
 
-func (s *Service) Run(ctx context.Context) error {
+// Handlers returns the replication-owned durable work handlers. The daemon
+// composes these with tenant handlers before starting its worker pool.
+func (s *Service) Handlers() map[string]work.Handler {
 	handlers := map[string]work.Handler{"job": s.handleJob, "delivery-discovery": s.handleDiscovery}
 	if s.config.Delivery != nil {
 		delivery := NewDeliveryHandler(s.store, s.config.Delivery)
@@ -183,42 +181,13 @@ func (s *Service) Run(ctx context.Context) error {
 			return delivery(ctx, storageIntent)
 		}
 	}
-	for kind, handler := range s.config.ExtraHandlers {
-		handlers[kind] = handler
-	}
-	if s.config.WorkMiddleware != nil {
-		for kind, handler := range handlers {
-			handlers[kind] = s.config.WorkMiddleware(handler)
-		}
-	}
-	workers := s.config.Workers
-	if workers <= 0 {
-		workers = 4
-	}
-	workerCtx, cancel := context.WithCancel(ctx)
-	defer cancel()
-	errCh := make(chan error, 1)
-	var group sync.WaitGroup
-	for i := 0; i < workers; i++ {
-		group.Add(1)
-		go func() {
-			defer group.Done()
-			if err := work.NewWorkerWithOptions(s.queue, handlers, work.WorkerOptions{Observe: s.config.ObserveWork}).Run(workerCtx); err != nil && workerCtx.Err() == nil {
-				select {
-				case errCh <- err:
-					cancel()
-				default:
-				}
-			}
-		}()
-	}
-	group.Wait()
-	select {
-	case err := <-errCh:
-		return err
-	default:
-		return ctx.Err()
-	}
+	return handlers
+}
+
+// Run is a convenience for replication-only callers. Applications that own
+// additional durable work should compose Handlers and call work.RunPool.
+func (s *Service) Run(ctx context.Context) error {
+	return work.RunPool(ctx, s.queue, s.Handlers(), work.PoolOptions{Workers: s.config.Workers})
 }
 
 func (s *Service) handleDiscovery(ctx context.Context, intent work.Intent) error {

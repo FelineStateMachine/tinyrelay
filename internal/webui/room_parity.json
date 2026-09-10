@@ -1,0 +1,26 @@
+[
+  {
+    "name": "visible-image",
+    "content": "See https://cdn.example/image.png",
+    "tags": [["imeta", "url https://cdn.example/image.png", "m image/png", "filename image.png"]],
+    "attachments": ["https://cdn.example/image.png"],
+    "text": "See https://cdn.example/image.png"
+  },
+  {
+    "name": "fenced-reference",
+    "content": "```\nhttps://cdn.example/image.png\n```",
+    "tags": [["imeta", "url https://cdn.example/image.png", "m image/png"]],
+    "attachments": [],
+    "text": "https://cdn.example/image.png"
+  },
+  {
+    "name": "duplicate-reference",
+    "content": "https://cdn.example/image.png",
+    "tags": [
+      ["imeta", "url https://cdn.example/image.png", "m image/png"],
+      ["imeta", "url https://cdn.example/image.png", "m image/png"]
+    ],
+    "attachments": ["https://cdn.example/image.png"],
+    "text": "https://cdn.example/image.png"
+  }
+]

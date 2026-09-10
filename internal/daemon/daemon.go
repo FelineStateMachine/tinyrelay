@@ -186,20 +186,21 @@ func initializeTenant(ctx context.Context, s *storage.Store, p policy.Policy, na
 		if err := storage.PutSetting(ctx, tx, "policy", p); err != nil {
 			return err
 		}
+		communityConfig := community.ConfigSnapshot{}
 		for _, rule := range []struct {
 			kinds []int
 			name  string
 		}{{p.AllowedKinds, "allow"}, {p.BlockedKinds, "block"}} {
 			for _, kind := range rule.kinds {
-				if _, err := tx.ExecContext(ctx, "INSERT INTO community_kind_rules(kind,rule) VALUES(?,?)", kind, rule.name); err != nil {
-					return err
-				}
+				communityConfig.KindRules = append(communityConfig.KindRules, community.ConfigKindRule{Kind: kind, Rule: rule.name})
 			}
 		}
 		for _, r := range p.Retention {
-			if _, err := tx.ExecContext(ctx, "INSERT INTO community_retention(kind,days) VALUES(?,?)", r.Kind, r.Days); err != nil {
-				return err
-			}
+			kind := r.Kind
+			communityConfig.Retention = append(communityConfig.Retention, community.ConfigRetention{Kind: &kind, Days: r.Days})
+		}
+		if err := community.ApplyConfigTx(ctx, tx, communityConfig, false, false, false, false, true, true); err != nil {
+			return err
 		}
 		if _, err := tx.ExecContext(ctx, "CREATE TABLE IF NOT EXISTS config_connections(position INTEGER PRIMARY KEY,value TEXT NOT NULL)"); err != nil {
 			return err

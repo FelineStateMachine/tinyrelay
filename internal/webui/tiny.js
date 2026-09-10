@@ -112,6 +112,30 @@
   };
   tiny.nip44Encrypt = (pubkey, text, signer) => nip44("Encrypt", pubkey, text, signer);
   tiny.nip44Decrypt = (pubkey, text, signer) => nip44("Decrypt", pubkey, text, signer);
+  // Event publication is one browser boundary shared by forms, rooms and
+  // WebMCP. Signers are treated as untrusted extensions: the returned event
+  // must preserve the requested unsigned fields and pass the verifier before
+  // it is sent to the relay.
+  const signEvent = async (unsigned, {signal} = {}) => {
+    if (!globalThis.nostr?.signEvent) throw Error("Connect a signer first.");
+    if (typeof globalThis.NostrSigner?.verifyEvent !== "function") throw Error("The signer verifier is still loading. Try again.");
+    const expected = JSON.stringify(unsigned);
+    const event = await globalThis.nostr.signEvent(JSON.parse(expected));
+    const actual = event && JSON.stringify({kind: event.kind, created_at: event.created_at, tags: event.tags, content: event.content});
+    if (actual !== expected || globalThis.NostrSigner.verifyEvent(event) !== true) throw Error("The signer returned an invalid or changed event.");
+    if (signal?.aborted) throw Error("Sending canceled.");
+    return event;
+  };
+  const publishEvent = async (unsigned, options = {}) => {
+    const event = await signEvent(unsigned, options);
+    if (typeof tiny.signedFetch !== "function") throw Error("The signed request bridge is still loading. Try again.");
+    const response = await tiny.signedFetch(options.path || "/events", "POST", JSON.stringify(event), {contentType: "application/json", signal: options.signal});
+    let result = {};
+    try { result = await response.json(); } catch {}
+    if (!response.ok || result.accepted !== true) throw Error(result.error || result.message || "The relay rejected the event.");
+    return event;
+  };
+  tiny.signing = Object.freeze({signEvent, publish: publishEvent});
   // Feature bundles load on the pages that use them and again after an
   // in-place navigation lands on such a page. Each script loads once.
   tiny.bundles = {

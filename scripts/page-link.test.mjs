@@ -5,7 +5,7 @@ import fs from "node:fs";
 import vm from "node:vm";
 
 const source = fs.readFileSync("internal/webui/components.js", "utf8");
-const linkSource = source.slice(source.indexOf("  // PageLink is the crumb"), source.indexOf("  // Rooms: the compose bar"));
+const linkSource = source.slice(source.indexOf("  // PageLink is the crumb"), source.indexOf("  // JsonView renders"));
 
 function setup({url = "https://relay.example/wiki/notes", clipboard = true} = {}) {
   const written = [];

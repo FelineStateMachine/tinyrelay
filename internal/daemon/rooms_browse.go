@@ -10,6 +10,7 @@ import (
 	"github.com/FelineStateMachine/tinyrelay/internal/community"
 	"github.com/FelineStateMachine/tinyrelay/internal/event"
 	"github.com/FelineStateMachine/tinyrelay/internal/storage"
+	"github.com/FelineStateMachine/tinyrelay/internal/webui"
 )
 
 var (
@@ -78,31 +79,15 @@ func (t *Tenant) executeRoomBrowse(ctx context.Context, actor, method string, pa
 }
 
 func (t *Tenant) browseRooms(ctx context.Context, actor string, q roomBrowseRequest) (any, error) {
-	rooms, err := t.community.Rooms(ctx)
+	list, err := t.listRoomsCore(ctx, actor, q.Cursor, q.Limit)
 	if err != nil {
 		return nil, err
 	}
-	items := []roomSummary{}
-	next := ""
-	for _, room := range rooms {
-		if room.ID <= q.Cursor {
-			continue
-		}
-		_, role, err := t.roomFor(ctx, actor, room.ID)
-		if err != nil {
-			continue
-		}
-		if len(items) == q.Limit {
-			next = items[len(items)-1].ID
-			break
-		}
-		summary, err := t.roomSummary(ctx, actor, room, role)
-		if err != nil {
-			return nil, err
-		}
-		items = append(items, summary)
+	items := make([]roomSummary, 0, len(list.Rooms))
+	for _, summary := range list.Rooms {
+		items = append(items, roomSummaryFromWebUI(summary))
 	}
-	return map[string]any{"items": items, "next_cursor": next}, nil
+	return map[string]any{"items": items, "next_cursor": list.NextCursor}, nil
 }
 
 func (t *Tenant) roomSummary(ctx context.Context, actor string, room community.Room, role string) (roomSummary, error) {
@@ -121,75 +106,36 @@ func (t *Tenant) roomSummary(ctx context.Context, actor string, room community.R
 	return summary, nil
 }
 
+func roomSummaryFromWebUI(summary webui.RoomSummary) roomSummary {
+	return roomSummary{Room: community.Room{ID: summary.ID, Name: summary.Name, About: summary.About, Picture: summary.Picture, Access: summary.Access, CreatedBy: summary.CreatedBy, CreatedAt: summary.CreatedAt, EventID: summary.EventID, DeletedAt: summary.DeletedAt}, Members: summary.Members, LastMessageAt: summary.LastMessageAt, Role: summary.Role}
+}
+
+func wireRoomPage(page webui.RoomPage, thread bool) map[string]any {
+	room := roomSummaryFromWebUI(page.Room)
+	members := make([]roomMemberView, 0, len(page.Members))
+	for _, member := range page.Members {
+		members = append(members, roomMemberView{RoomMember: community.RoomMember{PubKey: member.PubKey, Role: member.Role, AddedAt: member.AddedAt}, Agent: member.Agent})
+	}
+	if thread {
+		return map[string]any{"room": room, "root": page.Root, "replies": page.Replies, "edits": page.Edits, "next_cursor": page.NextCursor}
+	}
+	return map[string]any{"room": room, "members": members, "messages": page.Messages, "edits": page.Edits, "next_cursor": page.NextCursor}
+}
+
 func (t *Tenant) browseRoom(ctx context.Context, actor string, q roomBrowseRequest) (any, error) {
-	room, role, err := t.roomFor(ctx, actor, q.ID)
+	page, err := t.readRoomCore(ctx, actor, q.ID, q.Cursor, q.Limit)
 	if err != nil {
 		return nil, err
 	}
-	cursor, err := parseCollaborationCursor(q.Cursor)
-	if err != nil {
-		return nil, errors.New("invalid: room cursor")
-	}
-	summary, err := t.roomSummary(ctx, actor, room, role)
-	if err != nil {
-		return nil, err
-	}
-	members := []roomMemberView{}
-	if role != "" || t.Policy().DirectoryPublic {
-		rows, err := t.community.RoomMembers(ctx, room.ID)
-		if err != nil {
-			return nil, err
-		}
-		for _, row := range rows {
-			tenantRole, err := t.community.Role(ctx, row.PubKey)
-			if err != nil {
-				return nil, err
-			}
-			members = append(members, roomMemberView{RoomMember: row, Agent: tenantRole == "agent"})
-		}
-	}
-	messages, next, err := t.roomMessages(ctx, actor, event.Filter{Kinds: roomMessageKinds, Tags: map[string][]string{"h": {room.ID}}}, cursor, q.Limit)
-	if err != nil {
-		return nil, err
-	}
-	edits, err := t.roomEdits(ctx, actor, room.ID, messages)
-	if err != nil {
-		return nil, err
-	}
-	return map[string]any{"room": summary, "members": members, "messages": messages, "edits": edits, "next_cursor": next}, nil
+	return wireRoomPage(page, false), nil
 }
 
 func (t *Tenant) browseThread(ctx context.Context, actor string, q roomBrowseRequest) (any, error) {
-	room, _, err := t.roomFor(ctx, actor, q.ID)
+	page, err := t.readThreadCore(ctx, actor, q.ID, q.Event, q.Cursor, q.Limit)
 	if err != nil {
 		return nil, err
 	}
-	if len(q.Event) != 64 || !hexLower(q.Event) {
-		return nil, errors.New("invalid: thread root")
-	}
-	cursor, err := parseCollaborationCursor(q.Cursor)
-	if err != nil {
-		return nil, errors.New("invalid: thread cursor")
-	}
-	roots, err := t.Query(ctx, []event.Filter{{IDs: []string{q.Event}, Limit: intPtr(1)}}, browseSession(t, actor))
-	if err != nil {
-		return nil, err
-	}
-	if len(roots) != 1 || event.Tag(roots[0], "h") != room.ID || (roots[0].Kind != event.KIND_THREAD && roots[0].Kind != event.KIND_CHAT && roots[0].Kind != event.KIND_RICH_CONTENT) {
-		return nil, errors.New("not found: thread")
-	}
-	replies, next, err := t.roomMessages(ctx, actor, event.Filter{Kinds: []int{event.KIND_THREAD_REPLY}, Tags: map[string][]string{"h": {room.ID}, "e": {q.Event}}}, cursor, q.Limit)
-	if err != nil {
-		return nil, err
-	}
-	targets := make([]event.Event, 0, len(replies)+1)
-	targets = append(targets, roots[0])
-	targets = append(targets, replies...)
-	edits, err := t.roomEdits(ctx, actor, room.ID, targets)
-	if err != nil {
-		return nil, err
-	}
-	return map[string]any{"room": room, "root": roots[0], "replies": replies, "edits": edits, "next_cursor": next}, nil
+	return wireRoomPage(page, true), nil
 }
 
 // roomMessages pages a room filter newest first through the read gate. The

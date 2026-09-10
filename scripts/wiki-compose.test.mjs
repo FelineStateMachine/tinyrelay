@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import vm from "node:vm";
 import { finalizeEvent, generateSecretKey, getPublicKey, verifyEvent } from "nostr-tools";
+import { sharedSigning } from "./test-signing.mjs";
 
 const source = fs.readFileSync("internal/webui/components.js", "utf8");
 const tinySource = fs.readFileSync("internal/webui/tiny.js", "utf8");
@@ -54,6 +55,7 @@ function setup(name, attributes, values = {}, options = {}) {
     sent.push({path, method, event: JSON.parse(body)});
     return Response.json(options.results?.[sent.length - 1] ?? options.result ?? {accepted: true});
   }, navigate: async href => { tiny.navigated.push(href); }};
+  tiny.signing = sharedSigning(window, tiny);
   const Constructor = vm.runInNewContext(`${wikiSource}\n${name}`, {FormElement, window, tiny, URL, isHex64, Date, JSON, encodeURIComponent});
   const component = new Constructor();
   component.submitter = options.submitter ? {value: options.submitter, textContent: options.label || ""} : null;

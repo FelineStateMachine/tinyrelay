@@ -3,12 +3,11 @@
 The normal development loop is local:
 
 ```sh
-make test-internal-race
-make test
-npm run test:files
-npm run test:collaboration
-npm run test:approvals
+make verify
+make test-race
 ```
+
+`make verify` runs the Go tests, Go vet, JavaScript tests and a check that the bundled browser dependencies match their locked sources. Install JavaScript dependencies with `npm ci` first. `make web-test` runs the browser checks alone.
 
 The repository also contains a multistage Docker build. `make docker-test` runs `TEST_PACKAGES` (default `./...`) under Go 1.27.1 on Debian Bookworm with the race detector. `make docker-build` builds the self-hosted runtime image.
 

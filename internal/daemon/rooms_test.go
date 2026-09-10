@@ -254,6 +254,54 @@ func TestRoomsLifecycleRecordsAndBrowse(t *testing.T) {
 	}
 }
 
+func TestTypedRoomReaderPreservesSignedEvents(t *testing.T) {
+	h := newRoomHarness(t)
+	message := h.must("alice", event.KIND_CHAT, [][]string{{"h", "main"}, {"imeta", "url https://files.example/report.pdf", "m application/pdf", "filename report.pdf"}}, "typed room read")
+	edit := h.must("alice", event.KIND_CONTENT_EDIT, [][]string{{"h", "main"}, {"e", message.ID}}, "typed room edit")
+	h.projectRooms()
+
+	typed, err := h.tenant.ReadRoom(h.ctx, h.keys["alice"], "main", "", 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	legacyValue, err := h.browse(h.keys["alice"], "browseroom", map[string]any{"id": "main", "limit": 100})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var typedMessage *event.Event
+	for i := range typed.Messages {
+		if typed.Messages[i].ID == message.ID {
+			typedMessage = &typed.Messages[i]
+			break
+		}
+	}
+	if typedMessage == nil || typedMessage.Sig != message.Sig || len(typedMessage.Tags) != 2 {
+		t.Fatalf("typed messages lost signed event: %+v", typed.Messages)
+	}
+	if len(typed.Edits) != 1 || typed.Edits[0].ID != edit.ID || typed.Edits[0].Sig != edit.Sig {
+		t.Fatalf("typed edits lost latest signed edit: %+v", typed.Edits)
+	}
+	legacyMessages := legacyValue["messages"].([]any)
+	if len(legacyMessages) == 0 {
+		t.Fatal("legacy messages empty")
+	}
+	var legacyMessage map[string]any
+	for _, value := range legacyMessages {
+		candidate, _ := value.(map[string]any)
+		if candidate["id"] == message.ID {
+			legacyMessage = candidate
+			break
+		}
+	}
+	if legacyMessage == nil || legacyMessage["sig"] != message.Sig {
+		t.Fatalf("legacy messages lost signed event: %v", legacyMessages)
+	}
+	legacyEdits := legacyValue["edits"].([]any)
+	if len(legacyEdits) != 1 || legacyEdits[0].(map[string]any)["sig"] != edit.Sig {
+		t.Fatalf("legacy edits lost latest signed edit: %v", legacyEdits)
+	}
+}
+
 func TestRoomsPolicyCapAndSlugMirror(t *testing.T) {
 	h := newRoomHarness(t)
 	if h.tenant.Policy().Rooms != 64 {

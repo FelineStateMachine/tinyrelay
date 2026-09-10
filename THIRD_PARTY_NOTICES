@@ -38,6 +38,17 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 
+nostr-name browser bundle
+-------------------------
+The generated internal/webui/nostr-name.js bundle is built from
+nostr-web-components 0.2.2, @jsr/nostr__gadgets 0.1.9 and
+@jsr/nostr__tools 2.23.0, as resolved by package-lock.json. The installed
+nostr-web-components package identifies its license as the Unlicense. The
+bundle also retains esbuild license comments for noble-curves and scure-base;
+their installed package metadata identifies them as MIT licensed. The
+corresponding installed license text is recorded in
+internal/webui/nostr-name.js.license.
+
 Fixi BSD-0 notice
 -----------------
 BSD Zero Clause License

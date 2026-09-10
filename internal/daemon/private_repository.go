@@ -39,11 +39,5 @@ func hasLegacyPrivateRepository(ctx context.Context, store *storage.Store) (bool
 }
 
 func privateRepositoryStored(ctx context.Context, store *storage.Store, e event.Event) (bool, error) {
-	if policy.IsPrivateRepository(e) {
-		return true, nil
-	}
-	if store == nil || e.Kind != event.KIND_REPO_STATE {
-		return false, nil
-	}
-	return store.IsPrivateRepository(ctx, e.PubKey, event.Tag(e, "d"))
+	return policy.PrivateRepository(ctx, store, e)
 }

@@ -49,17 +49,58 @@ func roomRoute(path string) roomPath {
 // roomList reads the rooms the viewer may see for the rail. A failure
 // leaves the rail empty rather than failing the page.
 func (a *App) roomList(ctx context.Context, actor string) []any {
+	if reader := a.roomsReader(); reader != nil {
+		list, err := reader.ListRooms(ctx, actor, "", 100)
+		if err != nil {
+			return nil
+		}
+		return browseRows(roomListValue(list))
+	}
 	raw, _ := json.Marshal(map[string]any{"limit": 100})
-	result, err := a.backend.Query(ctx, "browserooms", []json.RawMessage{raw}, actor)
+	rows, err := a.readRows(ctx, "browserooms", []json.RawMessage{raw}, actor)
 	if err != nil {
 		return nil
 	}
-	return browseRows(result)
+	return rows
 }
 
-// roomSlice normalizes a typed slice from the in-process backend into the
-// generic rows a JSON client would receive.
+// legacyRoomPage is the compatibility decoder for Backend.Query results.
+// Typed production adapters use RoomPage from read_contracts.go instead.
+type legacyRoomPage struct {
+	Members  []any `json:"members"`
+	Messages []any `json:"messages"`
+	Replies  []any `json:"replies"`
+	Edits    []any `json:"edits"`
+}
+
+func legacyRoomPageValue(value any) (legacyRoomPage, bool) {
+	encoded, err := json.Marshal(value)
+	if err != nil {
+		return legacyRoomPage{}, false
+	}
+	var page legacyRoomPage
+	if err := json.Unmarshal(encoded, &page); err != nil {
+		return legacyRoomPage{}, false
+	}
+	return page, true
+}
+
+// roomSlice normalizes legacy and JSON-shaped backend results into the room
+// page contract. The fallback keeps compatibility with in-process adapters
+// that expose a field through their older collaboration helper.
 func roomSlice(value any, field string) []any {
+	if page, ok := legacyRoomPageValue(value); ok {
+		switch field {
+		case "members":
+			return page.Members
+		case "messages":
+			return page.Messages
+		case "replies":
+			return page.Replies
+		case "edits":
+			return page.Edits
+		}
+	}
 	return collaborationSlice(value, field)
 }
 

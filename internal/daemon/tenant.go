@@ -41,45 +41,40 @@ type tenantConfig struct {
 }
 
 type Tenant struct {
-	app            *App
-	meta           catalog.Tenant
-	store          *storage.Store
-	community      *community.Service
-	gate           *gates.Gate
-	router         *relay.Router
-	auth           *auth.Validator
-	blobs          *blob.Service
-	sites          *sites.Service
-	records        *records.Service
-	config         *configport.ConfigStore
-	replication    *replication.Service
-	git            *gitrelay.GitRelay
-	ui             *webui.App
-	mcp            *mcp.Server
-	schedulerWake  chan struct{}
-	workCtx        context.Context
-	workCancel     context.CancelFunc
-	workWG         sync.WaitGroup
-	workErrMu      sync.Mutex
-	workErr        error
-	publicURL      string
-	mu             sync.RWMutex
-	policyWrite    sync.Mutex
-	policy         policy.Policy
-	maintenance    maintenanceGate
-	gitLegacy      *replication.LegacyCache
-	pushMu         sync.Mutex
-	pushVAPID      *webpush.Keys
-	pushClient     *http.Client
-	pushRecent     map[string]time.Time
-	callbackMu     sync.Mutex
-	callbackIndex  map[int][]callbackRecord
-	callbackLocks  map[string]*sync.Mutex
-	callbackClient *http.Client
-	viewMu         sync.Mutex
-	viewIndex      map[int][]customView
-	viewLocks      map[string]*sync.Mutex
-	viewClient     *http.Client
+	app           *App
+	meta          catalog.Tenant
+	store         *storage.Store
+	community     *community.Service
+	gate          *gates.Gate
+	router        *relay.Router
+	auth          *auth.Validator
+	blobs         *blob.Service
+	sites         *sites.Service
+	records       *records.Service
+	config        *configport.ConfigStore
+	replication   *replication.Service
+	git           *gitrelay.GitRelay
+	ui            *webui.App
+	mcp           *mcp.Server
+	schedulerWake chan struct{}
+	workCtx       context.Context
+	workCancel    context.CancelFunc
+	workWG        sync.WaitGroup
+	workErrMu     sync.Mutex
+	workErr       error
+	publicURL     string
+	mu            sync.RWMutex
+	policyWrite   sync.Mutex
+	policy        policy.Policy
+	maintenance   maintenanceGate
+	gitLegacy     *replication.LegacyCache
+	pushMu        sync.Mutex
+	pushVAPID     *webpush.Keys
+	pushClient    *http.Client
+	pushRecent    map[string]time.Time
+	callbacks     *callbackService
+	customViews   *customViewService
+	followups     *eventFollowups
 }
 
 func newTenant(ctx context.Context, cfg tenantConfig) (*Tenant, error) {
@@ -178,15 +173,10 @@ func (t *Tenant) Publish(ctx context.Context, e event.Event, s relay.Session) (s
 	outcome := "error"
 	defer func() { finish(outcome) }()
 	now := time.Now().Unix()
-	var gitRepo gitrelay.Repository
-	gitMetadata := false
 	if err := t.gate.Write(ctx, e, s, now); err != nil {
 		return "", err
 	}
-	if err := t.validatePrivateRepositoryPlacement(ctx, e); err != nil {
-		return "", err
-	}
-	if err := validateReviewAnchor(e); err != nil {
+	if err := t.validateStoredEvent(ctx, e); err != nil {
 		return "", err
 	}
 	if err := t.validatePushRegistration(ctx, e, s); err != nil {
@@ -200,197 +190,17 @@ func (t *Tenant) Publish(ctx context.Context, e event.Event, s relay.Session) (s
 		return "", nil
 	}
 	if e.Kind == event.KIND_REPORT {
-		target := ""
-		targetType := ""
-		reportType := ""
-		for _, tag := range e.Tags {
-			if len(tag) > 1 && tag[0] == "e" && target == "" {
-				target = tag[1]
-				targetType = "event"
-				if len(tag) > 2 {
-					reportType = tag[2]
-				}
-			}
-			if len(tag) > 1 && tag[0] == "p" && target == "" {
-				target = tag[1]
-				targetType = "pubkey"
-				if len(tag) > 2 {
-					reportType = tag[2]
-				}
-			}
-			if len(tag) > 1 && tag[0] == "x" && target == "" {
-				target = tag[1]
-				targetType = "blob"
-				if len(tag) > 2 {
-					reportType = tag[2]
-				}
-			}
+		reason, err := t.publishReport(ctx, e)
+		if err == nil {
+			outcome = "ok"
 		}
-		if target == "" {
-			return "", errors.New("invalid: report needs an e or p tag")
-		}
-		if err := t.community.SubmitReportTarget(ctx, e.PubKey, target, targetType, reportType, e.Content, t.Policy().ReportThreshold); err != nil {
-			return "", err
-		}
-		outcome = "ok"
-		return "info: report received", nil
+		return reason, err
 	}
-	opts := storage.SaveOptions{Now: now, SearchMode: t.Policy().Features.Search}
-	if e.Kind == 30023 {
-		opts.Intents = append(opts.Intents, storage.Intent{Kind: "view-publish", EventID: e.ID, Target: "articles", Payload: "{}"})
+	plan, metadata, err := t.prepareClientEvent(ctx, e, s, now)
+	if err != nil {
+		return "", err
 	}
-	var metadataNext policy.Policy
-	metadataChanged := false
-	if (e.Kind == event.KIND_EDIT_METADATA || e.Kind == event.KIND_PINS) && t.roomScope(e) == "" {
-		role, roleErr := t.community.Role(ctx, e.PubKey)
-		if roleErr != nil {
-			return "", roleErr
-		}
-		if role != "owner" && role != "moderator" {
-			return "", errors.New("restricted: not a group admin")
-		}
-		before := opts.BeforeCommit
-		opts.BeforeCommit = func(txCtx context.Context, tx *sql.Tx) error {
-			if before != nil {
-				if err := before(txCtx, tx); err != nil {
-					return err
-				}
-			}
-			return t.community.HandleProjectionEventTx(txCtx, tx, e, func(sideTx *sql.Tx) error {
-				if e.Kind == event.KIND_EDIT_METADATA {
-					metadataNext = t.Policy()
-					for _, tag := range e.Tags {
-						if len(tag) < 2 {
-							continue
-						}
-						switch tag[0] {
-						case "name":
-							metadataNext.Name = tag[1][:min(200, len(tag[1]))]
-						case "about":
-							metadataNext.Description = tag[1][:min(2000, len(tag[1]))]
-						case "picture":
-							metadataNext.Icon = tag[1][:min(2000, len(tag[1]))]
-						}
-					}
-					metadataChanged = true
-					return storage.PutSetting(txCtx, sideTx, "policy", metadataNext)
-				}
-				pins, err := parsePinTags(e.Tags)
-				if err != nil {
-					return err
-				}
-				if _, err := sideTx.ExecContext(txCtx, `DELETE FROM records_pins`); err != nil {
-					return err
-				}
-				for i, ref := range pins {
-					if _, err := sideTx.ExecContext(txCtx, `INSERT INTO records_pins(position,ref) VALUES(?,?)`, i, ref); err != nil {
-						return err
-					}
-				}
-				return nil
-			})
-		}
-	}
-	opts.BeforeCommit = t.agentBeforeCommit(e, now, opts.BeforeCommit)
-	opts.Intents = append(opts.Intents, t.replication.Prepare(e, replication.OriginClient)...)
-	if callbackIntents, callbackErr := t.PrepareReplicationCallbacks(ctx, e); callbackErr != nil {
-		return "", callbackErr
-	} else {
-		for _, intent := range callbackIntents {
-			opts.Intents = append(opts.Intents, intent)
-		}
-	}
-	if t.sites != nil {
-		if err := sites.ValidateManifest(e); err != nil {
-			return "", err
-		}
-		before := opts.BeforeCommit
-		intents := opts.Intents
-		siteOpts := t.sites.SaveOptions(e, now)
-		opts = siteOpts
-		opts.SearchMode = t.Policy().Features.Search
-		if before != nil {
-			siteBefore := opts.BeforeCommit
-			opts.BeforeCommit = func(txCtx context.Context, tx *sql.Tx) error {
-				if err := before(txCtx, tx); err != nil {
-					return err
-				}
-				if siteBefore != nil {
-					return siteBefore(txCtx, tx)
-				}
-				return nil
-			}
-		}
-		opts.Intents = append(intents, opts.Intents...)
-	}
-	if t.Policy().Features.Grasp && (e.Kind == event.KIND_REPO || e.Kind == event.KIND_REPO_STATE) {
-		repo, err := t.git.Validate(ctx, e)
-		if err != nil {
-			return "", err
-		}
-		gitRepo, gitMetadata = repo, true
-		raw, err := json.Marshal(repo)
-		if err != nil {
-			return "", err
-		}
-		opts.Intents = append(opts.Intents, storage.Intent{Kind: "git-metadata", EventID: e.ID, Target: repo.Owner + ":" + repo.Identifier, Payload: string(raw)})
-		if e.Kind == event.KIND_REPO_STATE {
-			before := opts.BeforeCommit
-			opts.BeforeCommit = func(txCtx context.Context, tx *sql.Tx) error {
-				if before != nil {
-					if err := before(txCtx, tx); err != nil {
-						return err
-					}
-				}
-				_, err := tx.ExecContext(txCtx, "INSERT OR REPLACE INTO pending_events(id,reason) VALUES(?,'git objects')", e.ID)
-				return err
-			}
-		}
-	}
-	if e.Kind == event.KIND_MARMOT_GROUP {
-		principal, principalErr := t.gate.Principal(ctx, e, s)
-		if principalErr != nil {
-			return "", principalErr
-		}
-		before := opts.BeforeCommit
-		opts.BeforeCommit = func(txCtx context.Context, tx *sql.Tx) error {
-			if before != nil {
-				if err := before(txCtx, tx); err != nil {
-					return err
-				}
-			}
-			_, err := tx.ExecContext(txCtx, `INSERT OR REPLACE INTO marmot_principals(event_id,pubkey) VALUES(?,?)`, e.ID, principal)
-			return err
-		}
-	}
-	var err error
-	persist := func(tx *sql.Tx) error {
-		_, saveErr := storage.SaveTx(ctx, tx, e, opts)
-		return saveErr
-	}
-	// reason is the OK message; an access request tells the asker it waits,
-	// and a member asking again is told so.
-	reason := ""
-	room := t.roomScope(e)
-	switch {
-	case room != "" && community.RoomAdminKind(e.Kind):
-		_, err = t.community.HandleRoomEventTx(ctx, e, persist)
-	case room != "" && !event.IsEphemeral(e.Kind):
-		err = t.community.HandleRoomMessageTx(ctx, e, persist)
-	case e.Kind == event.KIND_JOIN, e.Kind == event.KIND_LEAVE, e.Kind == event.KIND_NIP43_JOIN, e.Kind == event.KIND_NIP43_LEAVE:
-		var membership community.MembershipResult
-		membership, err = t.community.HandleMembershipEventTx(ctx, e, persist)
-		if err == nil && (membership.AccessRequest || strings.HasPrefix(membership.Message, "duplicate:")) {
-			reason = membership.Message
-		}
-		if err == nil && membership.NewRequest {
-			t.notifyJoinRequest(ctx, e)
-		}
-	case e.Kind == event.KIND_PUT_USER, e.Kind == event.KIND_REMOVE_USER, e.Kind == event.KIND_DELETE_EVENT, e.Kind == event.KIND_CREATE_INVITE:
-		_, err = t.community.HandleModerationEventTx(ctx, e, persist)
-	default:
-		_, err = t.store.Save(ctx, e, opts)
-	}
+	reason, err := t.persistClientEvent(ctx, e, plan.options)
 	if errors.Is(err, storage.ErrDuplicate) {
 		outcome = "duplicate"
 		return storage.ErrDuplicate.Error(), nil
@@ -398,23 +208,18 @@ func (t *Tenant) Publish(ctx context.Context, e event.Event, s relay.Session) (s
 	if err != nil {
 		return "", err
 	}
-	t.notifyDevices(ctx, e)
-	t.notifyCallbacks(ctx, e)
-	t.queueCustomViews(ctx, e)
-	t.cascadeViewDeletion(ctx, e)
-	t.notifyWikiMerge(ctx, e)
-	t.notifyWikiProposal(ctx, e)
+	t.afterStoredEvent(ctx, e, plan.followups)
 	// Stage Git metadata before acknowledging the event. This closes the
 	// publish-ACK/receive-pack race: the signed pending refs and hook exist
 	// before a client can push objects for the state.
-	if gitMetadata {
-		if err := t.git.CommitAfterStoreNoNotify(ctx, e, gitRepo); err != nil {
+	if plan.gitMetadata {
+		if err := t.git.CommitAfterStoreNoNotify(ctx, e, plan.repository); err != nil {
 			return "", err
 		}
 	}
-	if metadataChanged {
+	if metadata.changed {
 		t.mu.Lock()
-		t.policy = metadataNext
+		t.policy = metadata.next
 		t.mu.Unlock()
 	}
 	if err := t.records.NotePresence(ctx, e.PubKey, now); err != nil {
@@ -427,22 +232,6 @@ func (t *Tenant) Publish(ctx context.Context, e event.Event, s relay.Session) (s
 	}
 	outcome = "ok"
 	return reason, nil
-}
-
-// agentBeforeCommit mirrors agent grants and grant deletions into the agent
-// table and roster in the same transaction that stores the event.
-func (t *Tenant) agentBeforeCommit(e event.Event, now int64, before func(context.Context, *sql.Tx) error) func(context.Context, *sql.Tx) error {
-	if e.Kind != event.KIND_AGENT_GRANT && e.Kind != event.KIND_DELETION {
-		return before
-	}
-	return func(txCtx context.Context, tx *sql.Tx) error {
-		if before != nil {
-			if err := before(txCtx, tx); err != nil {
-				return err
-			}
-		}
-		return t.community.ApplyAgentEventTx(txCtx, tx, e, now)
-	}
 }
 
 // roomScope names the room an event is addressed to when that room is not

@@ -246,13 +246,13 @@ func TestServiceWorkersRunIndependentHandlersConcurrently(t *testing.T) {
 	store := openReplicationStore(t)
 	slowStarted := make(chan struct{})
 	fastDone := make(chan struct{})
-	service, err := NewService(Config{Store: store, Workers: 2, ExtraHandlers: map[string]work.Handler{
-		"slow-test": func(ctx context.Context, _ work.Intent) error { close(slowStarted); <-ctx.Done(); return ctx.Err() },
-		"fast-test": func(context.Context, work.Intent) error { close(fastDone); return nil },
-	}})
+	service, err := NewService(Config{Store: store, Workers: 2})
 	if err != nil {
 		t.Fatal(err)
 	}
+	handlers := service.Handlers()
+	handlers["slow-test"] = func(ctx context.Context, _ work.Intent) error { close(slowStarted); <-ctx.Done(); return ctx.Err() }
+	handlers["fast-test"] = func(context.Context, work.Intent) error { close(fastDone); return nil }
 	if _, err := service.Queue().Enqueue(context.Background(), work.Intent{Kind: "slow-test", EventID: "slow", Target: "one"}); err != nil {
 		t.Fatal(err)
 	}
@@ -262,7 +262,7 @@ func TestServiceWorkersRunIndependentHandlersConcurrently(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	done := make(chan error, 1)
-	go func() { done <- service.Run(ctx) }()
+	go func() { done <- work.RunPool(ctx, service.Queue(), handlers, work.PoolOptions{Workers: 2}) }()
 	select {
 	case <-slowStarted:
 	case <-time.After(time.Second):

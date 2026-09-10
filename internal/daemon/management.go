@@ -51,7 +51,7 @@ func (t *Tenant) executeManagement(ctx context.Context, actor, method string, pa
 		return result, true, err
 	}
 	if customViewMethod(method) {
-		result, err = t.customViewExecute(ctx, actor, method, params)
+		result, err = t.customViews.customViewExecute(ctx, actor, method, params)
 		return result, true, err
 	}
 	if !managementAdapterMethod(method) {

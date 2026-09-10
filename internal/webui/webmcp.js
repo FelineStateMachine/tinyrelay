@@ -183,21 +183,17 @@
 
   // post_message signs a chat message with the connected signer and
   // publishes it once. Keys named in mentions become p tags.
+  const publishEvent = async (unsigned, signal) => {
+    if (typeof window.tiny?.signing?.publish !== "function") throw new Error("The event signing API is still loading. Try again.");
+    return window.tiny.signing.publish(unsigned, {signal});
+  };
   async function postMessage(input, signal) {
     const content = String(input.text || "").trim();
     if (!content) throw new Error("Enter a message.");
-    if (!window.nostr?.signEvent) throw new Error("Connect a Nostr signer first.");
     if (!window.tinySignedFetch) throw new Error("The signer is still loading. Try again.");
     const tags = [["h", input.room]];
     for (const key of input.mentions || []) if (!tags.some(tag => tag[0] === "p" && tag[1] === key)) tags.push(["p", key]);
-    const unsigned = {kind: 9, created_at: Math.floor(Date.now() / 1000), tags, content};
-    const expected = JSON.stringify(unsigned);
-    const event = await window.nostr.signEvent(JSON.parse(expected));
-    const actual = event && JSON.stringify({kind: event.kind, created_at: event.created_at, tags: event.tags, content: event.content});
-    if (actual !== expected || (window.NostrSigner?.verifyEvent && !window.NostrSigner.verifyEvent(event))) throw new Error("The signer returned an invalid or changed event.");
-    const response = await window.tinySignedFetch(local("/events"), "POST", JSON.stringify(event), {contentType: "application/json", signal});
-    const value = await responseJSON(response);
-    if (value.accepted !== true) throw new Error(value.message || "The relay rejected the message.");
+    const event = await publishEvent({kind: 9, created_at: Math.floor(Date.now() / 1000), tags, content}, signal);
     return {id: event.id, room: input.room, created_at: event.created_at};
   }
   register("tiny.post_message", "Post a chat message to a room as the connected signer. mentions lists 64-character hex keys to notify.",

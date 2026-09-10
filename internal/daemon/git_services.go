@@ -265,7 +265,7 @@ func gitQueryContext(ctx context.Context, maximum time.Duration) (context.Contex
 	return context.WithTimeout(ctx, maximum)
 }
 
-func queryGitHead(ctx context.Context, transport *replication.NostrTransport, target string, filter event.Filter) ([]event.Event, error) {
+func queryGitHead(ctx context.Context, transport replication.PullTransport, target string, filter event.Filter) ([]event.Event, error) {
 	limit := gitHeadPageSize
 	filter.Limit = &limit
 	return transport.Query(ctx, target, filter)

@@ -92,7 +92,7 @@ func viewTenant(t *testing.T, kinds []int, extra map[string]any) (*Tenant, *tran
 	server.answer(http.StatusOK)
 	service := httptest.NewTLSServer(server)
 	t.Cleanup(service.Close)
-	tenant.viewClient = service.Client()
+	tenant.customViews.viewClient = service.Client()
 	values := map[string]any{"name": "diagrams", "kinds": kinds, "transform": service.URL + "/render?token=t0k3n", "languages": []string{"mermaid", "dot"}}
 	for key, value := range extra {
 		values[key] = value
@@ -126,7 +126,7 @@ func pendingViewIntents(t *testing.T, tenant *Tenant, name, eventID string) []wo
 // complete.
 func runViewIntent(t *testing.T, tenant *Tenant, intent work.Intent) {
 	t.Helper()
-	if err := tenant.handleViewTransform(context.Background(), intent); err != nil {
+	if err := tenant.customViews.handleViewTransform(context.Background(), intent); err != nil {
 		t.Fatalf("handleViewTransform: %v", err)
 	}
 	if _, err := tenant.store.DB().ExecContext(context.Background(), "UPDATE work_intents SET state='completed' WHERE id=?", intent.ID); err != nil {
@@ -301,7 +301,7 @@ func TestCustomViewManagementIsOwnerOnlyAndValidated(t *testing.T) {
 	if _, err := tenant.Execute(ctx, owner, "runcustomview", []json.RawMessage{json.RawMessage(`"diagrams"`)}); err == nil || !strings.Contains(err.Error(), "resume") {
 		t.Fatalf("run while paused: %v", err)
 	}
-	for _, view := range tenant.customViewIndex(ctx)[1] {
+	for _, view := range tenant.customViews.customViewIndex(ctx)[1] {
 		if view.Name == "diagrams" {
 			t.Fatal("paused view stayed in the kind index")
 		}
@@ -557,8 +557,8 @@ func TestCustomViewReplacementReusesAndDropsBlocks(t *testing.T) {
 		t.Fatal("B survived the replacement")
 	}
 	// A stale intent for the replaced version renders nothing.
-	stale := tenant.viewIntent(customView{Name: "diagrams"}, first, "old")
-	if err := tenant.handleViewTransform(ctx, work.Intent{ID: "stale", Kind: stale.Kind, EventID: stale.EventID, Target: stale.Target, Payload: stale.Payload}); err != nil {
+	stale := tenant.customViews.viewIntent(customView{Name: "diagrams"}, first, "old")
+	if err := tenant.customViews.handleViewTransform(ctx, work.Intent{ID: "stale", Kind: stale.Kind, EventID: stale.EventID, Target: stale.Target, Payload: stale.Payload}); err != nil {
 		t.Fatal(err)
 	}
 	if server.count() != 1 {
@@ -832,7 +832,7 @@ func TestCustomViewHourlyTickQueuesRecentSources(t *testing.T) {
 	if queued := pendingViewIntents(t, tenant, "diagrams", note.ID); len(queued) != 0 {
 		t.Fatal("an hourly view queued at write time")
 	}
-	if err := tenant.tickCustomViews(ctx, now); err != nil {
+	if err := tenant.customViews.tickCustomViews(ctx, now); err != nil {
 		t.Fatal(err)
 	}
 	queued := pendingViewIntents(t, tenant, "diagrams", note.ID)
@@ -844,7 +844,7 @@ func TestCustomViewHourlyTickQueuesRecentSources(t *testing.T) {
 		t.Fatal("hourly artifact missing")
 	}
 	// Not due again for an hour; a backfill through runcustomview queues now.
-	if err := tenant.tickCustomViews(ctx, now+60); err != nil {
+	if err := tenant.customViews.tickCustomViews(ctx, now+60); err != nil {
 		t.Fatal(err)
 	}
 	if queued := pendingViewIntents(t, tenant, "diagrams", note.ID); len(queued) != 0 {
@@ -900,7 +900,7 @@ func TestCustomViewRendersTheReadmeAtTheStateHead(t *testing.T) {
 	relay := httptest.NewServer(tenant)
 	defer relay.Close()
 	gitTest(t, "-C", work, "push", relay.URL+"/npub10xlxvlhemja6c4dqv22uapctqupfhlxm9h8z3k2e72q4k9hcz7vqpkge6d/docs.git", "refs/heads/main:refs/heads/main")
-	blocks, err := tenant.sourceBlocks(ctx, state)
+	blocks, err := tenant.customViews.sourceBlocks(ctx, state)
 	if err != nil {
 		t.Fatal(err)
 	}

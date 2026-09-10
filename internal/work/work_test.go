@@ -2,6 +2,7 @@ package work
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"sync/atomic"
 	"testing"
@@ -41,6 +42,128 @@ func TestQueueClaimsFencesAndRetries(t *testing.T) {
 	}
 	if items[0].LastError != "temporary" || !items[0].NextAt.After(now) {
 		t.Fatalf("retry metadata = %#v", items[0])
+	}
+}
+
+func TestEnqueueUsesSharedIntentID(t *testing.T) {
+	store := openStore(t)
+	queue := New(store)
+	intent := Intent{Kind: "delivery", EventID: "event-1", Target: "target"}
+	id, err := queue.Enqueue(context.Background(), intent)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := storage.IntentID(intent.Kind, intent.EventID, intent.Target); id != want {
+		t.Fatalf("intent id = %q, want %q", id, want)
+	}
+}
+
+func TestCompletePendingTxDoesNotTouchRunningIntent(t *testing.T) {
+	store := openStore(t)
+	queue := New(store)
+	ctx := context.Background()
+	pendingID, err := queue.Enqueue(ctx, Intent{Kind: "pending", EventID: "pending", Target: "target"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var completed bool
+	if err := store.WithTx(ctx, func(tx *sql.Tx) error {
+		var err error
+		completed, err = CompletePendingTx(ctx, tx, pendingID, time.Now())
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if !completed {
+		t.Fatal("pending intent was not completed")
+	}
+
+	runningID, err := queue.Enqueue(ctx, Intent{Kind: "running", EventID: "running", Target: "target"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	claimed, err := queue.Claim(ctx, time.Now(), time.Minute)
+	if err != nil || claimed == nil || claimed.ID != runningID {
+		t.Fatalf("claim = %#v, %v", claimed, err)
+	}
+	if err := store.WithTx(ctx, func(tx *sql.Tx) error {
+		ok, err := CompletePendingTx(ctx, tx, runningID, time.Now())
+		if err != nil {
+			return err
+		}
+		if ok {
+			t.Fatal("running intent was completed")
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	items, err := queue.List(ctx, "running")
+	if err != nil || len(items) != 1 {
+		t.Fatalf("running intents = %#v, %v", items, err)
+	}
+}
+
+func TestCancelClaimRequiresCurrentToken(t *testing.T) {
+	store := openStore(t)
+	queue := New(store)
+	ctx := context.Background()
+	id, err := queue.Enqueue(ctx, Intent{Kind: "terminal", EventID: "event", Target: "target"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	claimed, err := queue.Claim(ctx, time.Now(), time.Minute)
+	if err != nil || claimed == nil || claimed.ID != id {
+		t.Fatalf("claim = %#v, %v", claimed, err)
+	}
+	ok, err := queue.CancelClaim(ctx, id, "stale-token", errors.New("stale"), time.Now())
+	if err != nil || ok {
+		t.Fatalf("stale cancel = %v, %v", ok, err)
+	}
+	if ok, err := queue.CancelClaim(ctx, id, claimed.ClaimToken, errors.New("terminal"), time.Now()); err != nil || !ok {
+		t.Fatalf("current cancel = %v, %v", ok, err)
+	}
+	items, err := queue.List(ctx, "cancelled")
+	if err != nil || len(items) != 1 || items[0].LastError != "terminal" {
+		t.Fatalf("cancelled intents = %#v, %v", items, err)
+	}
+}
+
+func TestWorkerStopCancelsClaimWithoutRetry(t *testing.T) {
+	store := openStore(t)
+	queue := New(store)
+	ctx := context.Background()
+	if _, err := queue.Enqueue(ctx, Intent{Kind: "terminal", EventID: "event", Target: "target"}); err != nil {
+		t.Fatal(err)
+	}
+	workerCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	done := make(chan error, 1)
+	go func() {
+		done <- NewWorker(queue, map[string]Handler{"terminal": func(context.Context, Intent) error {
+			return Stop(errors.New("permanent"))
+		}}).Run(workerCtx)
+	}()
+	deadline := time.Now().Add(time.Second)
+	for {
+		items, err := queue.List(ctx, "cancelled")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(items) == 1 {
+			if items[0].LastError != "permanent" {
+				t.Fatalf("last error = %q", items[0].LastError)
+			}
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("worker did not cancel terminal intent")
+		}
+		time.Sleep(time.Millisecond)
+	}
+	cancel()
+	if err := <-done; !errors.Is(err, context.Canceled) {
+		t.Fatalf("worker error = %v", err)
 	}
 }
 
@@ -143,6 +266,60 @@ func TestWorkersRenewLongAttemptWithoutConcurrentDuplicate(t *testing.T) {
 	}
 	if calls.Load() != 1 {
 		t.Fatalf("handler calls = %d", calls.Load())
+	}
+}
+
+func TestRunPoolCancelsWorkersOnQueueError(t *testing.T) {
+	store := openStore(t)
+	queue := New(store)
+	done := make(chan error, 1)
+	go func() {
+		done <- RunPool(context.Background(), queue, map[string]Handler{}, PoolOptions{Workers: 2})
+	}()
+	if err := store.Close(); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case err := <-done:
+		if err == nil {
+			t.Fatal("RunPool returned nil after queue failure")
+		}
+	case <-time.After(time.Second):
+		t.Fatal("RunPool did not stop after queue failure")
+	}
+}
+
+func TestRunPoolWaitsForActiveHandlersOnCancellation(t *testing.T) {
+	store := openStore(t)
+	queue := New(store)
+	if _, err := queue.Enqueue(context.Background(), Intent{Kind: "slow", EventID: "event-1", Target: "target"}); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	started := make(chan struct{})
+	done := make(chan error, 1)
+	go func() {
+		done <- RunPool(ctx, queue, map[string]Handler{
+			"slow": func(handlerCtx context.Context, _ Intent) error {
+				close(started)
+				<-handlerCtx.Done()
+				return handlerCtx.Err()
+			},
+		}, PoolOptions{Workers: 1})
+	}()
+	select {
+	case <-started:
+	case <-time.After(time.Second):
+		t.Fatal("pool did not start handler")
+	}
+	cancel()
+	select {
+	case err := <-done:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("RunPool error = %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("RunPool did not wait for active handler")
 	}
 }
 

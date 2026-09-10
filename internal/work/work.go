@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -20,6 +21,21 @@ import (
 const defaultLease = 30 * time.Second
 
 var ErrClaimLost = errors.New("work: claim lost")
+
+type stopError struct{ err error }
+
+func (e *stopError) Error() string {
+	if e.err == nil {
+		return "work: stopped"
+	}
+	return e.err.Error()
+}
+
+func (e *stopError) Unwrap() error { return e.err }
+
+// Stop marks a handler failure as terminal. Workers cancel the claimed intent
+// instead of retrying it, while retaining the underlying error for operators.
+func Stop(err error) error { return &stopError{err: err} }
 
 // Intent is a durable unit of work. ClaimToken is only valid until ClaimUntil.
 type Intent struct {
@@ -58,8 +74,7 @@ func (q *Queue) Enqueue(ctx context.Context, intent Intent) (string, error) {
 		return "", errors.New("work: kind, event id, and target are required")
 	}
 	if intent.ID == "" {
-		sum := sha256.Sum256([]byte(intent.Kind + "\x00" + intent.EventID + "\x00" + intent.Target))
-		intent.ID = hex.EncodeToString(sum[:])
+		intent.ID = storage.IntentID(intent.Kind, intent.EventID, intent.Target)
 	}
 	now := time.Now().Unix()
 	if intent.NextAt.IsZero() {
@@ -143,6 +158,36 @@ func (q *Queue) Complete(ctx context.Context, id, claimToken string, now time.Ti
 	result, err := q.store.DB().ExecContext(ctx, `UPDATE work_intents SET state='completed',updated_at=?,claim_token='',claim_until=0 WHERE id=? AND state='running' AND claim_token=?`, now.Unix(), id, claimToken)
 	if err != nil {
 		return false, fmt.Errorf("work: complete: %w", err)
+	}
+	count, err := result.RowsAffected()
+	if count == 1 {
+		q.refresh(ctx, "")
+	}
+	return count == 1, err
+}
+
+// CompletePendingTx marks a pending intent complete in the caller's
+// transaction. Running intents are left untouched so an active worker keeps
+// ownership of its claim.
+func CompletePendingTx(ctx context.Context, tx *sql.Tx, id string, now time.Time) (bool, error) {
+	result, err := tx.ExecContext(ctx, `UPDATE work_intents SET state='completed',updated_at=?,claim_token='',claim_until=0 WHERE id=? AND state='pending'`, now.Unix(), id)
+	if err != nil {
+		return false, fmt.Errorf("work: complete pending: %w", err)
+	}
+	count, err := result.RowsAffected()
+	return count == 1, err
+}
+
+// CancelClaim marks a running intent terminal if the claim token still fences
+// the caller.
+func (q *Queue) CancelClaim(ctx context.Context, id, claimToken string, cause error, now time.Time) (bool, error) {
+	message := ""
+	if cause != nil {
+		message = cause.Error()
+	}
+	result, err := q.store.DB().ExecContext(ctx, `UPDATE work_intents SET state='cancelled',updated_at=?,last_error=?,claim_token='',claim_until=0 WHERE id=? AND state='running' AND claim_token=?`, now.Unix(), message, id, claimToken)
+	if err != nil {
+		return false, fmt.Errorf("work: cancel claim: %w", err)
 	}
 	count, err := result.RowsAffected()
 	if count == 1 {
@@ -287,6 +332,48 @@ type WorkerOptions struct {
 	Observe func(kind, outcome string, duration time.Duration)
 }
 
+// PoolOptions controls a pool of durable workers.
+type PoolOptions struct {
+	Workers int
+	Worker  WorkerOptions
+}
+
+const defaultWorkers = 4
+
+// RunPool runs a worker pool until ctx is cancelled or a worker reports a
+// queue error. The first queue error cancels the remaining workers and is
+// returned after they have stopped.
+func RunPool(ctx context.Context, queue *Queue, handlers map[string]Handler, options PoolOptions) error {
+	workers := options.Workers
+	if workers <= 0 {
+		workers = defaultWorkers
+	}
+	workerCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	errCh := make(chan error, 1)
+	var group sync.WaitGroup
+	for i := 0; i < workers; i++ {
+		group.Add(1)
+		go func() {
+			defer group.Done()
+			if err := NewWorkerWithOptions(queue, handlers, options.Worker).Run(workerCtx); err != nil && workerCtx.Err() == nil {
+				select {
+				case errCh <- err:
+					cancel()
+				default:
+				}
+			}
+		}()
+	}
+	group.Wait()
+	select {
+	case err := <-errCh:
+		return err
+	default:
+		return ctx.Err()
+	}
+}
+
 // Worker owns a queue lifecycle and processes one intent at a time.
 type Worker struct {
 	queue    *Queue
@@ -368,6 +455,17 @@ func (w *Worker) Run(ctx context.Context) error {
 			continue
 		}
 		if err != nil {
+			var terminal *stopError
+			if errors.As(err, &terminal) {
+				ok, cancelErr := w.queue.CancelClaim(ctx, intent.ID, intent.ClaimToken, terminal.err, time.Now())
+				if cancelErr != nil {
+					return cancelErr
+				}
+				if !ok {
+					continue
+				}
+				continue
+			}
 			ok, retryErr := w.queue.Retry(ctx, intent.ID, intent.ClaimToken, err, time.Now())
 			if retryErr != nil {
 				return retryErr

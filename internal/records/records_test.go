@@ -5,10 +5,25 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/FelineStateMachine/tinyrelay/internal/communityread"
 	"github.com/FelineStateMachine/tinyrelay/internal/event"
 	"github.com/FelineStateMachine/tinyrelay/internal/policy"
 	"github.com/FelineStateMachine/tinyrelay/internal/storage"
 )
+
+type emptyCommunityReader struct{}
+
+func (emptyCommunityReader) Members(context.Context) ([]communityread.Member, error) {
+	return nil, nil
+}
+
+func (emptyCommunityReader) ModerationCounts(context.Context, int64) (communityread.ModerationCounts, error) {
+	return communityread.ModerationCounts{}, nil
+}
+
+func (emptyCommunityReader) MemberStatus(context.Context, string) (bool, int, error) {
+	return false, 0, nil
+}
 
 func testStore(t *testing.T) (*storage.Store, context.Context) {
 	t.Helper()
@@ -29,7 +44,7 @@ func TestIdentitySurvivesRestartAndClockIsMonotonic(t *testing.T) {
 		t.Fatal(err)
 	}
 	p := policy.Defaults("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
-	r, err := New(ctx, Config{Store: s, Policy: func() policy.Policy { return p }, RelayURL: "wss://relay.example"})
+	r, err := New(ctx, Config{Community: emptyCommunityReader{}, Store: s, Policy: func() policy.Policy { return p }, RelayURL: "wss://relay.example"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -48,7 +63,7 @@ func TestIdentitySurvivesRestartAndClockIsMonotonic(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	r2, err := New(ctx, Config{Store: s2, Policy: func() policy.Policy { return p }, RelayURL: "wss://relay.example"})
+	r2, err := New(ctx, Config{Community: emptyCommunityReader{}, Store: s2, Policy: func() policy.Policy { return p }, RelayURL: "wss://relay.example"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -74,7 +89,7 @@ func TestIdentityContinuityAndViewPrivacy(t *testing.T) {
 	p.Views = map[string]string{"profiles": "daily"}
 	owner := "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 	p.Owner = owner
-	r, err := New(ctx, Config{Store: s, Policy: func() policy.Policy { return p }, RelayURL: "wss://relay.example"})
+	r, err := New(ctx, Config{Community: emptyCommunityReader{}, Store: s, Policy: func() policy.Policy { return p }, RelayURL: "wss://relay.example"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -97,7 +112,7 @@ func TestDirectoryPrivateViewsRequireMembersAndDoNotTick(t *testing.T) {
 	p := policy.Defaults(owner)
 	p.DirectoryPublic = false
 	p.Views = map[string]string{"profiles": "daily"}
-	r, err := New(ctx, Config{Store: s, Policy: func() policy.Policy { return p }, RelayURL: "wss://relay.example"})
+	r, err := New(ctx, Config{Community: emptyCommunityReader{}, Store: s, Policy: func() policy.Policy { return p }, RelayURL: "wss://relay.example"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -124,7 +139,7 @@ func TestViewAudienceAndMemberFoldAreNotStored(t *testing.T) {
 	p.Reads = "open"
 	p.Views = map[string]string{"profiles": "daily", "relays": "off", "calendar": "daily", "moderation": "off", "articles": "off", "zaps": "off", "presence": "off"}
 	generated := []event.Event{}
-	r, err := New(ctx, Config{Store: s, Policy: func() policy.Policy { return p }, RelayURL: "wss://relay.example", OnGenerated: func(context.Context, event.Event) error {
+	r, err := New(ctx, Config{Community: emptyCommunityReader{}, Store: s, Policy: func() policy.Policy { return p }, RelayURL: "wss://relay.example", OnGenerated: func(context.Context, event.Event) error {
 		generated = append(generated, event.Event{})
 		return nil
 	}})
@@ -151,7 +166,7 @@ func TestPresenceIsSignedWithoutGeneratedCallback(t *testing.T) {
 	owner := "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 	p := policy.Defaults(owner)
 	called := 0
-	r, err := New(ctx, Config{Store: s, Policy: func() policy.Policy { return p }, OnGenerated: func(context.Context, event.Event) error {
+	r, err := New(ctx, Config{Community: emptyCommunityReader{}, Store: s, Policy: func() policy.Policy { return p }, OnGenerated: func(context.Context, event.Event) error {
 		called++
 		return nil
 	}})
@@ -182,7 +197,7 @@ func TestHourlyViewFingerprintSkipsUnchangedRun(t *testing.T) {
 	p := policy.Defaults(owner)
 	p.Views = map[string]string{"profiles": "off", "relays": "off", "calendar": "hourly", "moderation": "off", "articles": "off", "zaps": "off", "presence": "off"}
 	generated := 0
-	r, err := New(ctx, Config{Store: s, Policy: func() policy.Policy { return p }, OnGenerated: func(context.Context, event.Event) error {
+	r, err := New(ctx, Config{Community: emptyCommunityReader{}, Store: s, Policy: func() policy.Policy { return p }, OnGenerated: func(context.Context, event.Event) error {
 		generated++
 		return nil
 	}})
@@ -215,7 +230,7 @@ func TestDefaultArticleWriteTriggerCoalescesDurably(t *testing.T) {
 		p.Views[name] = "off"
 	}
 	generated := 0
-	r, err := New(ctx, Config{Store: s, Policy: func() policy.Policy { return p }, OnGenerated: func(context.Context, event.Event) error { generated++; return nil }})
+	r, err := New(ctx, Config{Community: emptyCommunityReader{}, Store: s, Policy: func() policy.Policy { return p }, OnGenerated: func(context.Context, event.Event) error { generated++; return nil }})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -254,7 +269,7 @@ func TestSuccessionWarningAndOwnerActivityAbort(t *testing.T) {
 	p.Notify.Succession = true
 	p.Succession = &policy.Succession{Heir: heir, AfterDays: 90}
 	transfers := 0
-	r, err := New(ctx, Config{Store: s, Policy: func() policy.Policy { return p }, SetPolicy: func(next policy.Policy) error { p = next; return nil }, RelayURL: "wss://relay.example", OnTransfer: func(context.Context, string, string) error { transfers++; return nil }})
+	r, err := New(ctx, Config{Community: emptyCommunityReader{}, Store: s, Policy: func() policy.Policy { return p }, SetPolicy: func(next policy.Policy) error { p = next; return nil }, RelayURL: "wss://relay.example", OnTransfer: func(context.Context, string, string) error { transfers++; return nil }})
 	if err != nil {
 		t.Fatal(err)
 	}

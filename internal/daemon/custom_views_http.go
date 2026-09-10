@@ -18,8 +18,8 @@ func isViewArtifactPath(path string) bool {
 	return strings.HasPrefix(path, "/views/")
 }
 
-func (t *Tenant) viewArtifactHTTP(w http.ResponseWriter, r *http.Request) {
-	ctx, finish := t.app.telemetry.Start(r.Context(), "view")
+func (t *customViewService) viewArtifactHTTP(w http.ResponseWriter, r *http.Request) {
+	ctx, finish := t.telemetry.Start(r.Context(), "view")
 	r = r.WithContext(ctx)
 	outcome := "error"
 	defer func() { finish(outcome) }()
@@ -41,7 +41,7 @@ func (t *Tenant) viewArtifactHTTP(w http.ResponseWriter, r *http.Request) {
 		outcome = "invalid"
 		return
 	}
-	actor, err := t.resolveUIActor(r)
+	actor, err := t.resolveActor(r)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusUnauthorized)
 		outcome = "unauthorized"

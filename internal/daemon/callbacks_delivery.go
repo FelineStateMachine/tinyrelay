@@ -44,27 +44,27 @@ func callbackSignature(secret string, body []byte) string {
 
 // callbackHTTPClient refuses private addresses and redirects unless the
 // relay itself runs on a loopback address.
-func (t *Tenant) callbackHTTPClient() *http.Client {
-	if t.callbackClient != nil {
-		return t.callbackClient
+func (s *callbackService) callbackHTTPClient() *http.Client {
+	if s.callbackClient != nil {
+		return s.callbackClient
 	}
-	if t.loopbackRelay() {
+	if loopbackPublicURL(s.publicURL) {
 		return &http.Client{Timeout: callbackTimeout, Transport: &http.Transport{TLSClientConfig: &tls.Config{MinVersion: tls.VersionTLS12}}, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
 	}
 	return replication.NewPinnedClient(callbackTimeout)
 }
 
 // callbackLock bounds delivery to one POST per callback at a time.
-func (t *Tenant) callbackLock(id string) *sync.Mutex {
-	t.callbackMu.Lock()
-	defer t.callbackMu.Unlock()
-	if t.callbackLocks == nil {
-		t.callbackLocks = map[string]*sync.Mutex{}
+func (s *callbackService) callbackLock(id string) *sync.Mutex {
+	s.callbackMu.Lock()
+	defer s.callbackMu.Unlock()
+	if s.callbackLocks == nil {
+		s.callbackLocks = map[string]*sync.Mutex{}
 	}
-	lock := t.callbackLocks[id]
+	lock := s.callbackLocks[id]
 	if lock == nil {
 		lock = &sync.Mutex{}
-		t.callbackLocks[id] = lock
+		s.callbackLocks[id] = lock
 	}
 	return lock
 }
@@ -72,8 +72,8 @@ func (t *Tenant) callbackLock(id string) *sync.Mutex {
 // handleCallbackDelivery serves one callback-delivery intent. It rechecks
 // the callback and the key's access right before the POST, so a callback
 // removed or paused after the event arrived delivers nothing.
-func (t *Tenant) handleCallbackDelivery(ctx context.Context, intent work.Intent) (err error) {
-	ctx, finish := t.app.telemetry.Start(ctx, "callback")
+func (s *callbackService) handleCallbackDelivery(ctx context.Context, intent work.Intent) (err error) {
+	ctx, finish := s.telemetry.Start(ctx, "callback")
 	outcome := "error"
 	defer func() { finish(outcome) }()
 	var payload callbackPayload
@@ -84,10 +84,10 @@ func (t *Tenant) handleCallbackDelivery(ctx context.Context, intent work.Intent)
 	if payload.Attempt < 1 {
 		payload.Attempt = 1
 	}
-	lock := t.callbackLock(intent.Target)
+	lock := s.callbackLock(intent.Target)
 	lock.Lock()
 	defer lock.Unlock()
-	record, err := t.callback(ctx, intent.Target)
+	record, err := s.callback(ctx, intent.Target)
 	if err != nil {
 		if strings.HasPrefix(err.Error(), "not found:") {
 			outcome = "paused"
@@ -99,26 +99,26 @@ func (t *Tenant) handleCallbackDelivery(ctx context.Context, intent work.Intent)
 		outcome = "paused"
 		return nil
 	}
-	role, err := t.community.Role(ctx, record.Owner)
+	role, err := s.community.Role(ctx, record.Owner)
 	if err != nil {
 		return err
 	}
-	if role == "" && record.Owner != t.Policy().Owner {
+	if role == "" && record.Owner != s.policy().Owner {
 		// The key lost its standing since it registered; stop until a
 		// person resumes the callback.
 		outcome = "unauthorized"
-		return t.pauseCallback(ctx, record.ID, record.Failures, "paused: the key is no longer a member")
+		return s.pauseCallback(ctx, record.ID, record.Failures, "paused: the key is no longer a member")
 	}
-	if !t.gate.CanSee(ctx, payload.Event, relay.Session{PubKeys: []string{record.Owner}, RelayURL: t.RelayURL()}, nil) {
+	if !s.gate.CanSee(ctx, payload.Event, relay.Session{PubKeys: []string{record.Owner}, RelayURL: s.relayURL}, nil) {
 		outcome = "unauthorized"
 		return nil
 	}
-	status, postErr := t.postCallback(ctx, record, payload.Event)
+	status, postErr := s.postCallback(ctx, record, payload.Event)
 	now := time.Now().Unix()
 	if postErr == nil {
 		outcome = "ok"
-		_, err = t.store.DB().ExecContext(ctx, `UPDATE callbacks SET last_delivery_at=?, last_status='ok', failures=0 WHERE id=?`, now, record.ID)
-		t.app.telemetry.Logger().Info("callback delivered", "tenant", t.meta.Name, "attempt", payload.Attempt, "status", status)
+		_, err = s.store.DB().ExecContext(ctx, `UPDATE callbacks SET last_delivery_at=?, last_status='ok', failures=0 WHERE id=?`, now, record.ID)
+		s.telemetry.Logger().Info("callback delivered", "tenant", s.tenant.Name, "attempt", payload.Attempt, "status", status)
 		return err
 	}
 	// Counts only: the reason names the HTTP status or the failure class,
@@ -128,32 +128,32 @@ func (t *Tenant) handleCallbackDelivery(ctx context.Context, intent work.Intent)
 	paused := failures >= callbackPauseFailures
 	if paused {
 		outcome = "paused"
-		if err := t.pauseCallback(ctx, record.ID, failures, fmt.Sprintf("paused after %d failures: %s", failures, reason)); err != nil {
+		if err := s.pauseCallback(ctx, record.ID, failures, fmt.Sprintf("paused after %d failures: %s", failures, reason)); err != nil {
 			return err
 		}
-	} else if _, err := t.store.DB().ExecContext(ctx, `UPDATE callbacks SET failures=?, last_status=? WHERE id=?`, failures, reason, record.ID); err != nil {
+	} else if _, err := s.store.DB().ExecContext(ctx, `UPDATE callbacks SET failures=?, last_status=? WHERE id=?`, failures, reason, record.ID); err != nil {
 		return err
 	}
-	t.app.telemetry.Logger().Info("callback delivery failed", "tenant", t.meta.Name, "attempt", payload.Attempt, "status", status, "failures", failures, "paused", paused)
+	s.telemetry.Logger().Info("callback delivery failed", "tenant", s.tenant.Name, "attempt", payload.Attempt, "status", status, "failures", failures, "paused", paused)
 	if paused || payload.Attempt >= callbackMaxAttempts {
 		return nil
 	}
-	return t.retryCallback(ctx, intent, payload)
+	return s.retryCallback(ctx, intent, payload)
 }
 
 // pauseCallback stops deliveries and records the count and reason, then
 // drops the index so no new intents are queued for the callback.
-func (t *Tenant) pauseCallback(ctx context.Context, id string, failures int, status string) error {
-	if _, err := t.store.DB().ExecContext(ctx, `UPDATE callbacks SET paused=1, failures=?, last_status=? WHERE id=?`, failures, status, id); err != nil {
+func (s *callbackService) pauseCallback(ctx context.Context, id string, failures int, status string) error {
+	if _, err := s.store.DB().ExecContext(ctx, `UPDATE callbacks SET paused=1, failures=?, last_status=? WHERE id=?`, failures, status, id); err != nil {
 		return err
 	}
-	t.invalidateCallbacks()
+	s.invalidateCallbacks()
 	return nil
 }
 
 // retryCallback queues the next attempt after its backoff. Each attempt is
 // its own intent so the durable queue's ordering and fencing still apply.
-func (t *Tenant) retryCallback(ctx context.Context, intent work.Intent, payload callbackPayload) error {
+func (s *callbackService) retryCallback(ctx context.Context, intent work.Intent, payload callbackPayload) error {
 	delay := callbackBackoff[len(callbackBackoff)-1]
 	if payload.Attempt-1 < len(callbackBackoff) {
 		delay = callbackBackoff[payload.Attempt-1]
@@ -165,7 +165,7 @@ func (t *Tenant) retryCallback(ctx context.Context, intent work.Intent, payload 
 	}
 	now := time.Now().Unix()
 	key := sha256.Sum256([]byte(callbackDelivery + "\x00" + payload.Event.ID + "\x00" + intent.Target + "\x00" + fmt.Sprint(payload.Attempt)))
-	return t.store.WithTx(ctx, func(tx *sql.Tx) error {
+	return s.store.WithTx(ctx, func(tx *sql.Tx) error {
 		_, err := tx.ExecContext(ctx, `INSERT OR IGNORE INTO work_intents(id,kind,event_id,target,payload,next_at,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?)`, hex.EncodeToString(key[:]), callbackDelivery, payload.Event.ID+"#"+fmt.Sprint(payload.Attempt), intent.Target, string(encoded), now+int64(delay/time.Second), now, now)
 		return err
 	})
@@ -173,7 +173,7 @@ func (t *Tenant) retryCallback(ctx context.Context, intent work.Intent, payload 
 
 // postCallback sends the event and returns the HTTP status with a bounded
 // reason on failure.
-func (t *Tenant) postCallback(ctx context.Context, record callbackRecord, e event.Event) (int, error) {
+func (s *callbackService) postCallback(ctx context.Context, record callbackRecord, e event.Event) (int, error) {
 	body, err := json.Marshal(e)
 	if err != nil {
 		return 0, errors.New("encode event")
@@ -187,9 +187,9 @@ func (t *Tenant) postCallback(ctx context.Context, record callbackRecord, e even
 	request.Header.Set("Content-Type", "application/json")
 	request.Header.Set("X-Tiny-Callback", record.ID)
 	request.Header.Set("X-Tiny-Signature", callbackSignature(record.secret, body))
-	request.Header.Set("X-Tiny-Relay", t.publicURL)
+	request.Header.Set("X-Tiny-Relay", s.publicURL)
 	request.Header.Set("User-Agent", "tinyrelay")
-	response, err := t.callbackHTTPClient().Do(request)
+	response, err := s.callbackHTTPClient().Do(request)
 	if err != nil {
 		if errors.Is(err, context.DeadlineExceeded) || ctx.Err() != nil {
 			return 0, errors.New("timeout")
@@ -202,4 +202,8 @@ func (t *Tenant) postCallback(ctx context.Context, record callbackRecord, e even
 		return response.StatusCode, fmt.Errorf("HTTP %d", response.StatusCode)
 	}
 	return response.StatusCode, nil
+}
+
+func (t *Tenant) handleCallbackDelivery(ctx context.Context, intent work.Intent) error {
+	return t.callbacks.handleCallbackDelivery(ctx, intent)
 }

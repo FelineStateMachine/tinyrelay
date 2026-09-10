@@ -6,6 +6,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import vm from "node:vm";
 import { finalizeEvent, generateSecretKey, verifyEvent } from "nostr-tools";
+import { sharedSigning } from "./test-signing.mjs";
 
 const request = "a".repeat(64), asker = "b".repeat(64);
 const source = fs.readFileSync("internal/webui/components.js", "utf8");
@@ -39,6 +40,7 @@ function setup(attributes, options = {}) {
     signedFetch: async (path, method, body) => { sent.push({path, method, event: JSON.parse(body)}); return Response.json(options.result ?? {accepted: true}); },
     navigate: async href => { navigated = href; }
   };
+  tiny.signing = sharedSigning(window, tiny);
   const document = {addEventListener(event, fn) { listeners[event] = fn; }};
   const Constructor = vm.runInNewContext(`${reactSource}\nNostrReact`, {FormElement, window, tiny, document, el: node, isHex64: value => /^[0-9a-f]{64}$/.test(value || ""), globalThis: {location: {href: "https://tiny.example/approvals?id=" + request + "&answer=approve"}}, Date, JSON, Math, Object, Response});
   const component = new Constructor();

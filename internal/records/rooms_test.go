@@ -54,7 +54,7 @@ func TestRoomRecordsAndNotices(t *testing.T) {
 	send("alice", event.KIND_PUT_USER, [][]string{{"h", "team"}, {"p", keys["carol"]}})
 
 	var generated []event.Event
-	r, err := New(ctx, Config{Store: s, Policy: func() policy.Policy { return p }, RelayURL: "wss://relay.example", GroupID: "main", OnGenerated: func(ctx context.Context, e event.Event) error {
+	r, err := New(ctx, Config{Community: emptyCommunityReader{}, Store: s, Policy: func() policy.Policy { return p }, RelayURL: "wss://relay.example", GroupID: "main", OnGenerated: func(ctx context.Context, e event.Event) error {
 		generated = append(generated, e)
 		_, err := s.Save(ctx, e, storage.SaveOptions{Now: e.CreatedAt})
 		return err

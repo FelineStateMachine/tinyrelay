@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import vm from "node:vm";
 import { finalizeEvent, generateSecretKey, verifyEvent } from "nostr-tools";
+import { sharedSigning } from "./test-signing.mjs";
 
 const root = "a".repeat(64), author = "b".repeat(64), parent = "c".repeat(64), parentAuthor = "d".repeat(64);
 const coordinate = `30617:${author}:test`;
@@ -24,6 +25,7 @@ function setup(attributes, values = {}, options = {}) {
     sent.push({path, method, event: JSON.parse(body)});
     return Response.json(options.result ?? {accepted: true});
   }};
+  tiny.signing = sharedSigning(window, tiny);
   const Constructor = vm.runInNewContext(`${composeSource}\nNostrCompose`, {FormElement, window, tiny, URL, isHex64: value => /^[0-9a-f]{64}$/.test(value || "")});
   const component = new Constructor();
   const form = {elements: Object.fromEntries(Object.entries(values).map(([key, value]) => [key, {value}])), reset: () => { resets++; }};

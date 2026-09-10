@@ -1,13 +1,4 @@
 import { build } from "esbuild";
+import { signerBundle } from "./bundle-config.mjs";
 
-await build({
-  entryPoints: ["scripts/signer-entry.mjs"],
-  bundle: true,
-  minify: true,
-  format: "iife",
-  platform: "browser",
-  target: ["es2020"],
-  outfile: "internal/webui/signer.js",
-  legalComments: "eof",
-  banner: { js: '"use strict";' },
-});
+await build(signerBundle("internal/webui/signer.js"));

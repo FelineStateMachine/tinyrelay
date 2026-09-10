@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/FelineStateMachine/tinyrelay/internal/auth"
+	"github.com/FelineStateMachine/tinyrelay/internal/policy"
 )
 
 func (t *Tenant) privateHTTPAuth(ctx context.Context, method, rawURL, payloadHash string) (string, error) {
@@ -20,7 +21,7 @@ func (t *Tenant) privateHTTPAuth(ctx context.Context, method, rawURL, payloadHas
 	if t == nil || t.records == nil || !t.PrivateServiceEnabled() {
 		return "", fmt.Errorf("private peer: relay identity unavailable")
 	}
-	if !privatePeerMatch(rawURL, t.Policy().PrivatePeers) {
+	if policy.PrivatePeerBase(rawURL, t.Policy().PrivatePeers) == "" {
 		return "", fmt.Errorf("private peer: target is no longer configured")
 	}
 	root, ok := auth.GRASP08RepositoryRoot(rawURL)
@@ -39,25 +40,11 @@ func (t *Tenant) privateHTTPAuth(ctx context.Context, method, rawURL, payloadHas
 }
 
 func privatePeerMatch(source string, peers []string) bool {
-	u, err := url.Parse(source)
-	if err != nil {
-		return false
-	}
-	for _, peer := range peers {
-		p, err := url.Parse(strings.TrimRight(strings.TrimSpace(peer), "/"))
-		if err != nil || normalizePeerScheme(p.Scheme) != normalizePeerScheme(u.Scheme) || p.Host != u.Host {
-			continue
-		}
-		base := strings.TrimRight(p.Path, "/")
-		if base == "" || u.Path == base || strings.HasPrefix(u.Path, base+"/") {
-			return true
-		}
-	}
-	return false
+	return policy.PrivatePeerBase(source, peers) != ""
 }
 
 func (t *Tenant) privatePeerReady(ctx context.Context, target string) bool {
-	if !t.PrivateServiceEnabled() || !privatePeerMatch(target, t.Policy().PrivatePeers) {
+	if !t.PrivateServiceEnabled() || policy.PrivatePeerBase(target, t.Policy().PrivatePeers) == "" {
 		return false
 	}
 	u, err := url.Parse(target)
@@ -121,14 +108,4 @@ func privatePeerHTTPClient(allowPrivate bool) *http.Client {
 		return nil, fmt.Errorf("private peer: no usable address for %s", host)
 	}
 	return &http.Client{Transport: transport, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
-}
-
-func normalizePeerScheme(scheme string) string {
-	if scheme == "ws" {
-		return "http"
-	}
-	if scheme == "wss" {
-		return "https"
-	}
-	return scheme
 }

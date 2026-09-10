@@ -265,11 +265,17 @@ const kindWikiArticle = 30818
 
 func AddIntents(ctx context.Context, tx *sql.Tx, intents []Intent, now int64) error {
 	for _, intent := range intents {
-		key := sha256.Sum256([]byte(intent.Kind + "\x00" + intent.EventID + "\x00" + intent.Target))
-		_, err := tx.ExecContext(ctx, "INSERT OR IGNORE INTO work_intents(id,kind,event_id,target,payload,next_at,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?)", hex.EncodeToString(key[:]), intent.Kind, intent.EventID, intent.Target, intent.Payload, now, now, now)
+		_, err := tx.ExecContext(ctx, "INSERT OR IGNORE INTO work_intents(id,kind,event_id,target,payload,next_at,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?)", IntentID(intent.Kind, intent.EventID, intent.Target), intent.Kind, intent.EventID, intent.Target, intent.Payload, now, now, now)
 		if err != nil {
 			return fmt.Errorf("enqueue %s intent: %w", intent.Kind, err)
 		}
 	}
 	return nil
+}
+
+// IntentID returns the stable identifier shared by transactional and queued
+// durable work. Payload changes do not create a second intent.
+func IntentID(kind, eventID, target string) string {
+	key := sha256.Sum256([]byte(kind + "\x00" + eventID + "\x00" + target))
+	return hex.EncodeToString(key[:])
 }

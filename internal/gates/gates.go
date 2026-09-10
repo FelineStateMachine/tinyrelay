@@ -723,13 +723,7 @@ func (g *Gate) CanSee(ctx context.Context, e event.Event, s relay.Session, f *ev
 // inherited from the corresponding replaceable announcement, so checking only
 // the state event's own tags would allow metadata to escape after a restart.
 func privateRepositoryEvent(ctx context.Context, store *storage.Store, e event.Event) (bool, error) {
-	if policy.IsPrivateRepository(e) {
-		return true, nil
-	}
-	if store == nil || e.Kind != event.KIND_REPO_STATE {
-		return false, nil
-	}
-	return store.IsPrivateRepository(ctx, e.PubKey, event.Tag(e, "d"))
+	return policy.PrivateRepository(ctx, store, e)
 }
 
 func canSeeSignerMessage(e event.Event, s relay.Session, f *event.Filter) bool {

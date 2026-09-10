@@ -124,6 +124,9 @@ func New(config Config) (*Service, error) {
 	if config.MaxFetchBytes < 0 {
 		return nil, errors.New("sites maximum fetch bytes cannot be negative")
 	}
+	if err := ensureManifestSchema(context.Background(), config.Store.DB()); err != nil {
+		return nil, fmt.Errorf("sites schema: %w", err)
+	}
 	return &Service{config: config}, nil
 }
 
@@ -154,19 +157,6 @@ func (s *Service) DeleteTx(ctx context.Context, tx *sql.Tx, eventID string) erro
 }
 
 func (s *Service) applyManifest(ctx context.Context, tx *sql.Tx, e event.Event) error {
-	_, err := tx.ExecContext(ctx, `CREATE TABLE IF NOT EXISTS site_manifests (
-		label TEXT PRIMARY KEY, event_id TEXT NOT NULL, kind INTEGER NOT NULL,
-		pubkey TEXT NOT NULL, d TEXT NOT NULL DEFAULT '', updated_at INTEGER NOT NULL
-	);
-	CREATE TRIGGER IF NOT EXISTS site_manifest_event_deleted
-	AFTER DELETE ON events
-	WHEN old.kind IN (5128,15128,35128)
-	BEGIN
-		DELETE FROM site_manifests WHERE event_id=old.id;
-	END;`)
-	if err != nil {
-		return fmt.Errorf("initialize site index: %w", err)
-	}
 	if e.Kind != KindSite && e.Kind != KindNamedSite && e.Kind != KindSiteSnapshot {
 		return nil
 	}
@@ -174,7 +164,7 @@ func (s *Service) applyManifest(ctx context.Context, tx *sql.Tx, e event.Event) 
 	if label == "" {
 		return errors.New("invalid: site label")
 	}
-	_, err = tx.ExecContext(ctx, `INSERT INTO site_manifests(label,event_id,kind,pubkey,d,updated_at) VALUES(?,?,?,?,?,?) ON CONFLICT(label) DO UPDATE SET event_id=excluded.event_id,kind=excluded.kind,pubkey=excluded.pubkey,d=excluded.d,updated_at=excluded.updated_at`, label, e.ID, e.Kind, e.PubKey, event.Tag(e, "d"), time.Now().Unix())
+	_, err := tx.ExecContext(ctx, `INSERT INTO site_manifests(label,event_id,kind,pubkey,d,updated_at) VALUES(?,?,?,?,?,?) ON CONFLICT(label) DO UPDATE SET event_id=excluded.event_id,kind=excluded.kind,pubkey=excluded.pubkey,d=excluded.d,updated_at=excluded.updated_at`, label, e.ID, e.Kind, e.PubKey, event.Tag(e, "d"), time.Now().Unix())
 	return err
 }
 

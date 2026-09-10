@@ -67,6 +67,8 @@ Each artifact is served at `/views/<name>/<hash>` with its stored media type, un
 
 ## Failures
 
+A valid event is accepted even when its optional transform work cannot be planned immediately. The relay makes up to three background planning attempts within 15 minutes, rechecks the source and view, and skips work that is no longer relevant. Recovery fills missing work without restarting completed transforms or backfilling views registered after the event.
+
 A response outside 2xx, a timeout or a connection failure counts as a failure. The relay tries the event again after one minute and once more after five, three attempts in all, then drops it. After 20 failures in a row the view is paused and its status records the reason. A successful run resets the failure count.
 
 ## Manage views

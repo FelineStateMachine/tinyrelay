@@ -323,6 +323,8 @@ Right before each POST the relay checks that the callback still exists and is no
 
 ### Retries and pauses
 
+A valid event is accepted even when its optional callback work cannot be planned immediately. The relay makes up to three background planning attempts within 15 minutes, rechecks the source and callback, and skips work that is no longer relevant. Recovery fills missing work without restarting completed deliveries or sending earlier events to newly registered callbacks.
+
 A response outside 2xx, a timeout or a connection failure counts as a failure. The relay tries the event again after one minute and once more after five, three attempts in all, then drops it. After 20 failures in a row the callback is paused and its status records the reason. A callback is also paused when its key is no longer a member. A successful delivery resets the failure count. Resume a paused callback with `resumecallback`.
 
 ### Manage callbacks

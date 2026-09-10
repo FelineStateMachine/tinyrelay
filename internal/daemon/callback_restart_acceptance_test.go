@@ -117,7 +117,7 @@ func TestCallbackIntentSurvivesRestartAndHonorsRevocation(t *testing.T) {
 	}
 	runCtx, cancel := context.WithCancel(ctx)
 	done := make(chan error, 1)
-	go func() { done <- reloaded.replication.Run(runCtx) }()
+	go func() { done <- reloaded.runWork(runCtx) }()
 	if !waitFor(t, 3*time.Second, func() bool {
 		items, listErr := reloaded.replication.Queue().Pending(ctx, "callback")
 		return listErr == nil && len(items) == 0

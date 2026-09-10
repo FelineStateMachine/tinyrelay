@@ -7,7 +7,6 @@ import (
 	"bytes"
 	"context"
 	_ "embed"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"html/template"
@@ -172,43 +171,7 @@ func (a *App) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
 	if a.denyPrivateEndpoint(writer, request) {
 		return
 	}
-	if request.Method == http.MethodPost && request.URL.Path == "/manage/rpc" {
-		a.rpc(writer, request)
-		return
-	}
-	if request.Method == http.MethodGet && request.URL.Path == "/api/join-policy" {
-		a.joinPolicy(writer)
-		return
-	}
-	if request.Method == http.MethodPost && request.URL.Path == "/api/invites/claim" {
-		a.claimInvite(writer, request)
-		return
-	}
-	if request.Method == http.MethodGet && request.URL.Path == "/manage/jobs/status" {
-		a.jobStatus(writer, request)
-		return
-	}
-	if request.Method == http.MethodGet && request.URL.Path == "/webmcp.js" {
-		a.webMCP(writer, request)
-		return
-	}
-	if request.Method == http.MethodGet && request.URL.Path == "/webmcp/query" {
-		a.webMCPQuery(writer, request)
-		return
-	}
-	if request.URL.Path == "/manage/status" || request.URL.Path == "/tools" {
-		// Service status and the browser tools report both live on Health now.
-		http.Redirect(writer, request, requestPrefix(request)+"/manage/health", http.StatusMovedPermanently)
-		return
-	}
-	if request.Method == http.MethodGet && (request.URL.Path == "/repos" || request.URL.Path == "/repo" || request.URL.Path == "/files" || request.URL.Path == "/file" || request.URL.Path == "/approvals" || request.URL.Path == "/profile" || request.URL.Path == "/wiki" || strings.HasPrefix(request.URL.Path, "/wiki/") || request.URL.Path == "/manage/health" || roomRoute(request.URL.Path).tab != "") {
-		a.browse(writer, request)
-		return
-	}
-	if request.URL.Path == "/share" {
-		// The service worker receives shares before they reach the network.
-		// Without it, send the person to the Files page to upload directly.
-		http.Redirect(writer, request, requestPrefix(request)+"/files", http.StatusSeeOther)
+	if a.handleControlRoute(writer, request) || a.handleWebMCPRoute(writer, request) || a.handleBrowseRoute(writer, request) {
 		return
 	}
 	if request.Method != http.MethodGet && request.Method != http.MethodHead {
@@ -375,39 +338,6 @@ func (a *App) jobStatus(writer http.ResponseWriter, request *http.Request) {
 			}
 		}
 	}
-}
-
-func jobsFragment(result any, queryErr error) string {
-	if queryErr != nil {
-		return `<tbody><tr><td role="status">` + template.HTMLEscapeString(queryErr.Error()) + `</td></tr></tbody>`
-	}
-	rows := make([][]string, 0)
-	for _, row := range browseRows(result) {
-		values, _ := row.(map[string]any)
-		rows = append(rows, []string{plainString(nestedValue(values, "spec", "id")), plainString(firstValue(values, "phase", "status")), plainString(firstValue(values, "finished", "started"))})
-	}
-	return tableRows([]string{"Job", "Status", "Updated"}, rows)
-}
-
-func nestedValue(values map[string]any, keys ...string) any {
-	var current any = values
-	for _, key := range keys {
-		m, ok := current.(map[string]any)
-		if !ok {
-			return ""
-		}
-		current = m[key]
-	}
-	return current
-}
-
-func firstValue(values map[string]any, keys ...string) any {
-	for _, key := range keys {
-		if value, ok := values[key]; ok && value != nil {
-			return value
-		}
-	}
-	return ""
 }
 
 func (a *App) joinPolicy(writer http.ResponseWriter) {
@@ -659,7 +589,10 @@ func (a *App) browse(writer http.ResponseWriter, request *http.Request) {
 	if method == "browserepo" && request.URL.Query().Get("view") == "file" {
 		tree = a.siblings(request.Context(), actor, request.URL.Query())
 	}
-	result, err := a.backend.Query(request.Context(), method, params, actor)
+	result, err, typedRoom := a.typedRoomResult(request.Context(), room, pageQuery, actor)
+	if !typedRoom {
+		result, err = a.backend.Query(request.Context(), method, params, actor)
+	}
 	if err != nil {
 		data := PageData{Tab: browseTab(path), Error: err.Error(), Query: pageQuery, View: room.id}
 		if room.tab != "" {
@@ -848,50 +781,6 @@ func (a *App) render(writer http.ResponseWriter, request *http.Request, data Pag
 		return
 	}
 	_, _ = writer.Write([]byte(injectBase(rendered.String(), data.Base)))
-}
-
-func identityNpub(identity string) string {
-	decoded, err := hex.DecodeString(identity)
-	if err != nil || len(decoded) != 32 {
-		return identity
-	}
-	return encodeNpub(decoded)
-}
-
-const bech32Charset = "qpzry9x8gf2tvdw0s3jn54khce6mua7l"
-
-func encodeNpub(data []byte) string { return bech32("npub", data) }
-
-func convertBits(data []byte) []byte {
-	result := make([]byte, 0, 52)
-	accumulator, bits := 0, 0
-	for _, value := range data {
-		accumulator = (accumulator << 8) | int(value)
-		bits += 8
-		for bits >= 5 {
-			bits -= 5
-			result = append(result, byte(accumulator>>bits&31))
-		}
-	}
-	if bits > 0 {
-		result = append(result, byte(accumulator<<(5-bits)&31))
-	}
-	return result
-}
-
-func bech32Polymod(values []byte) uint64 {
-	generators := [...]uint64{0x3b6a57b2, 0x26508e6d, 0x1ea119fa, 0x3d4233dd, 0x2a1462b3}
-	checksum := uint64(1)
-	for _, value := range values {
-		top := checksum >> 25
-		checksum = (checksum&0x1ffffff)<<5 ^ uint64(value)
-		for i, generator := range generators {
-			if top>>uint(i)&1 != 0 {
-				checksum ^= generator
-			}
-		}
-	}
-	return checksum
 }
 
 // manifest describes the installable app for this relay and tenant prefix.

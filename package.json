@@ -5,6 +5,8 @@
   "scripts": {
     "build:signer": "node scripts/build-signer.mjs",
     "build:nostr-name": "node scripts/build-nostr-name.mjs",
+    "verify:bundles": "node scripts/verify-bundles.mjs",
+    "test:js": "node --test scripts/*.test.mjs",
     "test:conformance": "node scripts/conformance/run.mjs",
     "test:webmcp": "node --test scripts/webmcp.test.mjs",
     "test:signer": "node --test scripts/signer.test.mjs",

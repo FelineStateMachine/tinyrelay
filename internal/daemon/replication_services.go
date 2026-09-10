@@ -199,12 +199,15 @@ func (p tenantReplicationProvider) Restore(ctx context.Context, state replicatio
 			if _, err := p.tenant.config.ApplyWithOptions(ctx, parsed, configport.ApplyOptions{MigrationOwner: identity.Owner}); err != nil {
 				return fmt.Errorf("daemon: legacy config apply: %w", err)
 			}
-			fresh, err := records.New(ctx, records.Config{Store: p.tenant.store, Policy: p.tenant.Policy, RelayURL: p.tenant.RelayURL(), GroupID: p.tenant.meta.Name, OnGenerated: p.tenant.generatedRecord, DeliverNotification: p.tenant.deliverNotification, PushNotification: p.tenant.enqueuePush, SetPolicy: func(next policy.Policy) error { return p.tenant.applyPolicy(context.Background(), next) }})
+			fresh, err := records.New(ctx, records.Config{Store: p.tenant.store, Community: p.tenant.community, Policy: p.tenant.Policy, RelayURL: p.tenant.RelayURL(), GroupID: p.tenant.meta.Name, OnGenerated: p.tenant.generatedRecord, DeliverNotification: p.tenant.deliverNotification, PushNotification: p.tenant.enqueuePush, SetPolicy: func(next policy.Policy) error { return p.tenant.applyPolicy(context.Background(), next) }})
 			if err != nil {
 				return fmt.Errorf("daemon: refresh records after legacy config: %w", err)
 			}
 			if legacyConfig {
 				p.tenant.records = fresh
+				if p.tenant.customViews != nil {
+					p.tenant.customViews.records = fresh
+				}
 			}
 		} else {
 			var next policy.Policy
@@ -231,11 +234,14 @@ func (p tenantReplicationProvider) Restore(ctx context.Context, state replicatio
 				p.tenant.policy = next
 				p.tenant.mu.Unlock()
 			}
-			fresh, err := records.New(ctx, records.Config{Store: p.tenant.store, Policy: p.tenant.Policy, RelayURL: p.tenant.RelayURL(), GroupID: p.tenant.meta.Name, OnGenerated: p.tenant.generatedRecord, DeliverNotification: p.tenant.deliverNotification, PushNotification: p.tenant.enqueuePush, SetPolicy: func(next policy.Policy) error { return p.tenant.applyPolicy(context.Background(), next) }})
+			fresh, err := records.New(ctx, records.Config{Store: p.tenant.store, Community: p.tenant.community, Policy: p.tenant.Policy, RelayURL: p.tenant.RelayURL(), GroupID: p.tenant.meta.Name, OnGenerated: p.tenant.generatedRecord, DeliverNotification: p.tenant.deliverNotification, PushNotification: p.tenant.enqueuePush, SetPolicy: func(next policy.Policy) error { return p.tenant.applyPolicy(context.Background(), next) }})
 			if err != nil {
 				return fmt.Errorf("daemon: refresh records identity: %w", err)
 			}
 			p.tenant.records = fresh
+			if p.tenant.customViews != nil {
+				p.tenant.customViews.records = fresh
+			}
 		}
 	}
 	if len(state.Blobs) > 0 {

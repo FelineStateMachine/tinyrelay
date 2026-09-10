@@ -14,6 +14,7 @@ import (
 
 	"github.com/FelineStateMachine/tinyrelay/internal/community"
 	"github.com/FelineStateMachine/tinyrelay/internal/policy"
+	"github.com/FelineStateMachine/tinyrelay/internal/replication"
 	"github.com/FelineStateMachine/tinyrelay/internal/storage"
 	"github.com/FelineStateMachine/tinyrelay/internal/templates"
 )
@@ -78,7 +79,7 @@ func New(c ConfigStore) *ConfigStore {
 	if c.Store != nil {
 		_, _ = c.Store.DB().Exec(`CREATE TABLE IF NOT EXISTS config_connections(position INTEGER PRIMARY KEY, value TEXT NOT NULL)`)
 		_, _ = c.Store.DB().Exec(`CREATE TABLE IF NOT EXISTS config_jobs(id TEXT PRIMARY KEY, recipe TEXT NOT NULL)`)
-		_, _ = c.Store.DB().Exec(`CREATE TABLE IF NOT EXISTS replication_jobs (id TEXT PRIMARY KEY, payload TEXT NOT NULL, state TEXT NOT NULL, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, phase TEXT NOT NULL DEFAULT 'pending', error TEXT NOT NULL DEFAULT '', stored INTEGER NOT NULL DEFAULT 0, sent INTEGER NOT NULL DEFAULT 0, skipped INTEGER NOT NULL DEFAULT 0, refused INTEGER NOT NULL DEFAULT 0, cursor INTEGER NOT NULL DEFAULT 0, rounds INTEGER NOT NULL DEFAULT 0, started_at INTEGER NOT NULL DEFAULT 0, finished_at INTEGER NOT NULL DEFAULT 0)`)
+		_ = replication.EnsureJobSchema(c.Store.DB())
 	}
 	return &c
 }
@@ -179,55 +180,33 @@ func (s *ConfigStore) Export(ctx context.Context) (Config, error) {
 	if s.Store == nil {
 		return c, errors.New("config: missing store")
 	}
-	rows, err := s.Store.DB().QueryContext(ctx, `SELECT pubkey,name,note,role FROM community_members WHERE role<>'owner' ORDER BY pubkey`)
+	communityConfig, err := community.ExportConfig(ctx, s.Store)
 	if err != nil {
 		return c, err
 	}
-	defer rows.Close()
-	for rows.Next() {
-		var m Member
-		if err := rows.Scan(&m.PubKey, &m.Name, &m.Note, &m.Role); err != nil {
-			return c, err
-		}
-		c.Members = append(c.Members, m)
+	for _, m := range communityConfig.Members {
+		c.Members = append(c.Members, Member{PubKey: m.PubKey, Name: m.Name, Note: m.Note, Role: m.Role})
 	}
-	if err := rows.Err(); err != nil {
-		return c, err
+	for _, item := range communityConfig.Bans {
+		c.Bans = append(c.Bans, map[string]any{"pubkey": item.PubKey, "reason": item.Reason})
 	}
-	for _, q := range []struct {
-		query  string
-		dst    *[]map[string]any
-		fields []any
-	}{{`SELECT pubkey,reason FROM community_bans ORDER BY pubkey`, &c.Bans, nil}, {`SELECT ip,reason FROM community_ip_blocks ORDER BY ip`, &c.Addresses, nil}, {`SELECT id,reason FROM community_event_bans ORDER BY id`, &c.BannedEvents, nil}} {
-		rs, e := s.Store.DB().QueryContext(ctx, q.query)
-		if e != nil {
-			return c, e
-		}
-		for rs.Next() {
-			if q.dst == &c.Bans {
-				var k, v string
-				if e = rs.Scan(&k, &v); e == nil {
-					*q.dst = append(*q.dst, map[string]any{"pubkey": k, "reason": v})
-				}
-			} else if q.dst == &c.Addresses {
-				var k, v string
-				if e = rs.Scan(&k, &v); e == nil {
-					*q.dst = append(*q.dst, map[string]any{"ip": k, "reason": v})
-				}
-			} else {
-				var k, v string
-				if e = rs.Scan(&k, &v); e == nil {
-					*q.dst = append(*q.dst, map[string]any{"id": k, "reason": v})
-				}
-			}
-			if e != nil {
-				rs.Close()
-				return c, e
-			}
-		}
-		rs.Close()
+	for _, item := range communityConfig.IPBlocks {
+		c.Addresses = append(c.Addresses, map[string]any{"ip": item.IP, "reason": item.Reason})
 	}
-	rows, err = s.Store.DB().QueryContext(ctx, `SELECT value FROM config_connections ORDER BY position`)
+	for _, item := range communityConfig.EventBans {
+		c.BannedEvents = append(c.BannedEvents, map[string]any{"id": item.ID, "reason": item.Reason})
+	}
+	for _, item := range communityConfig.KindRules {
+		if item.Rule == "allow" {
+			c.Kinds.Allow = append(c.Kinds.Allow, item.Kind)
+		} else if item.Rule == "block" {
+			c.Kinds.Block = append(c.Kinds.Block, item.Kind)
+		}
+	}
+	for _, item := range communityConfig.Retention {
+		c.Retention = append(c.Retention, Rule{Kind: item.Kind, Days: item.Days})
+	}
+	rows, err := s.Store.DB().QueryContext(ctx, `SELECT value FROM config_connections ORDER BY position`)
 	if err == nil {
 		defer rows.Close()
 		for rows.Next() {
@@ -362,90 +341,40 @@ func (s *ConfigStore) ApplyWithOptions(ctx context.Context, c Config, opts Apply
 				return err
 			}
 		}
-		if has(c, "members") {
-			if _, err := tx.ExecContext(ctx, `DELETE FROM community_members WHERE role<>'owner'`); err != nil {
-				return err
-			}
-			for _, m := range c.Members {
-				if _, err := tx.ExecContext(ctx, `INSERT INTO community_members(pubkey,name,note,role,created_at) VALUES(?,?,?,?,?)`, m.PubKey, m.Name, m.Note, m.Role, time.Now().Unix()); err != nil {
-					return err
-				}
-			}
+		communityConfig := community.ConfigSnapshot{}
+		for _, m := range c.Members {
+			communityConfig.Members = append(communityConfig.Members, community.Member{PubKey: m.PubKey, Name: m.Name, Note: m.Note, Role: m.Role})
+		}
+		for _, b := range c.Bans {
+			pk, _ := b["pubkey"].(string)
+			reason, _ := b["reason"].(string)
+			communityConfig.Bans = append(communityConfig.Bans, community.ConfigBan{PubKey: pk, Reason: reason})
+		}
+		for _, b := range c.Addresses {
+			ip, _ := b["ip"].(string)
+			reason, _ := b["reason"].(string)
+			communityConfig.IPBlocks = append(communityConfig.IPBlocks, community.ConfigIPBlock{IP: ip, Reason: reason})
+		}
+		for _, b := range c.BannedEvents {
+			id, _ := b["id"].(string)
+			reason, _ := b["reason"].(string)
+			communityConfig.EventBans = append(communityConfig.EventBans, community.ConfigEventBan{ID: id, Reason: reason})
+		}
+		for _, k := range c.Kinds.Allow {
+			communityConfig.KindRules = append(communityConfig.KindRules, community.ConfigKindRule{Kind: k, Rule: "allow"})
+		}
+		for _, k := range c.Kinds.Block {
+			communityConfig.KindRules = append(communityConfig.KindRules, community.ConfigKindRule{Kind: k, Rule: "block"})
+		}
+		for _, r := range c.Retention {
+			communityConfig.Retention = append(communityConfig.Retention, community.ConfigRetention{Kind: r.Kind, Days: r.Days})
+		}
+		if err := community.ApplyConfigTx(ctx, tx, communityConfig, has(c, "members"), has(c, "bans"), has(c, "addresses"), has(c, "banned_events"), has(c, "kinds"), has(c, "retention")); err != nil {
+			return err
 		}
 		if s.Community != nil && ch.FinalPolicy.Owner != "" && ch.FinalPolicy.Owner != cur.Owner {
 			if err := s.Community.ApplyOwnerTx(ctx, tx, cur.Owner, ch.FinalPolicy.Owner); err != nil {
 				return err
-			}
-		}
-		if has(c, "bans") {
-			if _, err := tx.ExecContext(ctx, `DELETE FROM community_bans`); err != nil {
-				return err
-			}
-			for _, b := range c.Bans {
-				pk, _ := b["pubkey"].(string)
-				reason, _ := b["reason"].(string)
-				if pk != "" {
-					if _, err := tx.ExecContext(ctx, `INSERT INTO community_bans(pubkey,reason,at) VALUES(?,?,?)`, pk, reason, time.Now().Unix()); err != nil {
-						return err
-					}
-				}
-			}
-		}
-		if has(c, "addresses") {
-			if _, err := tx.ExecContext(ctx, `DELETE FROM community_ip_blocks`); err != nil {
-				return err
-			}
-			for _, b := range c.Addresses {
-				ip, _ := b["ip"].(string)
-				reason, _ := b["reason"].(string)
-				if ip != "" {
-					if _, err := tx.ExecContext(ctx, `INSERT INTO community_ip_blocks(ip,reason,at) VALUES(?,?,?)`, ip, reason, time.Now().Unix()); err != nil {
-						return err
-					}
-				}
-			}
-		}
-		if has(c, "banned_events") {
-			if _, err := tx.ExecContext(ctx, `DELETE FROM community_event_bans`); err != nil {
-				return err
-			}
-			for _, b := range c.BannedEvents {
-				id, _ := b["id"].(string)
-				reason, _ := b["reason"].(string)
-				if id != "" {
-					if _, err := tx.ExecContext(ctx, `INSERT INTO community_event_bans(id,reason,at) VALUES(?,?,?)`, id, reason, time.Now().Unix()); err != nil {
-						return err
-					}
-				}
-			}
-		}
-		if has(c, "kinds") {
-			if _, err := tx.ExecContext(ctx, `DELETE FROM community_kind_rules`); err != nil {
-				return err
-			}
-			for _, k := range c.Kinds.Allow {
-				if _, err := tx.ExecContext(ctx, `INSERT INTO community_kind_rules(kind,rule) VALUES(?,?)`, k, "allow"); err != nil {
-					return err
-				}
-			}
-			for _, k := range c.Kinds.Block {
-				if _, err := tx.ExecContext(ctx, `INSERT INTO community_kind_rules(kind,rule) VALUES(?,?)`, k, "block"); err != nil {
-					return err
-				}
-			}
-		}
-		if has(c, "retention") {
-			if _, err := tx.ExecContext(ctx, `DELETE FROM community_retention`); err != nil {
-				return err
-			}
-			for _, r := range c.Retention {
-				kind := -1
-				if r.Kind != nil {
-					kind = *r.Kind
-				}
-				if _, err := tx.ExecContext(ctx, `INSERT INTO community_retention(kind,days) VALUES(?,?)`, kind, r.Days); err != nil {
-					return err
-				}
 			}
 		}
 		if has(c, "connections") {
@@ -463,9 +392,7 @@ func (s *ConfigStore) ApplyWithOptions(ctx context.Context, c Config, opts Apply
 			if _, err := tx.ExecContext(ctx, `DELETE FROM config_jobs`); err != nil {
 				return err
 			}
-			if _, err := tx.ExecContext(ctx, `DELETE FROM replication_jobs`); err != nil {
-				return err
-			}
+			var replicationJobs []replication.ConfigJob
 			for _, job := range c.Jobs {
 				id, _ := job["id"].(string)
 				if id == "" {
@@ -489,9 +416,10 @@ func (s *ConfigStore) ApplyWithOptions(ctx context.Context, c Config, opts Apply
 				if err != nil {
 					return err
 				}
-				if _, err := tx.ExecContext(ctx, `INSERT INTO replication_jobs(id,payload,state,created_at,updated_at) VALUES(?,?, 'pending',strftime('%s','now'),strftime('%s','now')) ON CONFLICT(id) DO UPDATE SET payload=excluded.payload,updated_at=excluded.updated_at,state='pending'`, id, string(payload)); err != nil {
-					return err
-				}
+				replicationJobs = append(replicationJobs, replication.ConfigJob{ID: id, Payload: payload})
+			}
+			if err := replication.ReplaceJobsTx(ctx, tx, replicationJobs); err != nil {
+				return err
 			}
 		}
 		return nil

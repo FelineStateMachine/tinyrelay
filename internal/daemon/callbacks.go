@@ -185,15 +185,15 @@ func callbackHost(raw string) string {
 	return parsed.Host
 }
 
-func (t *Tenant) initCallbacks(ctx context.Context) error {
-	_, err := t.store.DB().ExecContext(ctx, callbackSchema)
+func (s *callbackService) initCallbacks(ctx context.Context) error {
+	_, err := s.store.DB().ExecContext(ctx, callbackSchema)
 	return err
 }
 
-// checkCallbackURL accepts https URLs to public hosts. When the relay itself
-// runs on a loopback address, as it does in tests, private targets are
+// validateWebhookURL accepts https URLs to public hosts. When the relay
+// itself runs on a loopback address, as it does in tests, private targets are
 // allowed so a local receiver can be exercised.
-func (t *Tenant) checkCallbackURL(raw string) error {
+func validateWebhookURL(raw, publicURL string) error {
 	if len(raw) > callbackURLMax {
 		return errors.New("invalid: url is too long")
 	}
@@ -201,7 +201,7 @@ func (t *Tenant) checkCallbackURL(raw string) error {
 	if err != nil || parsed.Scheme != "https" || parsed.Hostname() == "" || parsed.User != nil || parsed.Fragment != "" {
 		return errors.New("invalid: url must be https without credentials or a fragment")
 	}
-	if t.loopbackRelay() {
+	if loopbackPublicURL(publicURL) {
 		return nil
 	}
 	host := strings.ToLower(parsed.Hostname())
@@ -225,10 +225,10 @@ func privateAddress(ip net.IP) bool {
 	return shared.Contains(ip)
 }
 
-// loopbackRelay reports whether the relay's own public URL is a loopback or
-// private address, which only happens in tests and local trials.
-func (t *Tenant) loopbackRelay() bool {
-	parsed, err := url.Parse(t.publicURL)
+// loopbackPublicURL reports whether the relay's own public URL is a loopback
+// or private address, which only happens in tests and local trials.
+func loopbackPublicURL(publicURL string) bool {
+	parsed, err := url.Parse(publicURL)
 	if err != nil {
 		return false
 	}
@@ -247,8 +247,8 @@ func callbackMethod(method string) bool {
 // callbackExecute serves the callback management methods. Members and agents
 // manage callbacks for their own key; the owner and moderators see and
 // control every callback. Each call runs under the callback operation.
-func (t *Tenant) callbackExecute(ctx context.Context, actor, method string, params []json.RawMessage) (result any, err error) {
-	ctx, finish := t.app.telemetry.Start(ctx, "callback")
+func (s *callbackService) callbackExecute(ctx context.Context, actor, method string, params []json.RawMessage) (result any, err error) {
+	ctx, finish := s.telemetry.Start(ctx, "callback")
 	outcome := "error"
 	defer func() {
 		if err != nil {
@@ -256,7 +256,7 @@ func (t *Tenant) callbackExecute(ctx context.Context, actor, method string, para
 		}
 		finish(outcome)
 	}()
-	role, err := t.community.Role(ctx, actor)
+	role, err := s.community.Role(ctx, actor)
 	if err != nil {
 		return nil, err
 	}
@@ -268,9 +268,9 @@ func (t *Tenant) callbackExecute(ctx context.Context, actor, method string, para
 	case "listcallbacks":
 		var rows []callbackRecord
 		if operator {
-			rows, err = t.callbackRows(ctx, "")
+			rows, err = s.callbackRows(ctx, "")
 		} else {
-			rows, err = t.callbackRows(ctx, actor)
+			rows, err = s.callbackRows(ctx, actor)
 		}
 		if err != nil {
 			return nil, err
@@ -288,9 +288,9 @@ func (t *Tenant) callbackExecute(ctx context.Context, actor, method string, para
 		outcome = "ok"
 		return out, nil
 	case "addcallback":
-		result, err = t.addCallback(ctx, actor, role, params)
+		result, err = s.addCallback(ctx, actor, role, params)
 	default:
-		result, err = t.changeCallback(ctx, actor, operator, method, params)
+		result, err = s.changeCallback(ctx, actor, operator, method, params)
 	}
 	if err == nil {
 		outcome = "ok"
@@ -309,7 +309,7 @@ func callbackOutcome(err error) string {
 	}
 }
 
-func (t *Tenant) addCallback(ctx context.Context, actor, role string, params []json.RawMessage) (any, error) {
+func (s *callbackService) addCallback(ctx context.Context, actor, role string, params []json.RawMessage) (any, error) {
 	if len(params) != 1 {
 		return nil, errors.New("invalid: addcallback expects one object with url, filter and an optional secret")
 	}
@@ -322,7 +322,7 @@ func (t *Tenant) addCallback(ctx context.Context, actor, role string, params []j
 		return nil, errors.New("invalid: addcallback expects one object with url, filter and an optional secret")
 	}
 	options.URL = strings.TrimSpace(options.URL)
-	if err := t.checkCallbackURL(options.URL); err != nil {
+	if err := validateWebhookURL(options.URL, s.publicURL); err != nil {
 		return nil, err
 	}
 	filter, err := parseCallbackFilter(options.Filter)
@@ -330,7 +330,7 @@ func (t *Tenant) addCallback(ctx context.Context, actor, role string, params []j
 		return nil, err
 	}
 	if role == "agent" {
-		if err := t.checkCallbackScope(ctx, actor, filter); err != nil {
+		if err := s.checkCallbackScope(ctx, actor, filter); err != nil {
 			return nil, err
 		}
 	}
@@ -353,9 +353,9 @@ func (t *Tenant) addCallback(ctx context.Context, actor, role string, params []j
 	if err != nil {
 		return nil, err
 	}
-	limit := t.Policy().Callbacks
+	limit := s.policy().Callbacks
 	now := time.Now().Unix()
-	err = t.store.WithTx(ctx, func(tx *sql.Tx) error {
+	err = s.store.WithTx(ctx, func(tx *sql.Tx) error {
 		if role != "owner" {
 			var count int
 			if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM callbacks WHERE owner=?`, actor).Scan(&count); err != nil {
@@ -371,12 +371,12 @@ func (t *Tenant) addCallback(ctx context.Context, actor, role string, params []j
 	if err != nil {
 		return nil, err
 	}
-	t.invalidateCallbacks()
-	if err := t.community.Record(ctx, actor, "addcallback", id, ""); err != nil {
+	s.invalidateCallbacks()
+	if err := s.community.Record(ctx, actor, "addcallback", id, ""); err != nil {
 		return nil, err
 	}
 	// Counts only: the host, path and secret stay out of the log.
-	t.app.telemetry.Logger().Info("callback registered", "tenant", t.meta.Name, "kinds", len(filter.Kinds), "generated", generated)
+	s.telemetry.Logger().Info("callback registered", "tenant", s.tenant.Name, "kinds", len(filter.Kinds), "generated", generated)
 	record := callbackRecord{ID: id, Owner: actor, URL: options.URL, Filter: filter, CreatedAt: now}
 	out := record.summary()
 	out["secret"] = secret
@@ -387,8 +387,8 @@ func (t *Tenant) addCallback(ctx context.Context, actor, role string, params []j
 // names must be one it may post in and a repository it names must be one
 // the grant covers. Kinds are not restricted, so an agent can listen for
 // answers it may not publish itself.
-func (t *Tenant) checkCallbackScope(ctx context.Context, actor string, filter callbackFilter) error {
-	grant, ok, err := t.community.AgentGrant(ctx, actor)
+func (s *callbackService) checkCallbackScope(ctx context.Context, actor string, filter callbackFilter) error {
+	grant, ok, err := s.community.AgentGrant(ctx, actor)
 	if err != nil {
 		return err
 	}
@@ -412,12 +412,12 @@ func (t *Tenant) checkCallbackScope(ctx context.Context, actor string, filter ca
 	return nil
 }
 
-func (t *Tenant) changeCallback(ctx context.Context, actor string, operator bool, method string, params []json.RawMessage) (any, error) {
+func (s *callbackService) changeCallback(ctx context.Context, actor string, operator bool, method string, params []json.RawMessage) (any, error) {
 	id := callbackIDParam(params)
 	if id == "" {
 		return nil, errors.New("invalid: callback id required")
 	}
-	record, err := t.callback(ctx, id)
+	record, err := s.callback(ctx, id)
 	if err != nil {
 		return nil, err
 	}
@@ -426,12 +426,12 @@ func (t *Tenant) changeCallback(ctx context.Context, actor string, operator bool
 	}
 	switch method {
 	case "removecallback":
-		_, err = t.store.DB().ExecContext(ctx, `DELETE FROM callbacks WHERE id=?`, id)
+		_, err = s.store.DB().ExecContext(ctx, `DELETE FROM callbacks WHERE id=?`, id)
 	case "pausecallback":
-		_, err = t.store.DB().ExecContext(ctx, `UPDATE callbacks SET paused=1, last_status='paused' WHERE id=?`, id)
+		_, err = s.store.DB().ExecContext(ctx, `UPDATE callbacks SET paused=1, last_status='paused' WHERE id=?`, id)
 		record.Paused, record.LastStatus = true, "paused"
 	case "resumecallback":
-		_, err = t.store.DB().ExecContext(ctx, `UPDATE callbacks SET paused=0, failures=0, last_status='' WHERE id=?`, id)
+		_, err = s.store.DB().ExecContext(ctx, `UPDATE callbacks SET paused=0, failures=0, last_status='' WHERE id=?`, id)
 		record.Paused, record.Failures, record.LastStatus = false, 0, ""
 	default:
 		return nil, fmt.Errorf("unsupported: management method %q", method)
@@ -439,8 +439,8 @@ func (t *Tenant) changeCallback(ctx context.Context, actor string, operator bool
 	if err != nil {
 		return nil, err
 	}
-	t.invalidateCallbacks()
-	if err := t.community.Record(ctx, actor, method, id, ""); err != nil {
+	s.invalidateCallbacks()
+	if err := s.community.Record(ctx, actor, method, id, ""); err != nil {
 		return nil, err
 	}
 	if method == "removecallback" {
@@ -464,8 +464,8 @@ func callbackIDParam(params []json.RawMessage) string {
 	return strings.TrimSpace(options.ID)
 }
 
-func (t *Tenant) callback(ctx context.Context, id string) (callbackRecord, error) {
-	rows, err := t.callbackRows(ctx, "", id)
+func (s *callbackService) callback(ctx context.Context, id string) (callbackRecord, error) {
+	rows, err := s.callbackRows(ctx, "", id)
 	if err != nil {
 		return callbackRecord{}, err
 	}
@@ -476,7 +476,7 @@ func (t *Tenant) callback(ctx context.Context, id string) (callbackRecord, error
 }
 
 // callbackRows lists callbacks, narrowed to an owner or to one id.
-func (t *Tenant) callbackRows(ctx context.Context, owner string, ids ...string) ([]callbackRecord, error) {
+func (s *callbackService) callbackRows(ctx context.Context, owner string, ids ...string) ([]callbackRecord, error) {
 	query := `SELECT id,owner,url,filter,secret,created_at,last_delivery_at,last_status,failures,paused FROM callbacks`
 	args := []any{}
 	switch {
@@ -488,7 +488,7 @@ func (t *Tenant) callbackRows(ctx context.Context, owner string, ids ...string) 
 		args = append(args, owner)
 	}
 	query += ` ORDER BY created_at,id`
-	rows, err := t.store.DB().QueryContext(ctx, query, args...)
+	rows, err := s.store.DB().QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("list callbacks: %w", err)
 	}
@@ -513,16 +513,16 @@ func (t *Tenant) callbackRows(ctx context.Context, owner string, ids ...string) 
 // callbackRules returns the active callbacks indexed by kind. The index is
 // built from the table on first use and dropped whenever a callback
 // changes, so matching an event costs one map lookup.
-func (t *Tenant) callbackRules(ctx context.Context) map[int][]callbackRecord {
-	t.callbackMu.Lock()
-	defer t.callbackMu.Unlock()
-	if t.callbackIndex != nil {
-		return t.callbackIndex
+func (s *callbackService) callbackRules(ctx context.Context) map[int][]callbackRecord {
+	s.callbackMu.Lock()
+	defer s.callbackMu.Unlock()
+	if s.callbackIndex != nil {
+		return s.callbackIndex
 	}
 	index := map[int][]callbackRecord{}
-	rows, err := t.callbackRows(ctx, "")
+	rows, err := s.callbackRows(ctx, "")
 	if err != nil {
-		t.app.telemetry.Logger().Error("load callbacks", "tenant", t.meta.Name, "error", err)
+		s.telemetry.Logger().Error("load callbacks", "tenant", s.tenant.Name, "error", err)
 		return index
 	}
 	for _, row := range rows {
@@ -533,52 +533,106 @@ func (t *Tenant) callbackRules(ctx context.Context) map[int][]callbackRecord {
 			index[kind] = append(index[kind], row)
 		}
 	}
-	t.callbackIndex = index
+	s.callbackIndex = index
 	return index
 }
 
-func (t *Tenant) invalidateCallbacks() {
-	t.callbackMu.Lock()
-	t.callbackIndex = nil
-	t.callbackMu.Unlock()
+func (s *callbackService) invalidateCallbacks() {
+	s.callbackMu.Lock()
+	s.callbackIndex = nil
+	s.callbackMu.Unlock()
 }
 
-// notifyCallbacks runs after an event is stored. Each active callback whose
-// filter matches and whose key may see the event gets one delivery intent.
-// It never fails the publish; a callback is best effort on top of the
-// durable event.
-func (t *Tenant) notifyCallbacks(ctx context.Context, e event.Event) {
-	candidates := t.callbackRules(ctx)[e.Kind]
-	if len(candidates) == 0 {
-		return
+// CandidateIDs captures the active callback registrations that match an
+// event. The caller must persist these IDs with the event so later planning
+// cannot include callbacks registered after the event was accepted.
+func (s *callbackService) CandidateIDs(ctx context.Context, e event.Event) ([]string, error) {
+	rows, err := s.callbackRows(ctx, "")
+	if err != nil {
+		return nil, err
 	}
-	var intents []storage.Intent
-	unauthorized := 0
-	for _, candidate := range candidates {
-		if !event.Matches(candidate.Filter.eventFilter(), e) {
+	ids := make([]string, 0, len(rows))
+	for _, candidate := range rows {
+		if candidate.Paused || !event.Matches(candidate.Filter.eventFilter(), e) {
 			continue
 		}
-		if !t.gate.CanSee(ctx, e, relay.Session{PubKeys: []string{candidate.Owner}, RelayURL: t.RelayURL()}, nil) {
-			unauthorized++
+		ids = append(ids, candidate.ID)
+	}
+	return ids, nil
+}
+
+// PrepareFor creates delivery intents for captured registration IDs. Each
+// registration is re-read so deletion, pausing, membership changes and
+// visibility changes take effect before an intent is created.
+func (s *callbackService) PrepareFor(ctx context.Context, e event.Event, ids []string) ([]storage.Intent, error) {
+	if len(ids) == 0 {
+		return nil, nil
+	}
+	intents := make([]storage.Intent, 0, len(ids))
+	seen := make(map[string]struct{}, len(ids))
+	for _, id := range ids {
+		if id == "" {
+			continue
+		}
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		seen[id] = struct{}{}
+		candidate, err := s.callback(ctx, id)
+		if err != nil {
+			if strings.HasPrefix(err.Error(), "not found:") {
+				continue
+			}
+			return nil, err
+		}
+		if candidate.Paused || !event.Matches(candidate.Filter.eventFilter(), e) {
+			continue
+		}
+		if !s.callbackOwnerCanSee(ctx, candidate.Owner, e) {
 			continue
 		}
 		payload, err := json.Marshal(callbackPayload{Event: e, Attempt: 1})
 		if err != nil {
-			continue
+			return nil, fmt.Errorf("encode callback delivery: %w", err)
 		}
 		intents = append(intents, storage.Intent{Kind: callbackDelivery, EventID: e.ID, Target: candidate.ID, Payload: string(payload)})
+	}
+	return intents, nil
+}
+
+func (s *callbackService) callbackOwnerCanSee(ctx context.Context, owner string, e event.Event) bool {
+	return s.gate.CanSee(ctx, e, relay.Session{PubKeys: []string{owner}, RelayURL: s.relayURL}, nil)
+}
+
+// Prepare preserves the original planning API for callers that do not yet
+// persist captured candidate IDs alongside the event.
+func (s *callbackService) Prepare(ctx context.Context, e event.Event) ([]storage.Intent, error) {
+	ids, err := s.CandidateIDs(ctx, e)
+	if err != nil {
+		return nil, err
+	}
+	return s.PrepareFor(ctx, e, ids)
+}
+
+// notifyCallbacks runs after an event is stored. It preserves the legacy
+// best-effort queueing path for callers that do not share the event tx.
+func (s *callbackService) notifyCallbacks(ctx context.Context, e event.Event) {
+	intents, err := s.Prepare(ctx, e)
+	if err != nil {
+		s.telemetry.Logger().Error("callback deliveries not prepared", "tenant", s.tenant.Name, "error", err)
+		return
 	}
 	if len(intents) == 0 {
 		return
 	}
-	err := t.store.WithTx(ctx, func(tx *sql.Tx) error {
+	err = s.store.WithTx(ctx, func(tx *sql.Tx) error {
 		return storage.AddIntents(ctx, tx, intents, time.Now().Unix())
 	})
 	if err != nil {
-		t.app.telemetry.Logger().Error("callback deliveries not queued", "tenant", t.meta.Name, "error", err)
+		s.telemetry.Logger().Error("callback deliveries not queued", "tenant", s.tenant.Name, "error", err)
 		return
 	}
-	t.app.telemetry.Logger().Debug("callback deliveries queued", "tenant", t.meta.Name, "queued", len(intents), "unauthorized", unauthorized)
+	s.telemetry.Logger().Debug("callback deliveries queued", "tenant", s.tenant.Name, "queued", len(intents))
 }
 
 func randomHex(size int) (string, error) {
@@ -587,4 +641,18 @@ func randomHex(size int) (string, error) {
 		return "", fmt.Errorf("callback secret: %w", err)
 	}
 	return hex.EncodeToString(buffer), nil
+}
+
+// Tenant wrappers keep management and work dispatch independent of the
+// callback service's storage and delivery state.
+func (t *Tenant) initCallbacks(ctx context.Context) error {
+	return t.callbacks.initCallbacks(ctx)
+}
+
+func (t *Tenant) callbackExecute(ctx context.Context, actor, method string, params []json.RawMessage) (any, error) {
+	return t.callbacks.callbackExecute(ctx, actor, method, params)
+}
+
+func (t *Tenant) notifyCallbacks(ctx context.Context, e event.Event) {
+	t.callbacks.notifyCallbacks(ctx, e)
 }

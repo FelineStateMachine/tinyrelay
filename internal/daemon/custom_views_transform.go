@@ -37,10 +37,11 @@ import (
 // not depend on the event still being stored, the attempt number and the
 // run that queued it.
 type viewPayload struct {
-	Event   event.Event `json:"event"`
-	Attempt int         `json:"attempt"`
-	Run     string      `json:"run,omitempty"`
-	Refresh bool        `json:"refresh,omitempty"`
+	Event      event.Event `json:"event"`
+	Attempt    int         `json:"attempt"`
+	Run        string      `json:"run,omitempty"`
+	Refresh    bool        `json:"refresh,omitempty"`
+	Generation string      `json:"generation,omitempty"`
 }
 
 // viewRequest is the body posted to a transform: only the blocks, with the
@@ -95,18 +96,18 @@ func viewSourceTag(source string) []string {
 
 // viewHTTPClient refuses private addresses and redirects unless the relay
 // itself runs on a loopback address.
-func (t *Tenant) viewHTTPClient() *http.Client {
+func (t *customViewService) viewHTTPClient() *http.Client {
 	if t.viewClient != nil {
 		return t.viewClient
 	}
-	if t.loopbackRelay() {
+	if t.loopback != nil && t.loopback() {
 		return &http.Client{Timeout: viewTimeout, Transport: &http.Transport{TLSClientConfig: &tls.Config{MinVersion: tls.VersionTLS12}}, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
 	}
 	return replication.NewPinnedClient(viewTimeout)
 }
 
 // viewLock bounds work to one transform run per view at a time.
-func (t *Tenant) viewLock(name string) *sync.Mutex {
+func (t *customViewService) viewLock(name string) *sync.Mutex {
 	t.viewMu.Lock()
 	defer t.viewMu.Unlock()
 	if t.viewLocks == nil {
@@ -122,7 +123,7 @@ func (t *Tenant) viewLock(name string) *sync.Mutex {
 
 // sourceBlocks finds the blocks of a source: the fenced blocks of its
 // content, or of the README at the head of a repository state.
-func (t *Tenant) sourceBlocks(ctx context.Context, e event.Event) ([]views.Block, error) {
+func (t *customViewService) sourceBlocks(ctx context.Context, e event.Event) ([]views.Block, error) {
 	if e.Kind != event.KIND_REPO_STATE {
 		return views.Blocks(e.Content), nil
 	}
@@ -135,7 +136,7 @@ func (t *Tenant) sourceBlocks(ctx context.Context, e event.Event) ([]views.Block
 
 // stateReadme reads README.md at the head named by a repository state. A
 // missing README yields no content.
-func (t *Tenant) stateReadme(ctx context.Context, e event.Event) (string, error) {
+func (t *customViewService) stateReadme(ctx context.Context, e event.Event) (string, error) {
 	if t.git == nil {
 		return "", nil
 	}
@@ -168,7 +169,7 @@ func (t *Tenant) stateReadme(ctx context.Context, e event.Event) (string, error)
 // sourceCurrent reports whether the source is still the stored event: an
 // event that was deleted, or a state that a newer state replaced, renders
 // nothing.
-func (t *Tenant) sourceCurrent(ctx context.Context, e event.Event) (bool, error) {
+func (t *customViewService) sourceCurrent(ctx context.Context, e event.Event) (bool, error) {
 	var id string
 	var err error
 	if e.Kind == event.KIND_REPO_STATE {
@@ -186,8 +187,8 @@ func (t *Tenant) sourceCurrent(ctx context.Context, e event.Event) (bool, error)
 // view and the source right before the POST, attaches artifacts that
 // already exist for a block's hash and posts only the blocks that need
 // rendering.
-func (t *Tenant) handleViewTransform(ctx context.Context, intent work.Intent) (err error) {
-	ctx, finish := t.app.telemetry.Start(ctx, "view")
+func (t *customViewService) handleViewTransform(ctx context.Context, intent work.Intent) (err error) {
+	ctx, finish := t.telemetry.Start(ctx, "view")
 	outcome := "error"
 	defer func() { finish(outcome) }()
 	var payload viewPayload
@@ -211,6 +212,10 @@ func (t *Tenant) handleViewTransform(ctx context.Context, intent work.Intent) (e
 	}
 	if !view.Enabled {
 		outcome = "paused"
+		return nil
+	}
+	if payload.Generation != "" && payload.Generation != view.generation {
+		outcome = "invalid"
 		return nil
 	}
 	current, err := t.sourceCurrent(ctx, payload.Event)
@@ -286,7 +291,7 @@ func (t *Tenant) handleViewTransform(ctx context.Context, intent work.Intent) (e
 			return err
 		}
 		// Counts only: no source, block or body leaves the relay in a log.
-		t.app.telemetry.Logger().Info("view transform delivered", "tenant", t.meta.Name, "attempt", payload.Attempt, "status", status, "blocks", len(pending), "artifacts", stored, "refused", refused, "errors", len(response.Errors))
+		t.telemetry.Logger().Info("view transform delivered", "tenant", t.tenantName, "attempt", payload.Attempt, "status", status, "blocks", len(pending), "artifacts", stored, "refused", refused, "errors", len(response.Errors))
 		return t.pruneViewArtifacts(ctx, view.Name, intent.ID)
 	}
 	reason := postErr.Error()
@@ -300,7 +305,7 @@ func (t *Tenant) handleViewTransform(ctx context.Context, intent work.Intent) (e
 	} else if _, err := t.store.DB().ExecContext(ctx, `UPDATE custom_views SET last_run_at=?, failures=?, last_status=? WHERE name=?`, now, failures, reason, view.Name); err != nil {
 		return err
 	}
-	t.app.telemetry.Logger().Info("view transform failed", "tenant", t.meta.Name, "attempt", payload.Attempt, "status", status, "failures", failures, "paused", paused)
+	t.telemetry.Logger().Info("view transform failed", "tenant", t.tenantName, "attempt", payload.Attempt, "status", status, "failures", failures, "paused", paused)
 	if paused || payload.Attempt >= viewMaxAttempts {
 		return nil
 	}
@@ -309,7 +314,7 @@ func (t *Tenant) handleViewTransform(ctx context.Context, intent work.Intent) (e
 
 // pauseCustomView stops the view and records the count and reason, then
 // drops the index so no new intents are queued for it.
-func (t *Tenant) pauseCustomView(ctx context.Context, name string, failures int, status string) error {
+func (t *customViewService) pauseCustomView(ctx context.Context, name string, failures int, status string) error {
 	if _, err := t.store.DB().ExecContext(ctx, `UPDATE custom_views SET enabled=0, failures=?, last_status=? WHERE name=?`, failures, status, name); err != nil {
 		return err
 	}
@@ -319,7 +324,7 @@ func (t *Tenant) pauseCustomView(ctx context.Context, name string, failures int,
 
 // retryViewTransform queues the next attempt after its backoff as its own
 // intent so the durable queue's ordering and fencing still apply.
-func (t *Tenant) retryViewTransform(ctx context.Context, intent work.Intent, payload viewPayload) error {
+func (t *customViewService) retryViewTransform(ctx context.Context, intent work.Intent, payload viewPayload) error {
 	delay := viewBackoff[len(viewBackoff)-1]
 	if payload.Attempt-1 < len(viewBackoff) {
 		delay = viewBackoff[payload.Attempt-1]
@@ -342,7 +347,7 @@ func (t *Tenant) retryViewTransform(ctx context.Context, intent work.Intent, pay
 // postViewTransform sends the blocks and reads the answer. It returns the
 // HTTP status with a bounded reason on failure; a response that is not
 // JSON counts as a failure.
-func (t *Tenant) postViewTransform(ctx context.Context, view customView, e event.Event, blocks []views.Block) (int, viewResponse, error) {
+func (t *customViewService) postViewTransform(ctx context.Context, view customView, e event.Event, blocks []views.Block) (int, viewResponse, error) {
 	body, err := json.Marshal(viewRequest{Relay: t.publicURL, View: view.Name, Source: viewSource{ID: viewSourceKey(e), Kind: e.Kind}, Blocks: blocks})
 	if err != nil {
 		return 0, viewResponse{}, errors.New("encode request")
@@ -455,7 +460,7 @@ func checkSVG(body string) error {
 
 // storeArtifact checks one artifact and keeps it as a signed record
 // attached to its source.
-func (t *Tenant) storeArtifact(ctx context.Context, view customView, block views.Block, artifact viewArtifact, source string, expires int64, now int64) error {
+func (t *customViewService) storeArtifact(ctx context.Context, view customView, block views.Block, artifact viewArtifact, source string, expires int64, now int64) error {
 	content, err := checkArtifact(artifact, view.MaxBytes)
 	if err != nil {
 		return err
@@ -480,7 +485,7 @@ func (t *Tenant) storeArtifact(ctx context.Context, view customView, block views
 
 // attachArtifact reports whether an artifact exists for the hash and, when
 // it does, attaches the source to it through a fresh signed record.
-func (t *Tenant) attachArtifact(ctx context.Context, view customView, hash, source string, block int, expires int64) (bool, error) {
+func (t *customViewService) attachArtifact(ctx context.Context, view customView, hash, source string, block int, expires int64) (bool, error) {
 	var exists int
 	err := t.store.DB().QueryRowContext(ctx, `SELECT 1 FROM custom_view_artifacts WHERE view=? AND hash=?`, view.Name, hash).Scan(&exists)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -507,7 +512,7 @@ func (t *Tenant) attachArtifact(ctx context.Context, view customView, hash, sour
 
 // signArtifact signs the artifact with its current sources as a kind 30078
 // record and stores the record when the view is public.
-func (t *Tenant) signArtifact(ctx context.Context, view customView, hash string, now int64) error {
+func (t *customViewService) signArtifact(ctx context.Context, view customView, hash string, now int64) error {
 	var typ, engine, content string
 	if err := t.store.DB().QueryRowContext(ctx, `SELECT type,engine,content FROM custom_view_artifacts WHERE view=? AND hash=?`, view.Name, hash).Scan(&typ, &engine, &content); err != nil {
 		return err
@@ -566,7 +571,7 @@ func (t *Tenant) signArtifact(ctx context.Context, view customView, hash string,
 
 // detachStaleArtifacts drops the source from artifacts whose block it no
 // longer carries, then removes artifacts left without a source.
-func (t *Tenant) detachStaleArtifacts(ctx context.Context, name, source string, hashes []string) error {
+func (t *customViewService) detachStaleArtifacts(ctx context.Context, name, source string, hashes []string) error {
 	rows, err := t.store.DB().QueryContext(ctx, `SELECT hash FROM custom_view_sources WHERE view=? AND source=?`, name, source)
 	if err != nil {
 		return err
@@ -600,7 +605,7 @@ func (t *Tenant) detachStaleArtifacts(ctx context.Context, name, source string, 
 // pruneViewArtifacts detaches sources that no longer exist and removes the
 // artifacts that lose their last source. A view with transform work still
 // queued is left alone so a replaced source can reattach its blocks first.
-func (t *Tenant) pruneViewArtifacts(ctx context.Context, name, except string) error {
+func (t *customViewService) pruneViewArtifacts(ctx context.Context, name, except string) error {
 	var pending int
 	if err := t.store.DB().QueryRowContext(ctx, `SELECT count(*) FROM work_intents WHERE kind=? AND target=? AND state IN ('pending','running') AND id<>?`, viewTransform, name, except).Scan(&pending); err != nil {
 		return err
@@ -646,7 +651,7 @@ func (t *Tenant) pruneViewArtifacts(ctx context.Context, name, except string) er
 
 // pruneAllViewArtifacts runs the prune for every view; the maintenance
 // sweep calls it after expired events are removed.
-func (t *Tenant) pruneAllViewArtifacts(ctx context.Context) error {
+func (t *customViewService) pruneAllViewArtifacts(ctx context.Context) error {
 	rows, err := t.customViewRows(ctx)
 	if err != nil {
 		return err
@@ -659,7 +664,7 @@ func (t *Tenant) pruneAllViewArtifacts(ctx context.Context) error {
 	return nil
 }
 
-func (t *Tenant) sourcePresent(ctx context.Context, source string) (bool, error) {
+func (t *customViewService) sourcePresent(ctx context.Context, source string) (bool, error) {
 	var one int
 	var err error
 	if tag := viewSourceTag(source); tag[0] == "a" {
@@ -679,7 +684,7 @@ func (t *Tenant) sourcePresent(ctx context.Context, source string) (bool, error)
 
 // dropOrphanArtifacts removes artifacts without a source, and their stored
 // records, then re-signs the artifacts whose source list shrank.
-func (t *Tenant) dropOrphanArtifacts(ctx context.Context, name string) error {
+func (t *customViewService) dropOrphanArtifacts(ctx context.Context, name string) error {
 	ids, err := t.customViewArtifactIDs(ctx, `SELECT event_id FROM custom_view_artifacts WHERE view=? AND NOT EXISTS(SELECT 1 FROM custom_view_sources WHERE custom_view_sources.view=custom_view_artifacts.view AND custom_view_sources.hash=custom_view_artifacts.hash)`, name)
 	if err != nil {
 		return err
@@ -691,7 +696,7 @@ func (t *Tenant) dropOrphanArtifacts(ctx context.Context, name string) error {
 		return err
 	}
 	if len(ids) > 0 {
-		t.app.telemetry.Logger().Info("view artifacts removed", "tenant", t.meta.Name, "removed", len(ids))
+		t.telemetry.Logger().Info("view artifacts removed", "tenant", t.tenantName, "removed", len(ids))
 	}
 	// Artifacts that kept a source but lost one carry a tag for it; a fresh
 	// record drops it.
@@ -744,7 +749,7 @@ func (t *Tenant) dropOrphanArtifacts(ctx context.Context, name string) error {
 	return nil
 }
 
-func (t *Tenant) artifactSources(ctx context.Context, name, hash string) ([]string, error) {
+func (t *customViewService) artifactSources(ctx context.Context, name, hash string) ([]string, error) {
 	rows, err := t.store.DB().QueryContext(ctx, `SELECT source FROM custom_view_sources WHERE view=? AND hash=?`, name, hash)
 	if err != nil {
 		return nil, err
@@ -761,7 +766,7 @@ func (t *Tenant) artifactSources(ctx context.Context, name, hash string) ([]stri
 	return out, rows.Err()
 }
 
-func (t *Tenant) customViewArtifactIDs(ctx context.Context, query string, args ...any) ([]string, error) {
+func (t *customViewService) customViewArtifactIDs(ctx context.Context, query string, args ...any) ([]string, error) {
 	rows, err := t.store.DB().QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, err
@@ -781,7 +786,7 @@ func (t *Tenant) customViewArtifactIDs(ctx context.Context, query string, args .
 }
 
 // deleteStoredArtifacts removes the public records of artifacts by id.
-func (t *Tenant) deleteStoredArtifacts(ctx context.Context, ids []string) error {
+func (t *customViewService) deleteStoredArtifacts(ctx context.Context, ids []string) error {
 	for _, id := range ids {
 		if _, err := t.store.DeleteEvent(ctx, id); err != nil {
 			return err
@@ -792,7 +797,7 @@ func (t *Tenant) deleteStoredArtifacts(ctx context.Context, ids []string) error 
 
 // cascadeViewDeletion runs after a kind 5 deletion is stored: artifacts
 // attached to the deleted events or addresses lose that source at once.
-func (t *Tenant) cascadeViewDeletion(ctx context.Context, e event.Event) {
+func (t *customViewService) cascadeViewDeletion(ctx context.Context, e event.Event) {
 	if e.Kind != event.KIND_DELETION {
 		return
 	}
@@ -802,7 +807,7 @@ func (t *Tenant) cascadeViewDeletion(ctx context.Context, e event.Event) {
 	}
 	for _, view := range rows {
 		if err := t.pruneViewArtifacts(ctx, view.Name, ""); err != nil {
-			t.app.telemetry.Logger().Error("view artifacts not pruned", "tenant", t.meta.Name, "error", err)
+			t.telemetry.Logger().Error("view artifacts not pruned", "tenant", t.tenantName, "error", err)
 		}
 	}
 }
@@ -815,7 +820,7 @@ type artifactRecord struct {
 	EventID  string
 }
 
-func (t *Tenant) customViewArtifact(ctx context.Context, name, hash string) (artifactRecord, error) {
+func (t *customViewService) customViewArtifact(ctx context.Context, name, hash string) (artifactRecord, error) {
 	var record artifactRecord
 	err := t.store.DB().QueryRowContext(ctx, `SELECT type,audience,content,event_id FROM custom_view_artifacts WHERE view=? AND hash=?`, name, hash).Scan(&record.Type, &record.Audience, &record.Content, &record.EventID)
 	if errors.Is(err, sql.ErrNoRows) {

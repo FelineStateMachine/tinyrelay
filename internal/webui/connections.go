@@ -8,6 +8,16 @@ import (
 	"strings"
 )
 
+func identityNpub(identity string) string {
+	decoded, err := hex.DecodeString(identity)
+	if err != nil || len(decoded) != 32 {
+		return identity
+	}
+	return bech32("npub", decoded)
+}
+
+const bech32Charset = "qpzry9x8gf2tvdw0s3jn54khce6mua7l"
+
 // bech32 encodes data with the given human readable part.
 func bech32(hrp string, data []byte) string {
 	fiveBits := convertBits(data)
@@ -31,6 +41,38 @@ func bech32(hrp string, data []byte) string {
 		out.WriteByte(bech32Charset[value])
 	}
 	return out.String()
+}
+
+func convertBits(data []byte) []byte {
+	result := make([]byte, 0, 52)
+	accumulator, bits := 0, 0
+	for _, value := range data {
+		accumulator = (accumulator << 8) | int(value)
+		bits += 8
+		for bits >= 5 {
+			bits -= 5
+			result = append(result, byte(accumulator>>bits&31))
+		}
+	}
+	if bits > 0 {
+		result = append(result, byte(accumulator<<(5-bits)&31))
+	}
+	return result
+}
+
+func bech32Polymod(values []byte) uint64 {
+	generators := [...]uint64{0x3b6a57b2, 0x26508e6d, 0x1ea119fa, 0x3d4233dd, 0x2a1462b3}
+	checksum := uint64(1)
+	for _, value := range values {
+		top := checksum >> 25
+		checksum = (checksum&0x1ffffff)<<5 ^ uint64(value)
+		for i, generator := range generators {
+			if top>>uint(i)&1 != 0 {
+				checksum ^= generator
+			}
+		}
+	}
+	return checksum
 }
 
 func tlv(kind byte, value []byte) []byte {

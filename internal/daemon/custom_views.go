@@ -8,19 +8,75 @@ package daemon
 
 import (
 	"context"
+	"crypto/sha256"
 	"database/sql"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
+	"github.com/FelineStateMachine/tinyrelay/internal/community"
 	"github.com/FelineStateMachine/tinyrelay/internal/event"
+	"github.com/FelineStateMachine/tinyrelay/internal/gitrelay"
+	"github.com/FelineStateMachine/tinyrelay/internal/records"
 	"github.com/FelineStateMachine/tinyrelay/internal/storage"
+	"github.com/FelineStateMachine/tinyrelay/internal/telemetry"
 	"github.com/FelineStateMachine/tinyrelay/internal/views"
 )
+
+// customViewService owns custom view definitions, transform execution and
+// artifact storage. Tenant supplies the narrow lifecycle callbacks when it
+// constructs the service.
+type customViewService struct {
+	store        *storage.Store
+	community    *community.Service
+	records      *records.Service
+	git          *gitrelay.GitRelay
+	telemetry    *telemetry.Telemetry
+	tenantName   string
+	publicURL    string
+	loopback     func() bool
+	resolveActor func(*http.Request) (string, error)
+	browseRead   func(context.Context, string) error
+	viewClient   *http.Client
+	viewMu       sync.Mutex
+	viewIndex    map[int][]customView
+	viewLocks    map[string]*sync.Mutex
+}
+
+type customViewServiceConfig struct {
+	Store        *storage.Store
+	Community    *community.Service
+	Records      *records.Service
+	Git          *gitrelay.GitRelay
+	Telemetry    *telemetry.Telemetry
+	TenantName   string
+	PublicURL    string
+	Loopback     func() bool
+	ResolveActor func(*http.Request) (string, error)
+	BrowseRead   func(context.Context, string) error
+}
+
+func newCustomViewService(cfg customViewServiceConfig) *customViewService {
+	return &customViewService{
+		store:        cfg.Store,
+		community:    cfg.Community,
+		records:      cfg.Records,
+		git:          cfg.Git,
+		telemetry:    cfg.Telemetry,
+		tenantName:   cfg.TenantName,
+		publicURL:    cfg.PublicURL,
+		loopback:     cfg.Loopback,
+		resolveActor: cfg.ResolveActor,
+		browseRead:   cfg.BrowseRead,
+	}
+}
 
 const (
 	viewTransform        = "view-transform"
@@ -40,7 +96,7 @@ const (
 // viewBackoff is the wait before the second and third attempt.
 var viewBackoff = []time.Duration{time.Minute, 5 * time.Minute}
 
-const customViewSchema = `CREATE TABLE IF NOT EXISTS custom_views(name TEXT PRIMARY KEY, kinds TEXT NOT NULL, transform TEXT NOT NULL, trigger TEXT NOT NULL, audience TEXT NOT NULL, languages TEXT NOT NULL, max_bytes INTEGER NOT NULL, secret TEXT NOT NULL, enabled INTEGER NOT NULL DEFAULT 1, created_at INTEGER NOT NULL, last_run_at INTEGER NOT NULL DEFAULT 0, last_status TEXT NOT NULL DEFAULT '', failures INTEGER NOT NULL DEFAULT 0);
+const customViewSchema = `CREATE TABLE IF NOT EXISTS custom_views(name TEXT PRIMARY KEY, kinds TEXT NOT NULL, transform TEXT NOT NULL, trigger TEXT NOT NULL, audience TEXT NOT NULL, languages TEXT NOT NULL, max_bytes INTEGER NOT NULL, secret TEXT NOT NULL, generation TEXT NOT NULL DEFAULT '', enabled INTEGER NOT NULL DEFAULT 1, created_at INTEGER NOT NULL, last_run_at INTEGER NOT NULL DEFAULT 0, last_status TEXT NOT NULL DEFAULT '', failures INTEGER NOT NULL DEFAULT 0);
 CREATE TABLE IF NOT EXISTS custom_view_artifacts(view TEXT NOT NULL, hash TEXT NOT NULL, event_id TEXT NOT NULL, type TEXT NOT NULL, engine TEXT NOT NULL DEFAULT '', audience TEXT NOT NULL, content TEXT NOT NULL, raw TEXT NOT NULL, created_at INTEGER NOT NULL, PRIMARY KEY(view,hash));
 CREATE TABLE IF NOT EXISTS custom_view_sources(view TEXT NOT NULL, hash TEXT NOT NULL, source TEXT NOT NULL, block INTEGER NOT NULL, expires INTEGER NOT NULL DEFAULT 0, PRIMARY KEY(view,hash,source));
 CREATE INDEX IF NOT EXISTS custom_view_sources_source ON custom_view_sources(view,source);`
@@ -61,6 +117,30 @@ type customView struct {
 	LastStatus string   `json:"lastStatus"`
 	Failures   int      `json:"failures"`
 	secret     string
+	generation string
+}
+
+type customViewTarget struct {
+	Name        string
+	Fingerprint string
+}
+
+func customViewFingerprint(view customView) string {
+	canonical := struct {
+		Name       string
+		Kinds      []int
+		Transform  string
+		Trigger    string
+		Audience   string
+		Languages  []string
+		MaxBytes   int
+		Secret     string
+		CreatedAt  int64
+		Generation string
+	}{view.Name, view.Kinds, view.Transform, view.Trigger, view.Audience, view.Languages, view.MaxBytes, view.secret, view.CreatedAt, view.generation}
+	raw, _ := json.Marshal(canonical)
+	sum := sha256.Sum256(raw)
+	return hex.EncodeToString(sum[:])
 }
 
 func (v customView) summary() map[string]any {
@@ -80,9 +160,40 @@ func (v customView) watches(kind int) bool {
 	return false
 }
 
-func (t *Tenant) initCustomViews(ctx context.Context) error {
-	_, err := t.store.DB().ExecContext(ctx, customViewSchema)
-	return err
+func (t *customViewService) initCustomViews(ctx context.Context) error {
+	if _, err := t.store.DB().ExecContext(ctx, customViewSchema); err != nil {
+		return err
+	}
+	_, err := t.store.DB().ExecContext(ctx, `ALTER TABLE custom_views ADD COLUMN generation TEXT NOT NULL DEFAULT ''`)
+	if err != nil && !strings.Contains(strings.ToLower(err.Error()), "duplicate column") {
+		return err
+	}
+	rows, err := t.store.DB().QueryContext(ctx, `SELECT name FROM custom_views WHERE generation=''`)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	var names []string
+	for rows.Next() {
+		var name string
+		if err := rows.Scan(&name); err != nil {
+			return err
+		}
+		names = append(names, name)
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	for _, name := range names {
+		generation, err := randomHex(16)
+		if err != nil {
+			return err
+		}
+		if _, err := t.store.DB().ExecContext(ctx, `UPDATE custom_views SET generation=? WHERE name=? AND generation=''`, generation, name); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func customViewMethod(method string) bool {
@@ -91,8 +202,8 @@ func customViewMethod(method string) bool {
 
 // customViewExecute serves the owner's custom view methods under the view
 // operation. Every change is recorded in the audit log.
-func (t *Tenant) customViewExecute(ctx context.Context, actor, method string, params []json.RawMessage) (result any, err error) {
-	ctx, finish := t.app.telemetry.Start(ctx, "view")
+func (t *customViewService) customViewExecute(ctx context.Context, actor, method string, params []json.RawMessage) (result any, err error) {
+	ctx, finish := t.telemetry.Start(ctx, "view")
 	outcome := "error"
 	defer func() {
 		if err != nil {
@@ -143,7 +254,7 @@ type customViewOptions struct {
 	Secret    string          `json:"secret"`
 }
 
-func (t *Tenant) addCustomView(ctx context.Context, actor string, params []json.RawMessage) (any, error) {
+func (t *customViewService) addCustomView(ctx context.Context, actor string, params []json.RawMessage) (any, error) {
 	if len(params) != 1 {
 		return nil, errors.New("invalid: addcustomview expects one object with name, kinds, transform, trigger, audience, languages and optional max_bytes and secret")
 	}
@@ -167,11 +278,15 @@ func (t *Tenant) addCustomView(ctx context.Context, actor string, params []json.
 		return nil, fmt.Errorf("invalid: secret must be %d to %d printable ASCII characters", callbackSecretMin, callbackSecretMax)
 	}
 	view.secret = secret
+	view.generation, err = randomHex(16)
+	if err != nil {
+		return nil, err
+	}
 	view.Enabled = true
 	view.CreatedAt = time.Now().Unix()
 	kinds, _ := json.Marshal(view.Kinds)
 	languages, _ := json.Marshal(view.Languages)
-	_, err = t.store.DB().ExecContext(ctx, `INSERT INTO custom_views(name,kinds,transform,trigger,audience,languages,max_bytes,secret,enabled,created_at) VALUES(?,?,?,?,?,?,?,?,1,?)`, view.Name, string(kinds), view.Transform, view.Trigger, view.Audience, string(languages), view.MaxBytes, secret, view.CreatedAt)
+	_, err = t.store.DB().ExecContext(ctx, `INSERT INTO custom_views(name,kinds,transform,trigger,audience,languages,max_bytes,secret,generation,enabled,created_at) VALUES(?,?,?,?,?,?,?,?,?,1,?)`, view.Name, string(kinds), view.Transform, view.Trigger, view.Audience, string(languages), view.MaxBytes, secret, view.generation, view.CreatedAt)
 	if err != nil {
 		if strings.Contains(err.Error(), "UNIQUE") {
 			return nil, errors.New("invalid: a view with that name exists")
@@ -183,7 +298,7 @@ func (t *Tenant) addCustomView(ctx context.Context, actor string, params []json.
 		return nil, err
 	}
 	// Counts only: the transform host, path and secret stay out of the log.
-	t.app.telemetry.Logger().Info("custom view added", "tenant", t.meta.Name, "kinds", len(view.Kinds), "languages", len(view.Languages), "generated", generated)
+	t.telemetry.Logger().Info("custom view added", "tenant", t.tenantName, "kinds", len(view.Kinds), "languages", len(view.Languages), "generated", generated)
 	out := view.summary()
 	out["secret"] = secret
 	return out, nil
@@ -192,7 +307,7 @@ func (t *Tenant) addCustomView(ctx context.Context, actor string, params []json.
 // parseCustomView validates a definition: the name, the kinds it watches,
 // the https transform, the trigger, the audience, the languages and the
 // artifact size limit.
-func (t *Tenant) parseCustomView(options customViewOptions) (customView, error) {
+func (t *customViewService) parseCustomView(options customViewOptions) (customView, error) {
 	view := customView{Name: strings.TrimSpace(options.Name), Transform: strings.TrimSpace(options.Transform), Trigger: strings.TrimSpace(options.Trigger), Audience: strings.TrimSpace(options.Audience), MaxBytes: viewDefaultMaxBytes}
 	if !views.NamePattern.MatchString(view.Name) {
 		return customView{}, errors.New("invalid: name must be 1 to 32 lowercase letters, digits or hyphens")
@@ -208,7 +323,7 @@ func (t *Tenant) parseCustomView(options customViewOptions) (customView, error) 
 	}
 	sort.Ints(kinds)
 	view.Kinds = dedupeInts(kinds)
-	if err := t.checkCallbackURL(view.Transform); err != nil {
+	if err := validateWebhookURL(view.Transform, t.publicURL); err != nil {
 		return customView{}, fmt.Errorf("invalid: transform %s", strings.TrimPrefix(err.Error(), "invalid: "))
 	}
 	if view.Trigger == "" {
@@ -313,7 +428,7 @@ func dedupeInts(values []int) []int {
 	return out
 }
 
-func (t *Tenant) changeCustomView(ctx context.Context, actor, method string, params []json.RawMessage) (any, error) {
+func (t *customViewService) changeCustomView(ctx context.Context, actor, method string, params []json.RawMessage) (any, error) {
 	name := customViewNameParam(params)
 	if name == "" {
 		return nil, errors.New("invalid: view name required")
@@ -345,7 +460,7 @@ func (t *Tenant) changeCustomView(ctx context.Context, actor, method string, par
 		if err := t.community.Record(ctx, actor, method, name, strconv.Itoa(queued)); err != nil {
 			return nil, err
 		}
-		t.app.telemetry.Logger().Info("custom view run queued", "tenant", t.meta.Name, "queued", queued)
+		t.telemetry.Logger().Info("custom view run queued", "tenant", t.tenantName, "queued", queued)
 		out := view.summary()
 		out["queued"] = queued
 		return out, nil
@@ -367,7 +482,7 @@ func (t *Tenant) changeCustomView(ctx context.Context, actor, method string, par
 
 // removeCustomView deletes the definition and every artifact it produced,
 // including the stored public records.
-func (t *Tenant) removeCustomView(ctx context.Context, view customView) error {
+func (t *customViewService) removeCustomView(ctx context.Context, view customView) error {
 	ids, err := t.customViewArtifactIDs(ctx, `SELECT event_id FROM custom_view_artifacts WHERE view=?`, view.Name)
 	if err != nil {
 		return err
@@ -417,7 +532,7 @@ func customViewRefreshParam(params []json.RawMessage) bool {
 	return options.Refresh
 }
 
-func (t *Tenant) customViewByName(ctx context.Context, name string) (customView, error) {
+func (t *customViewService) customViewByName(ctx context.Context, name string) (customView, error) {
 	rows, err := t.customViewRows(ctx, name)
 	if err != nil {
 		return customView{}, err
@@ -429,8 +544,8 @@ func (t *Tenant) customViewByName(ctx context.Context, name string) (customView,
 }
 
 // customViewRows lists definitions, narrowed to one name.
-func (t *Tenant) customViewRows(ctx context.Context, names ...string) ([]customView, error) {
-	query := `SELECT name,kinds,transform,trigger,audience,languages,max_bytes,secret,enabled,created_at,last_run_at,last_status,failures FROM custom_views`
+func (t *customViewService) customViewRows(ctx context.Context, names ...string) ([]customView, error) {
+	query := `SELECT name,kinds,transform,trigger,audience,languages,max_bytes,secret,generation,enabled,created_at,last_run_at,last_status,failures FROM custom_views`
 	args := []any{}
 	if len(names) > 0 {
 		query += ` WHERE name=?`
@@ -447,7 +562,7 @@ func (t *Tenant) customViewRows(ctx context.Context, names ...string) ([]customV
 		var item customView
 		var kinds, languages string
 		var enabled int
-		if err := rows.Scan(&item.Name, &kinds, &item.Transform, &item.Trigger, &item.Audience, &languages, &item.MaxBytes, &item.secret, &enabled, &item.CreatedAt, &item.LastRunAt, &item.LastStatus, &item.Failures); err != nil {
+		if err := rows.Scan(&item.Name, &kinds, &item.Transform, &item.Trigger, &item.Audience, &languages, &item.MaxBytes, &item.secret, &item.generation, &enabled, &item.CreatedAt, &item.LastRunAt, &item.LastStatus, &item.Failures); err != nil {
 			return nil, err
 		}
 		item.Enabled = enabled != 0
@@ -464,7 +579,7 @@ func (t *Tenant) customViewRows(ctx context.Context, names ...string) ([]customV
 
 // customViewIndex returns the enabled views indexed by kind, built on first
 // use and dropped whenever a view changes.
-func (t *Tenant) customViewIndex(ctx context.Context) map[int][]customView {
+func (t *customViewService) customViewIndex(ctx context.Context) map[int][]customView {
 	t.viewMu.Lock()
 	defer t.viewMu.Unlock()
 	if t.viewIndex != nil {
@@ -473,7 +588,7 @@ func (t *Tenant) customViewIndex(ctx context.Context) map[int][]customView {
 	index := map[int][]customView{}
 	rows, err := t.customViewRows(ctx)
 	if err != nil {
-		t.app.telemetry.Logger().Error("load custom views", "tenant", t.meta.Name, "error", err)
+		t.telemetry.Logger().Error("load custom views", "tenant", t.tenantName, "error", err)
 		return index
 	}
 	for _, row := range rows {
@@ -488,7 +603,7 @@ func (t *Tenant) customViewIndex(ctx context.Context) map[int][]customView {
 	return index
 }
 
-func (t *Tenant) invalidateCustomViews() {
+func (t *customViewService) invalidateCustomViews() {
 	t.viewMu.Lock()
 	t.viewIndex = nil
 	t.viewMu.Unlock()
@@ -496,7 +611,7 @@ func (t *Tenant) invalidateCustomViews() {
 
 // CustomViews is the summary the web UI renders with: the enabled views'
 // names and languages, nothing else.
-func (t *Tenant) CustomViews() []views.View {
+func (t *customViewService) CustomViews() []views.View {
 	seen := map[string]bool{}
 	var out []views.View
 	for _, list := range t.customViewIndex(context.Background()) {
@@ -514,26 +629,8 @@ func (t *Tenant) CustomViews() []views.View {
 // queueCustomViews runs after an event is stored or released. Each enabled
 // write-triggered view that watches the kind and finds a block it renders
 // gets one transform intent. It never fails the publish.
-func (t *Tenant) queueCustomViews(ctx context.Context, e event.Event) {
-	candidates := t.customViewIndex(ctx)[e.Kind]
-	if len(candidates) == 0 {
-		return
-	}
-	if e.Kind == event.KIND_REPO_STATE && (t.git == nil || t.statePending(ctx, e.ID)) {
-		// The README is read from the objects, which have not arrived yet;
-		// releaseGit queues the state once they have.
-		return
-	}
-	var intents []storage.Intent
-	for _, view := range candidates {
-		if view.Trigger != "write" {
-			continue
-		}
-		if e.Kind != event.KIND_REPO_STATE && len(views.Matching(views.Blocks(e.Content), view.Languages)) == 0 {
-			continue
-		}
-		intents = append(intents, t.viewIntent(view, e, "", false))
-	}
+func (t *customViewService) queueCustomViews(ctx context.Context, e event.Event) {
+	intents := t.PrepareReleased(ctx, e)
 	if len(intents) == 0 {
 		return
 	}
@@ -541,18 +638,126 @@ func (t *Tenant) queueCustomViews(ctx context.Context, e event.Event) {
 		return storage.AddIntents(ctx, tx, intents, time.Now().Unix())
 	})
 	if err != nil {
-		t.app.telemetry.Logger().Error("view transforms not queued", "tenant", t.meta.Name, "error", err)
+		t.telemetry.Logger().Error("view transforms not queued", "tenant", t.tenantName, "error", err)
 		return
 	}
-	t.app.telemetry.Logger().Debug("view transforms queued", "tenant", t.meta.Name, "queued", len(intents))
+	t.telemetry.Logger().Debug("view transforms queued", "tenant", t.tenantName, "queued", len(intents))
+}
+
+// Prepare returns write-triggered transform intents for an event. The caller
+// owns the transaction that persists the returned intents, allowing event and
+// follow-up work to share one commit boundary.
+func (t *customViewService) Prepare(ctx context.Context, e event.Event) []storage.Intent {
+	targets, err := t.CandidateTargets(ctx, e)
+	if err != nil {
+		t.telemetry.Logger().Error("plan custom view transforms", "tenant", t.tenantName, "error", err)
+		return nil
+	}
+	intents, err := t.PrepareTargets(ctx, e, targets, false)
+	if err != nil {
+		t.telemetry.Logger().Error("prepare custom view transforms", "tenant", t.tenantName, "error", err)
+		return nil
+	}
+	return intents
+}
+
+// PrepareReleased returns intents after repository promotion has made Git
+// objects available. Repository state events are intentionally accepted only
+// through this path.
+func (t *customViewService) PrepareReleased(ctx context.Context, e event.Event) []storage.Intent {
+	targets, err := t.CandidateTargets(ctx, e)
+	if err != nil {
+		t.telemetry.Logger().Error("plan released custom view transforms", "tenant", t.tenantName, "error", err)
+		return nil
+	}
+	intents, err := t.PrepareTargets(ctx, e, targets, true)
+	if err != nil {
+		t.telemetry.Logger().Error("prepare released custom view transforms", "tenant", t.tenantName, "error", err)
+		return nil
+	}
+	return intents
+}
+
+// CandidateTargets captures names and registration identities for an event.
+// The identity prevents a later registration with the same name from
+// receiving work planned for an earlier registration.
+func (t *customViewService) CandidateTargets(ctx context.Context, e event.Event) ([]customViewTarget, error) {
+	if eventExpired(e, time.Now().Unix()) {
+		return nil, nil
+	}
+	rows, err := t.customViewRows(ctx)
+	if err != nil {
+		return nil, err
+	}
+	targets := make([]customViewTarget, 0, len(rows))
+	for _, view := range rows {
+		if !view.Enabled || view.Trigger != "write" || !view.watches(e.Kind) {
+			continue
+		}
+		if e.Kind != event.KIND_REPO_STATE && len(views.Matching(views.Blocks(e.Content), view.Languages)) == 0 {
+			continue
+		}
+		targets = append(targets, customViewTarget{Name: view.Name, Fingerprint: customViewFingerprint(view)})
+	}
+	return targets, nil
+}
+
+// PrepareTargets rechecks captured registration identities before creating
+// intents. A removed and recreated view with the same name is rejected.
+func (t *customViewService) PrepareTargets(ctx context.Context, e event.Event, targets []customViewTarget, released bool) ([]storage.Intent, error) {
+	if len(targets) == 0 || eventExpired(e, time.Now().Unix()) || (!released && e.Kind == event.KIND_REPO_STATE) {
+		return nil, nil
+	}
+	if e.Kind != event.KIND_REPO_STATE {
+		current, err := t.sourceCurrent(ctx, e)
+		if err != nil {
+			return nil, err
+		}
+		if !current {
+			return nil, nil
+		}
+	}
+	rows, err := t.customViewRows(ctx)
+	if err != nil {
+		return nil, err
+	}
+	candidates := make(map[string]customView, len(rows))
+	for _, view := range rows {
+		candidates[view.Name] = view
+	}
+	if e.Kind == event.KIND_REPO_STATE {
+		if t.git == nil || t.statePending(ctx, e.ID) {
+			return nil, nil
+		}
+	}
+	var intents []storage.Intent
+	for _, target := range targets {
+		view, ok := candidates[target.Name]
+		if !ok || !view.Enabled || view.Trigger != "write" || !view.watches(e.Kind) {
+			continue
+		}
+		if customViewFingerprint(view) != target.Fingerprint {
+			continue
+		}
+		if e.Kind != event.KIND_REPO_STATE && len(views.Matching(views.Blocks(e.Content), view.Languages)) == 0 {
+			continue
+		}
+		intents = append(intents, t.viewIntent(view, e, "", false))
+	}
+	return intents, nil
+}
+
+func eventExpired(e event.Event, now int64) bool {
+	expires := event.Expiration(e)
+	return expires > 0 && expires <= now
 }
 
 // viewIntent is the transform intent for one source. The event travels in
 // the payload; run makes a backfill or an hourly pass distinct from the
 // write-time intent for the same event.
-func (t *Tenant) viewIntent(view customView, e event.Event, run string, refresh ...bool) storage.Intent {
+func (t *customViewService) viewIntent(view customView, e event.Event, run string, refresh ...bool) storage.Intent {
 	force := len(refresh) > 0 && refresh[0]
-	payload, _ := json.Marshal(viewPayload{Event: e, Attempt: 1, Run: run, Refresh: force})
+	payload, _ := json.Marshal(viewPayload{Event: e, Attempt: 1, Run: run, Refresh: force, Generation: view.generation})
 	id := e.ID
 	if run != "" {
 		id += "@" + run
@@ -562,7 +767,7 @@ func (t *Tenant) viewIntent(view customView, e event.Event, run string, refresh 
 
 // statePending reports whether a repository state still waits for its
 // objects.
-func (t *Tenant) statePending(ctx context.Context, id string) bool {
+func (t *customViewService) statePending(ctx context.Context, id string) bool {
 	var one int
 	err := t.store.DB().QueryRowContext(ctx, `SELECT 1 FROM pending_events WHERE id=?`, id).Scan(&one)
 	return err == nil || t.git.IsPending(id)
@@ -571,7 +776,7 @@ func (t *Tenant) statePending(ctx context.Context, id string) bool {
 // queueCustomViewBackfill queues the newest sources of a view's kinds, at
 // most 500, written since the given time. Repository states are queued
 // whether or not their README has blocks; the handler reads it.
-func (t *Tenant) queueCustomViewBackfill(ctx context.Context, view customView, since int64, run string, refresh ...bool) (int, error) {
+func (t *customViewService) queueCustomViewBackfill(ctx context.Context, view customView, since int64, run string, refresh ...bool) (int, error) {
 	force := len(refresh) > 0 && refresh[0]
 	rows, err := t.store.Query(ctx, event.Filter{Kinds: view.Kinds, Tags: map[string][]string{}}, storage.QueryOptions{Now: time.Now().Unix(), Access: storage.Access{All: true}, Limit: viewBackfillLimit})
 	if err != nil {
@@ -602,7 +807,7 @@ func (t *Tenant) queueCustomViewBackfill(ctx context.Context, view customView, s
 
 // tickCustomViews queues the hourly views that are due. It is called from
 // the tenant scheduler on its own timer.
-func (t *Tenant) tickCustomViews(ctx context.Context, now int64) error {
+func (t *customViewService) tickCustomViews(ctx context.Context, now int64) error {
 	rows, err := t.customViewRows(ctx)
 	if err != nil {
 		return err
@@ -623,7 +828,7 @@ func (t *Tenant) tickCustomViews(ctx context.Context, now int64) error {
 			return err
 		}
 		if queued > 0 {
-			t.app.telemetry.Logger().Info("custom view hourly run queued", "tenant", t.meta.Name, "queued", queued)
+			t.telemetry.Logger().Info("custom view hourly run queued", "tenant", t.tenantName, "queued", queued)
 		}
 	}
 	return nil

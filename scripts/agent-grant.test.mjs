@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import vm from "node:vm";
 import {finalizeEvent, generateSecretKey, getPublicKey, nip19, verifyEvent} from "nostr-tools";
+import {sharedSigning} from "./test-signing.mjs";
 
 const owner = generateSecretKey();
 const ownerPubkey = getPublicKey(owner);
@@ -40,6 +41,7 @@ function setup(values = {}, options = {}) {
       return Response.json(options.result ?? {accepted: true});
     }
   };
+  tiny.signing = sharedSigning(window, tiny);
   const Constructor = vm.runInNewContext(`${grantSource}\nAgentGrant`, {FormElement, window, tiny, el, URL, isHex64: value => /^[0-9a-f]{64}$/.test(value || ""), globalThis: {location: {pathname: "/manage/agents"}}});
   const component = new Constructor();
   const form = {elements: Object.fromEntries(Object.entries({key: "generate", name: "helper", expires: dateAfter(90), rooms: "", repos: "", kinds: "", wiki: "", sites: "", rate: "60", pubkey: "", ...values}).map(([key, value]) => [key, {value}])), reset: () => { resets++; }};

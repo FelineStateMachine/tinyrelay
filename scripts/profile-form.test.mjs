@@ -5,6 +5,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import vm from "node:vm";
 import { finalizeEvent, generateSecretKey, getPublicKey, verifyEvent } from "nostr-tools/pure";
+import { sharedSigning } from "./test-signing.mjs";
 
 const source = fs.readFileSync("internal/webui/components.js", "utf8");
 const formSource = source.slice(source.indexOf("  // ProfileForm publishes"), source.indexOf("  // AgentGrant signs"));
@@ -28,6 +29,7 @@ function setup({attributes = {}, result, pool, noSigner = false, otherKey = fals
     util: {relayURL: value => (/^wss?:\/\/[a-z0-9.-]+(?::\d+)?\/?$/i.test(String(value).trim()) ? String(value).trim().replace(/\/$/, "") : null)},
     signedFetch: async (path, method, body) => { sent.push({path, method, event: JSON.parse(body)}); return Response.json(result ?? {accepted: true}); }
   };
+  tiny.signing = sharedSigning(window, tiny);
   const Constructor = vm.runInNewContext(`${formSource}\nProfileForm`, {FormElement, window, tiny, localStorage, JSON, Date, Error, Promise, setTimeout, Object, Array, String});
   const form = values => ({elements: Object.fromEntries(Object.entries(values).map(([key, value]) => [key, {value}]))});
   return {Constructor, component: new Constructor(), form, sent, published, reports, pubkey, store};

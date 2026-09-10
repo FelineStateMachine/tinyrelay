@@ -30,7 +30,7 @@ func TestNotificationIsNIP17NIP59Unwrapable(t *testing.T) {
 	}
 	p := policy.Defaults(owner)
 	var got event.Event
-	r, err := New(ctx, Config{Store: s, Policy: func() policy.Policy { return p }, RelayURL: "wss://relay", OnGenerated: func(_ context.Context, e event.Event) error { got = e; return nil }})
+	r, err := New(ctx, Config{Community: emptyCommunityReader{}, Store: s, Policy: func() policy.Policy { return p }, RelayURL: "wss://relay", OnGenerated: func(_ context.Context, e event.Event) error { got = e; return nil }})
 	if err != nil {
 		t.Fatal(err)
 	}
