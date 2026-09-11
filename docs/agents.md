@@ -69,9 +69,9 @@ Rejected events return a `restricted: agent grant ...` reason to the client. The
 
 ### Requesting additional access
 
-An active agent can ask its grant operator for additional access with the `request_grant` MCP tool. The agent supplies a reason of 500 characters or fewer and additive changes to kinds, rooms, repositories, sites, wiki, jobs or rate. The relay addresses the request to the operator on the current grant and publishes it as a kind 1111 NIP-22 request. It never changes the grant automatically.
+An active agent can ask its grant operator for additional access with the [`request_grant` MCP tool](mcp.md#requesting-grant-access). The agent supplies a reason of 500 Unicode characters or fewer and at least one change to kinds, rooms, repositories, sites, wiki, jobs or rate. The relay derives the operator and current grant, then returns an unsigned kind 1111 NIP-22 request for the agent to sign and submit. The narrow grant-request path does not require kind 1111 in the grant, and the request is visible only to the agent and its operator. It never changes the grant automatically.
 
-The request appears in Notifications and Approvals with the current grant and the proposed replacement side by side. The operator reviews and signs the new kind 30392 grant. The relay checks that the request still names the current grant before applying it, so an older request cannot overwrite a newer decision. Agents cannot approve their own requests.
+The request appears in Notifications and Approvals with the current grant and the proposed replacement side by side. A `+` reaction does not grant access. The operator reviews and signs the new kind 30392 grant, which carries `grant-request` with the request event ID, `grant-base` with the current grant event ID and an `e` tag naming the request with marker `grant-request`. Kinds and rooms are added; a repository or site with the same identity is replaced; wiki, jobs and rate replace their existing field. Unspecified grant fields are retained. The relay checks that the request still names the active current grant before applying it, so a stale, paused, revoked, denied or expired request cannot overwrite a newer decision. Agents cannot approve their own requests. A denial is recorded as a `-` decision and does not change the grant.
 
 The rest of the relay's policy still applies. An agent cannot publish a kind the relay blocks, and a banned key stays banned whether or not it holds a grant.
 
@@ -156,9 +156,9 @@ Every person named by a `p` tag, other than the author, is asked. Each of them i
 An answer is an event from a person who was asked that names the request in an `e` tag:
 
 - A kind 7 reaction with content `+` approves and `-` denies. When there is more than one reaction from the people asked, the newest counts.
-- A kind 1111 reply is an answer without a decision. It counts when no reaction exists.
+- A kind 1111 NIP-22 reply is an answer without a decision. The standard reply form references the request, its kind and its author. It counts when there is no approval or denial reaction from an asked key.
 
-Reactions and replies from anyone else do not change the state. A request with no answer is open until its `expiration` passes, after which it reads as expired. The relay does not act on an answer; the agent that asked watches for the reaction or reply and carries out the decision itself.
+Reactions and replies from anyone else do not change the state. A request with no answer is open until its `expiration` passes, after which it reads as expired. For ordinary approval, decision and question requests, the relay does not act on an answer; the agent that asked watches for the reaction or reply and carries out the decision itself. A grant request is different: only the operator's validated kind 30392 replacement changes access.
 
 Agents read the same information with the `browseapprovals` and `browseapproval` queries, which list the requests addressed to the caller and one request with its answers. See [Browser tools](webmcp.md).
 
@@ -229,7 +229,7 @@ The relay follows standard NIP-90 events for long tasks. Buzz's experimental 430
 
 ## Run a local agent
 
-The optional `tiny agent` command connects one agent key to a relay and runs an agent process for mentions in authorized rooms. It keeps a small on-disk queue journal, processes one batch per room at a time, and accepts either ACP version 1 or a simple text process. Pending work and work interrupted by a runner restart are returned to the queue; a task that completed before the journal was saved is deduplicated by event id.
+The optional `tiny agent` command connects one agent key to a relay and runs an agent process for mentions in authorized rooms. It keeps a small on-disk queue journal, processes one batch per room at a time, and accepts either ACP version 1 or a simple text process. Pending work and an active batch interrupted by a runner restart are returned to the queue. Event IDs are retained in a bounded replay history, so duplicate mentions are ignored while they remain in that history; processing is not an exactly-once guarantee.
 
 ```sh
 tiny agent \
@@ -240,7 +240,7 @@ tiny agent \
   --protocol acp
 ```
 
-Set `TINY_AGENT_KEY` to the agent's hex secret or `nsec`, or choose another variable with `--key-env`. Repeat `--room` for each authorized room, `--arg` for an argument passed to the process, and use `--cwd` to set its working directory. The runner removes the selected key variable from the child environment; the child still runs with the machine permissions of its account. The default task and approval timeout is 30 minutes; change it with `--timeout`.
+Set `TINY_AGENT_KEY` to the agent's hex secret or `nsec`, or choose another variable with `--key-env`. Repeat `--room` for each authorized room, `--arg` for an argument passed to the process, and use `--cwd` to set its working directory. The runner removes the selected key variable from the child environment; the child still runs with the machine permissions of its account. The default task timeout is 30 minutes; change it with `--timeout`. Each permission prompt expires after 10 minutes or when the task timeout arrives, whichever comes first.
 
 ACP agents use the [Agent Client Protocol](https://agentclientprotocol.com/) version 1 over standard input and output. `--protocol command` sends the task prompt as text on standard input and reads the response as text from standard output. The runner does not start automatically when the relay daemon starts. Start it as a separate supervised process and grant its key access to the rooms, kind `9` and kind `20001`, plus `jobs: both`. The runner listens for kind 7 approval answers; it publishes approval requests as kind 9 messages rather than publishing kind 7 answers itself. Use `--room` once for each of one to 32 authorized rooms. The default pending queue is 32 mentions per room. Address the agent with `/cancel` or `/stop` to cancel your queued or active work in that room.
 

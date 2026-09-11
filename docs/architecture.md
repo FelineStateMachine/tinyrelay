@@ -4,7 +4,7 @@ Each tenant has a SQLite store, a policy snapshot and a set of services. The dae
 
 ## Find your starting point
 
-[`cmd/tiny`](../cmd/tiny/doc.go) owns command dispatch, listeners and process shutdown. [`daemon`](../internal/daemon/doc.go) describes tenant assembly and event flow. Every internal package has a `doc.go` overview, and interface, constructor and transaction comments describe the contracts at their declarations. These comments are also available through `go doc` and editor symbol help.
+[`cmd/tiny`](../cmd/tiny/doc.go) owns command dispatch, listeners and process shutdown. [`daemon`](../internal/daemon/doc.go) describes tenant assembly and event flow. Package overviews and interface, constructor and transaction comments describe the contracts at their declarations. These comments are also available through `go doc` and editor symbol help.
 
 ## Responsibilities
 
@@ -19,6 +19,7 @@ Each tenant has a SQLite store, a policy snapshot and a set of services. The dae
 | [`gitrelay`](../internal/gitrelay/doc.go) | Repository admission, object storage, synchronization, repair and Git HTTP endpoints. |
 | [`replication`](../internal/replication/doc.go), [`syncprotocol`](../internal/syncprotocol/doc.go) | Relay synchronization plans and transports, count sketches and reconciliation sessions. |
 | [`relay`](../internal/relay/doc.go), [`mcp`](../internal/mcp/doc.go), [`webui`](../internal/webui/doc.go) | WebSocket sessions, MCP requests, HTML pages and browser interactions. |
+| [`agentrunner`](../internal/agentrunner) | The optional agent process: room mentions, durable queue recovery, ACP or command execution, and permission prompts. |
 | [`views`](../internal/views/doc.go), [`wiki`](../internal/wiki/doc.go), [`webpush`](../internal/webpush/doc.go) | Fenced-block parsing, article rendering and encrypted browser push delivery. |
 | [`catalog`](../internal/catalog/doc.go), [`domains`](../internal/domains/doc.go) | Tenant lifecycle records, filesystem paths and host mappings. |
 | [`templates`](../internal/templates/doc.go), [`configport`](../internal/configport/doc.go) | Built-in policy templates and configuration import, export and application. |

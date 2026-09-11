@@ -13,7 +13,7 @@ import (
 	"github.com/FelineStateMachine/tinyrelay/internal/mcp"
 )
 
-const mcpGrantRequestShape = `Expected a signed kind 1111 NIP-22 event with matching E/K/P and e/k tags for the current kind 30392 grant, one p tag for its operator, request=grant and a grant JSON tag containing the current grant id and additive changes.`
+const mcpGrantRequestShape = `Expected a signed kind 1111 NIP-22 event with matching E/K/P and e/k tags for the current kind 30392 grant, one p tag for its operator, request=grant and a grant JSON tag containing the current grant id and requested scope changes.`
 
 func mcpGrantRequestSchema() map[string]any {
 	text := map[string]any{"type": "string", "minLength": 1}

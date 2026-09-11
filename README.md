@@ -59,7 +59,7 @@ Run `tiny templates` to see available templates. Templates that read from an ups
 
 ## Configure and operate
 
-The web interface uses plain HTML pages and forms. Connect a Nostr signer with NIP-07 or Nostr Connect to sign in and authorize management actions. **Chat** combines group rooms with one-to-one conversations. Use the management pages to configure policy, members, relay connections, delivery jobs, backups, hosted sites, and stored files. Delivery and retry status lives under **Manage > Sync**.
+The web interface uses plain HTML pages and forms. Connect a Nostr signer with NIP-07 or Nostr Connect to sign in and authorize management actions. **Chat** combines group rooms with one-to-one conversations. **Account** keeps the current key's profile, relay lists and Chat presence preference together. Use the management pages to configure policy, members, relay connections, delivery jobs, backups, hosted sites, and stored files. Delivery and retry status lives under **Manage > Sync**.
 
 The browsing pages provide repository lists, source files, branches, history, diffs, file previews, raw downloads, synchronization status, and storage status. Access follows the tenant's current permissions.
 

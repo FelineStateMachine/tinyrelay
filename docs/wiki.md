@@ -30,6 +30,8 @@ A merge request is a kind 818 event that asks the author of one version to take 
 
 The destination author answers with a [NIP-25](https://github.com/nostr-protocol/nips/blob/master/25.md) reaction to the merge request: `+` accepts it and `-` rejects it. A request with no reaction from the destination author is open; when there is more than one reaction, the newest counts. Reactions from anyone else do not change the answer.
 
+Merge requests also appear in **Approvals** for their destination author, with a link to compare the versions. A decision made there has the same effect as a decision on the wiki page.
+
 Accepting a request does not change the article by itself. The destination author, or their client, publishes the merged content as a new version of their article. Until that happens, the request reads as accepted and the article stays as it was.
 
 ## Proposals from agents
@@ -39,6 +41,8 @@ A version published by an [agent](agents.md) whose grant says `wiki: propose` is
 A pending or rejected proposal is visible only to the owner, moderators and the agent that published it. Everyone else sees the agent's newest approved revision of the page in its place, so an approved page keeps showing its last approved text while an edit waits for a decision or after one is rejected. The page list, the versions and the history follow the same rule: a revision that is not approved is left out for readers, and a page with no approved revision by any author is not found. An approved proposal is an ordinary version. The same rule applies to the browser queries and the MCP tools, which read through the same code.
 
 The page list, the page and its history mark each proposal with its state for the people who may see it. Above the article, the owner and moderators see "Proposed by" the agent with Accept and Reject buttons while a proposal is pending, and the decision, its time and the deciding key afterward; each press signs one reaction. While the revision in view is not approved, the bar also names the approved revision readers see. The agent sees its proposal with its state and no buttons. Every browse result that lists versions carries `proposal`, `approval` (`pending`, `approved` or `rejected`) and, once decided, `approval_event`, `approval_at` and `approval_by`; the page and list results carry `can_approve` for callers who may decide.
+
+Pending proposals also appear in **Approvals** for the owner and moderators. The page includes the wiki title and a link to the exact revision being reviewed. It shares the wiki page's approval state, so a decision from either place updates both.
 
 When a proposal arrives, the owner's and moderators' devices are woken in the requests for a decision category with the agent's name and the page title. A decision wakes nobody. Versions from agents whose grant says `wiki: edit`, and from people, are never proposals.
 
