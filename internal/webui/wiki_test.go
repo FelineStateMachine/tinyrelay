@@ -252,7 +252,9 @@ func TestWikiMissingPageOffersTheEditorToMembers(t *testing.T) {
 	wantAll(t, path, body, `<h1>whats-up</h1>`, `There is no page named <code>whats-up</code> yet.`, `<wiki-compose name="whats-up"`, `<th>name</th><td><code>whats-up</code></td>`)
 	wantNone(t, path, body, `role="alert"`)
 	body = wikiGet(t, wikiApp(t, b, ""), path)
-	wantAll(t, path, body, `<a href="/signin">Sign in</a> to write it.`)
+	if !strings.Contains(body, `<a href="/signin?next=`) || !strings.Contains(body, `">Sign in</a> to write it.`) {
+		t.Fatalf("%s missing return-preserving sign-in link", path)
+	}
 	wantNone(t, path, body, "<wiki-compose")
 }
 

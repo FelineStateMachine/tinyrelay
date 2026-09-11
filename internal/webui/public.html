@@ -31,8 +31,8 @@
 {{if .Actor}}<p>Signed in as {{template "nostrKey" .Actor}}.</p>
 <p><a href="/manage/people">Manage relay</a> | <a href="/tools">Browser tools</a> | <a href="/inbox">Inbox</a></p>
 <p>Use the sign out control in the footer to end this session.</p>
-<h2>Your relay lists</h2>
-<p>Clients find your relays through these lists. Add this relay to each so they use it. What is already listed stays.</p>
+<details id="relay-setup"><summary>Your relay lists (optional)</summary>
+<p>Choose where other Nostr clients find your notes, messages and files. Add this relay to any lists you want to use. Existing entries stay.</p>
 <relay-lists relay="{{wsURL .URL}}" server="{{.URL}}" pubkey="{{.Actor}}">
 <table id="rows">
 <tbody>
@@ -44,6 +44,7 @@
 </table>
 <output role="status"></output>
 </relay-lists>
+</details>
 {{else}}<p>Use a browser extension, or connect Amber on your phone. The relay never sees a private key.</p>
 {{template "signerControls" .}}
 {{end}}</section>
@@ -51,7 +52,7 @@
 
 {{define "signerControls"}}<p><button id="session-login" type="button">Sign in with connected signer</button></p>
 <h2>Phone signer</h2>
-<p>Scan the QR code with Amber and approve the connection and sign-in request. This page will open your relay when you finish.</p>
+<p>Scan the QR code with Amber and approve the connection and sign-in request. You will return to the page you opened.</p>
 <p><label><input type="checkbox" id="remember-signer"> Remember this device</label> <small>Keeps the phone signer connected after the app closes. Sign out to forget it.</small></p>
 <p><button id="nostrconnect" type="button">Generate QR code</button> <a id="nostrconnect-open" hidden>Open in signer</a></p>
 <img id="signer-qr" alt="Nostr Connect QR code" hidden width="240" height="240">

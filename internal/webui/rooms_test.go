@@ -125,7 +125,7 @@ func TestRoomsListRendersRoomsRailAndCreateForm(t *testing.T) {
 	}
 	guestApp, _ := roomsApp(t, "")
 	body = roomsPage(t, guestApp, "/rooms")
-	if strings.Contains(body, "<room-create>") || !strings.Contains(body, `<a href="/signin">Sign in</a> to create a room.`) || strings.Contains(body, `href="/rooms/build"`) {
+	if strings.Contains(body, "<room-create>") || !strings.Contains(body, `<a href="/signin?next=%2Frooms">Sign in</a> to create a room.`) || strings.Contains(body, `href="/rooms/build"`) {
 		t.Fatalf("guest rooms list: %s", body[strings.Index(body, `id="content"`):])
 	}
 	// The relay rail lists rooms first in the conversation group.
@@ -179,7 +179,7 @@ func TestRoomPageRendersMessagesOldestFirstWithMarkers(t *testing.T) {
 	}
 	guestApp, _ := roomsApp(t, "")
 	body = roomsPage(t, guestApp, "/rooms/general")
-	if strings.Contains(body, "<room-compose") || strings.Contains(body, "<room-action") || !strings.Contains(body, `<a href="/signin">Sign in</a> to send messages.`) || !strings.Contains(body, `id="msg-`+roomHello) {
+	if strings.Contains(body, "<room-compose") || strings.Contains(body, "<room-action") || !strings.Contains(body, `<a href="/signin?next=%2Frooms%2Fgeneral">Sign in</a> to send messages.`) || !strings.Contains(body, `id="msg-`+roomHello) {
 		t.Fatalf("guest room page: %s", body[strings.Index(body, `id="content"`):])
 	}
 }
@@ -187,7 +187,7 @@ func TestRoomPageRendersMessagesOldestFirstWithMarkers(t *testing.T) {
 func TestMembersOnlyRoomIsHiddenFromGuests(t *testing.T) {
 	guestApp, _ := roomsApp(t, "")
 	body := roomsPage(t, guestApp, "/rooms/build")
-	if !strings.Contains(body, `<p role="alert">auth-required: this room is members-only</p>`) || strings.Contains(body, "<room-message") || strings.Contains(body, "<room-compose") || !strings.Contains(body, `<a href="/signin">Sign in</a> to read this room.`) {
+	if !strings.Contains(body, `<p role="alert">auth-required: this room is members-only</p>`) || strings.Contains(body, "<room-message") || strings.Contains(body, "<room-compose") || !strings.Contains(body, `<a href="/signin?next=%2Frooms%2Fbuild">Sign in</a> to read this room.`) {
 		t.Fatalf("guest saw a members-only room: %s", body[strings.Index(body, `id="content"`):])
 	}
 	if !strings.Contains(body, `<h1>#build</h1>`) || strings.Contains(body, "Where Build happens") {

@@ -79,7 +79,7 @@ func TestProfilePageAsksGuestsToSignIn(t *testing.T) {
 	}
 	recorder = httptest.NewRecorder()
 	app.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/", nil))
-	if home := recorder.Body.String(); !strings.Contains(home, `<li><a href="/signin">sign in</a></li>`) || strings.Contains(home, `href="/profile"`) {
+	if home := recorder.Body.String(); !strings.Contains(home, `<li><a href="/signin?next=%2F">sign in</a></li>`) || strings.Contains(home, `href="/profile"`) {
 		t.Fatal("guest home panel should offer sign in, not the profile")
 	}
 }

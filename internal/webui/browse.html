@@ -56,7 +56,7 @@
 {{define "approvals"}}<section>
 <h1>Approvals</h1>
 <p>Requests that wait for your decision. Each answer is a signed reaction; a reply opens the thread.</p>
-{{if not .Actor}}<p><a href="/signin">Sign in</a> to see the requests addressed to your key.</p>
+{{if not .Actor}}<p><a href="{{signinURL .Base .Path .Query}}">Sign in</a> to see the requests addressed to your key.</p>
 {{else if .Error}}{{template "alert" .Error}}
 {{else}}{{$open := approvalViews .Event .URL "open"}}{{$done := approvalViews .Event .URL "answered" "expired"}}{{if $open}}{{range $item := $open}}<approval-item id="approval-{{$item.ID}}" data-type="{{$item.Type}}" data-state="{{$item.State}}">
 <header>{{template "nostrKey" $item.Asker}} in {{$item.Where}} | <time datetime="{{datetime $item.CreatedAt}}">{{when $item.CreatedAt}}</time>{{if $item.Expires}} | expires <time datetime="{{datetime $item.Expires}}">{{when $item.Expires}}</time>{{end}}</header>

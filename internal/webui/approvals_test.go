@@ -114,7 +114,7 @@ func TestApprovalsPageAsksGuestsToSignIn(t *testing.T) {
 	recorder := httptest.NewRecorder()
 	app.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/approvals", nil))
 	body := recorder.Body.String()
-	if recorder.Code != http.StatusOK || !strings.Contains(body, `<a href="/signin">Sign in</a> to see the requests addressed to your key.`) {
+	if recorder.Code != http.StatusOK || !strings.Contains(body, `<a href="/signin?next=%2Fapprovals">Sign in</a> to see the requests addressed to your key.`) {
 		t.Fatalf("guest page %d:\n%s", recorder.Code, body)
 	}
 	if strings.Contains(body, "<approval-item") || strings.Contains(body, "auth-required") || strings.Contains(body, "role=\"alert\"") {

@@ -71,7 +71,7 @@ then feature modules are loaded for the current page. */}}
 {{end}}</div></td>
 <td id="aside"><div id="panel">{{template "panel" .}}</div></td>
 </tr></tbody></table>
-<footer id="footer"><table><tr><td><span id="prompt"><b>{{.Slug}}</b> &raquo; <page-link url="{{pageAddress .URL .Path .Query}}" title="Copy the page address">{{prompt .Path .Query}}</page-link></span></td><td><span id="who">{{if .Private}}private relay{{else if .Actor}}signed in as {{template "nostrName" .Actor}} (<button id="session-logout" type="button">sign out</button>){{else}}browsing as guest (<a href="/signin">Sign in</a>){{end}}</span> <span id="session-status" role="status"></span><span id="navigation-status" role="status" aria-live="polite"></span></td></tr></table><button id="install" type="button" hidden>install app</button></footer>
+<footer id="footer"><table><tr><td><span id="prompt"><b>{{.Slug}}</b> &raquo; <page-link url="{{pageAddress .URL .Path .Query}}" title="Copy the page address">{{prompt .Path .Query}}</page-link></span></td><td><span id="who">{{if .Private}}private relay{{else if .Actor}}signed in as {{template "nostrName" .Actor}} (<button id="session-logout" type="button">sign out</button>){{else}}browsing as guest (<a href="{{signinURL .Base .Path .Query}}">Sign in</a>){{end}}</span> <span id="session-status" role="status"></span><span id="navigation-status" role="status" aria-live="polite"></span></td></tr></table><button id="install" type="button" hidden>install app</button></footer>
 <script src="{{scriptURL "tiny.js"}}"></script>
 <script src="{{scriptURL "bridge.js"}}"></script>
 {{if or (eq .Tab "files") (eq .Tab "file")}}<script src="{{scriptURL "blossom-encryption.js"}}"></script>
@@ -89,7 +89,7 @@ then feature modules are loaded for the current page. */}}
 
 {{/* The rail is the sitemap for the current context: the relay, one repository, or management. */}}
 {{define "rail"}}{{$kind := railKind .Tab}}{{if .Private}}<header><span><a id="mark" href="/"><i>t</i><i>i</i><i>n</i><i>y</i></a></span></header>
-<nav><a href="/signin" aria-current="page">/signin</a></nav>
+<nav><a href="{{signinURL .Base .Path .Query}}" aria-current="page">/signin</a></nav>
 <p>Private relay. Sign in with a Nostr signer to continue.</p>
 {{else if eq $kind "repo"}}<header><span><a href="/">{{.Slug}}</a>/<a href="/repos" title="{{.Query.Get "owner"}}">{{shortID (npub (.Query.Get "owner"))}}</a>/<b>{{.Query.Get "repo"}}</b></span></header>
 <nav>{{$v := repoView .Query}}<a href="{{repoURL .Query "home" ""}}"{{if eq $v "home"}} aria-current="page"{{end}}>/home</a><a href="{{repoURL .Query "tree" ""}}"{{if or (eq $v "tree") (eq $v "file")}} aria-current="page"{{end}}>/code</a><a href="{{repoURL .Query "history" ""}}"{{if or (eq $v "history") (eq $v "commit")}} aria-current="page"{{end}}>/history</a><a href="{{repoURL .Query "issues" ""}}"{{if or (eq $v "issues") (eq $v "issue")}} aria-current="page"{{end}}>/issues</a><a href="{{repoURL .Query "prs" ""}}"{{if or (eq $v "prs") (eq $v "pr")}} aria-current="page"{{end}}>/prs</a><a href="{{repoURL .Query "activity" ""}}"{{if eq $v "activity"}} aria-current="page"{{end}}>/activity</a></nav>
@@ -119,7 +119,7 @@ then feature modules are loaded for the current page. */}}
 {{end}}{{end}}
 
 {{define "panel-relay"}}<section><h4>About</h4><table><tr><th>identity</th><td>{{template "nostrKey" .Identity}}</td></tr><tr><th>reads</th><td>{{.Policy.Reads}}</td></tr><tr><th>writes</th><td>{{.Policy.Writes}}</td></tr><tr><th>search</th><td>{{.Policy.Features.Search}}</td></tr>{{if .Policy.Features.Grasp}}<tr><th>git</th><td>GRASP-01</td></tr>{{end}}{{if .Policy.Features.Files}}<tr><th>files</th><td>Blossom</td></tr>{{end}}</table></section>
-<section><h4>Actions</h4><ul>{{if .Actor}}<li><a href="/profile">profile</a></li>{{else}}<li><a href="/signin">sign in</a></li>{{end}}<li><a href="/.well-known/nostr.json">NIP-05 names</a></li>{{if .Policy.Features.Pages}}<li><a href="/feed.xml">Atom feed</a></li>{{end}}<li><a href="/terms">terms</a></li></ul></section>
+<section><h4>Actions</h4><ul>{{if .Actor}}<li><a href="/profile">profile</a></li>{{else}}<li><a href="{{signinURL .Base .Path .Query}}">sign in</a></li>{{end}}<li><a href="/.well-known/nostr.json">NIP-05 names</a></li>{{if .Policy.Features.Pages}}<li><a href="/feed.xml">Atom feed</a></li>{{end}}<li><a href="/terms">terms</a></li></ul></section>
 <section><h4>Relay</h4><table><tr><th>url</th><td><code>{{.URL}}</code></td></tr></table></section>{{end}}
 
 {{define "panel-signin"}}<section><h4>Session</h4><table><tr><th>status</th><td>{{if .Actor}}signed in{{else}}guest{{end}}</td></tr><tr><th>method</th><td>NIP-98</td></tr></table></section>
@@ -153,7 +153,7 @@ then feature modules are loaded for the current page. */}}
 <section><h4>Kill switch</h4><rpc-form method="pauseallagents" refresh><button>Pause all agents</button></rpc-form><rpc-form method="resumeallagents" refresh><button>Resume all agents</button></rpc-form><p><small>Pausing keeps grants and rejects writes until resumed.</small></p></section>
 <section><h4>Session</h4><table><tr><th>you</th><td>{{if .Actor}}{{template "nostrKey" .Actor}}{{else}}guest{{end}}</td></tr><tr><th>role</th><td>{{if .Owner}}owner{{else if .Actor}}member{{else}}none{{end}}</td></tr></table></section>{{end}}
 {{define "panel-rooms"}}{{if eq .Tab "rooms"}}<section><h4>Rooms</h4><table><tr><th>rooms</th><td>{{len .Rooms}}</td></tr><tr><th>protocol</th><td>NIP-29</td></tr></table></section>
-<section><h4>Actions</h4><ul>{{if .Actor}}<li><a href="/rooms#new-room">new room</a></li>{{else}}<li><a href="/signin">sign in</a></li>{{end}}</ul></section>
+<section><h4>Actions</h4><ul>{{if .Actor}}<li><a href="/rooms#new-room">new room</a></li>{{else}}<li><a href="{{signinURL .Base .Path .Query}}">sign in</a></li>{{end}}</ul></section>
 {{else if .Error}}<section><h4>Room</h4><table><tr><th>id</th><td><code>{{.View}}</code></td></tr></table></section>
 {{else}}{{$data := asMap .Event}}{{$room := asMap (index $data "room")}}{{$id := str (index $room "id")}}{{$role := str (index $room "role")}}<section><h4>Room</h4><table><tr><th>id</th><td><code>{{$id}}</code></td></tr><tr><th>access</th><td>{{if eq (str (index $room "access")) "members"}}members only{{else}}open{{end}}</td></tr><tr><th>created</th><td>{{short (index $room "created_at")}}</td></tr>{{if $role}}<tr><th>you</th><td>{{$role}}</td></tr>{{end}}</table></section>
 {{if eq .Tab "thread"}}<section><h4>Actions</h4><ul><li><a href="/rooms/{{$id}}">open room</a></li></ul></section>

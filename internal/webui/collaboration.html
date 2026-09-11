@@ -16,7 +16,7 @@
 <label>Title <input name="title" required maxlength="300"></label><label>Labels <input name="labels" placeholder="bug, help wanted"></label>
 {{if not $issues}}<label>Commit <input name="commit" required pattern="[0-9a-f]{40}"></label><label>Clone URL <input name="clone" type="url" required placeholder="https://example.com/project.git"></label><label>Merge base <input name="merge-base" pattern="[0-9a-f]{40}"></label>{{end}}
 <label>Description <textarea name="content" required></textarea></label><button>Sign and publish</button>
-</nostr-compose><noscript><p>JavaScript and a connected signer are required to publish.</p></noscript></details>{{else}}<p><a href="/signin">Sign in</a> to start a conversation.</p>{{end}}
+</nostr-compose><noscript><p>JavaScript and a connected signer are required to publish.</p></noscript></details>{{else}}<p><a href="{{signinURL .Base .Path .Query}}">Sign in</a> to start a conversation.</p>{{end}}
 </section>
 {{else}}{{$item := asMap (index $data "item")}}{{$diff := reviewDiff .Event .Query .Actor}}{{$anchor := reviewAnchor .Query}}<section id="collaboration-detail">
 <p><a href="{{if $issues}}{{repoURL .Query "issues" ""}}{{else}}{{repoURL .Query "prs" ""}}{{end}}">{{if $issues}}All issues{{else}}All pull requests{{end}}</a></p>
@@ -36,7 +36,7 @@
 {{with index $data "reply_cursor"}}<p id="pages"><a href="{{browsePageURL "/repo" $.Query "cursor" .}}">older replies</a></p>{{end}}
 {{if .Actor}}<h2>Reply</h2>{{with $anchor}}<p id="reply-anchor">Commenting on <code>{{.File}}</code> line {{.Line}} ({{.Side}} side). <a href="{{repoURL $.Query "pr" (str (index $item "id"))}}">Comment on the whole change instead</a></p>{{end}}<nostr-compose id="reply-compose" kind="1111" coordinate="{{$coordinate}}" root="{{index $item "id"}}" root-pubkey="{{index $item "author"}}" root-kind="{{index $item "kind"}}">{{with $anchor}}<input type="hidden" name="file" value="{{.File}}"><input type="hidden" name="line" value="{{.Line}}"><input type="hidden" name="side" value="{{.Side}}">{{end}}<label>Comment <textarea name="content" required></textarea></label><button>Sign and reply</button></nostr-compose>
 {{if index $data "can_status"}}<details id="status-controls"><summary>Change status</summary><nostr-compose kind="status" coordinate="{{$coordinate}}" root="{{index $item "id"}}" root-pubkey="{{index $item "author"}}" root-kind="{{index $item "kind"}}"><label>Status <select name="status"><option value="1630">Reopen</option><option value="1631">{{if $issues}}Resolve{{else}}Mark merged{{end}}</option><option value="1632">Close</option><option value="1633">Draft</option></select></label><label>Comment <textarea name="content"></textarea></label><button>Sign and update</button></nostr-compose></details>{{end}}
-<noscript><p>JavaScript and a connected signer are required to publish.</p></noscript>{{else}}<p><a href="/signin">Sign in</a> to reply.</p>{{end}}
+<noscript><p>JavaScript and a connected signer are required to publish.</p></noscript>{{else}}<p><a href="{{signinURL .Base .Path .Query}}">Sign in</a> to reply.</p>{{end}}
 </section>{{end}}{{end}}
 
 {{/* collaborationProposal is the bar above a proposed issue, pull request or comment: its state for the people who may see it, with the decision for those who may make it. */}}

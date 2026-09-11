@@ -271,6 +271,7 @@ func parseTemplates(a *App) (*template.Template, error) {
 		"short":           short,
 		"prompt":          promptPath,
 		"pageAddress":     pageAddress,
+		"signinURL":       signinURL,
 		"railKind":        railKind,
 		"repoView":        repoView,
 		"relayItems":      func() []navItem { return relayNav },

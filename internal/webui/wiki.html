@@ -17,7 +17,7 @@
 {{define "wikipage"}}{{$d := .Query.Get "d"}}{{if .Error}}<section id="wiki-page">
 <h1>{{$d}}</h1>
 {{if hasPrefix .Error "not found:"}}<p>There is no page named <code>{{$d}}</code> yet.</p>
-{{if .Actor}}{{template "wikiEditor" .}}{{else}}<p><a href="/signin">Sign in</a> to write it.</p>{{end}}
+{{if .Actor}}{{template "wikiEditor" .}}{{else}}<p><a href="{{signinURL .Base .Path .Query}}">Sign in</a> to write it.</p>{{end}}
 {{else}}{{template "alert" .Error}}{{end}}</section>
 {{else}}{{$w := wikiView .Event}}<section id="wiki-page">
 <h1>{{$w.Title}}</h1>
@@ -73,8 +73,8 @@
 <p><a href="{{wikiURL $w.D}}">back to the page</a></p>{{end}}
 
 {{define "panel-wiki"}}{{if eq .Tab "wiki"}}<section><h4>Wiki</h4><table><tr><th>protocol</th><td>NIP-54</td></tr><tr><th>markup</th><td>Djot</td></tr><tr><th>reads</th><td>{{.Policy.Reads}}</td></tr></table></section>
-<section><h4>Actions</h4><ul>{{if .Actor}}<li><a href="/wiki?new=1">new page</a></li>{{else}}<li><a href="/signin">sign in to write</a></li>{{end}}</ul></section>
+<section><h4>Actions</h4><ul>{{if .Actor}}<li><a href="/wiki?new=1">new page</a></li>{{else}}<li><a href="{{signinURL .Base .Path .Query}}">sign in to write</a></li>{{end}}</ul></section>
 {{else}}{{$w := wikiView .Event}}<section><h4>Page</h4><table><tr><th>name</th><td><code>{{or $w.D (.Query.Get "d")}}</code></td></tr><tr><th>versions</th><td>{{$w.Count}}</td></tr>{{if $w.History}}<tr><th>revisions</th><td>{{len $w.History}}</td></tr>{{end}}<tr><th>merge requests</th><td>{{$w.OpenCount}} open</td></tr><tr><th>links</th><td>{{$w.Links}}</td></tr></table></section>
 {{if $w.Others}}<section><h4>Other versions</h4><ul>{{range $w.Others}}{{$s := wikiProposal . $.Actor $w.CanApprove}}<li{{if $s.Shown}} data-state="{{$s.State}}"{{end}}><a href="{{wikiURL $w.D "version" (str (index . "id"))}}">{{shortID (index . "author")}}</a>{{with asMap (index . "fork")}} | fork{{end}}{{if $s.Shown}} | proposed {{$s.State}}{{end}} <small>{{short (index . "created_at")}}</small></li>{{end}}</ul></section>
 {{end}}{{if $w.RedirectsTo}}<section><h4>Also known as</h4><ul>{{range $w.RedirectsTo}}<li><code>{{str (index . "d")}}</code></li>{{end}}</ul></section>
-{{end}}<section><h4>Actions</h4><ul>{{if $w.Version}}{{if eq .Actor $w.Author}}<li><a href="{{wikiURL $w.D "edit" "1"}}">edit</a></li>{{else if .Actor}}<li><a href="{{wikiURL $w.D "edit" "1"}}">fork</a></li>{{end}}<li><a href="{{wikiURL $w.D "history" "1"}}">history</a></li>{{end}}{{if .Actor}}<li><a href="/wiki?new=1">new page</a></li>{{else}}<li><a href="/signin">sign in to write</a></li>{{end}}</ul></section>{{end}}{{end}}
+{{end}}<section><h4>Actions</h4><ul>{{if $w.Version}}{{if eq .Actor $w.Author}}<li><a href="{{wikiURL $w.D "edit" "1"}}">edit</a></li>{{else if .Actor}}<li><a href="{{wikiURL $w.D "edit" "1"}}">fork</a></li>{{end}}<li><a href="{{wikiURL $w.D "history" "1"}}">history</a></li>{{end}}{{if .Actor}}<li><a href="/wiki?new=1">new page</a></li>{{else}}<li><a href="{{signinURL .Base .Path .Query}}">sign in to write</a></li>{{end}}</ul></section>{{end}}{{end}}

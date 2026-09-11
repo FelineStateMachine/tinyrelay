@@ -139,11 +139,52 @@
   Object.assign(window.tiny, {root, localPath, sha256hex, authorization, signedFetch});
   window.tinySignedFetch = signedFetch;
 
+  const isSignIn = url => url.pathname.replace(/\/+$/, "") === localPath("/signin");
+  const returnPath = value => {
+    if (!value?.startsWith("/") || value.startsWith("//") || /[\\\u0000-\u001f\u007f]/.test(value)) return null;
+    try {
+      const url = new URL(value, location.origin);
+      const tenant = (url.pathname.match(/^\/r\/[^/]+/) || [""])[0];
+      if (url.origin !== location.origin || tenant !== root || isSignIn(url)) return null;
+      return url.pathname + url.search + url.hash;
+    } catch { return null; }
+  };
+  const signInDestination = () => {
+    const current = new URL(location.href);
+    if (!isSignIn(current)) return returnPath(current.pathname + current.search + current.hash) || localPath("/");
+    const carried = new URLSearchParams(current.hash.slice(1)).get("return");
+    const next = returnPath(carried) || returnPath(current.searchParams.get("next"));
+    if (next) return next;
+    try {
+      const previous = new URL(document.referrer);
+      if (previous.origin === location.origin) return returnPath(previous.pathname + previous.search) || localPath("/");
+    } catch {}
+    return localPath("/");
+  };
+
+  // Keep fragments client-side: file links may carry decryption keys. The
+  // server-rendered next query is still a usable fallback without JavaScript.
+  document.addEventListener("click", event => {
+    const link = event.target?.closest?.("a[href]");
+    if (!link) return;
+    const current = new URL(location.href);
+    let login;
+    try { login = new URL(link.href, location.href); } catch { return; }
+    if (login.origin !== location.origin || !isSignIn(login) || isSignIn(current)) return;
+    const target = returnPath(current.pathname + current.search + current.hash);
+    if (!target) return;
+    login.searchParams.set("next", current.pathname + current.search);
+    login.hash = current.hash ? "return=" + encodeURIComponent(target) : "";
+    link.href = login.href;
+    if (link.hasAttribute("fx-action")) link.setAttribute("fx-action", login.href);
+  }, true);
+
   const signIn = async () => {
+    const destination = signInDestination();
     say("Signing in…");
     await signedSession("/session");
     say("Signed in.");
-    location.assign(localPath("/"));
+    location.replace(destination);
   };
 
   // A remote signer session lives in this tab unless the person chose to
