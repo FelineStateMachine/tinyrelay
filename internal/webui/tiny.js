@@ -118,13 +118,30 @@
   // WebMCP. Signers are treated as untrusted extensions: the returned event
   // must preserve the requested unsigned fields and pass the verifier before
   // it is sent to the relay.
+  // Signers may reconstruct the event object while crossing an extension or
+  // NIP-46 boundary. Compare the signed event's unsigned fields by value,
+  // rather than by JSON property insertion order. Array order remains part of
+  // the event and changed values are still rejected.
+  const sameValue = (left, right) => {
+    if (left === right) return true;
+    if (typeof left !== typeof right || left === null || right === null) return false;
+    if (Array.isArray(left) || Array.isArray(right)) {
+      return Array.isArray(left) && Array.isArray(right) && left.length === right.length && left.every((value, index) => sameValue(value, right[index]));
+    }
+    if (typeof left === "object") {
+      const leftKeys = Object.keys(left), rightKeys = Object.keys(right);
+      return leftKeys.length === rightKeys.length && leftKeys.every(key => Object.prototype.hasOwnProperty.call(right, key) && sameValue(left[key], right[key]));
+    }
+    return false;
+  };
   const signEvent = async (unsigned, {signal} = {}) => {
     if (!globalThis.nostr?.signEvent) throw Error("Connect a signer first.");
     if (typeof globalThis.NostrSigner?.verifyEvent !== "function") throw Error("The signer verifier is still loading. Try again.");
-    const expected = JSON.stringify(unsigned);
-    const event = await globalThis.nostr.signEvent(JSON.parse(expected));
-    const actual = event && JSON.stringify({kind: event.kind, created_at: event.created_at, tags: event.tags, content: event.content});
-    if (actual !== expected || globalThis.NostrSigner.verifyEvent(event) !== true) throw Error("The signer returned an invalid or changed event.");
+    const requested = JSON.parse(JSON.stringify(unsigned));
+    const event = await globalThis.nostr.signEvent(JSON.parse(JSON.stringify(requested)));
+    const actual = event && {kind: event.kind, created_at: event.created_at, tags: event.tags, content: event.content};
+    if (actual && Object.prototype.hasOwnProperty.call(requested, "pubkey")) actual.pubkey = event.pubkey;
+    if (!sameValue(actual, requested) || globalThis.NostrSigner.verifyEvent(event) !== true) throw Error("The signer returned an invalid or changed event.");
     if (signal?.aborted) throw Error("Sending canceled.");
     return event;
   };

@@ -371,7 +371,7 @@ room-action{display:block}#panel room-action label{margin-top:6px}#panel room-ac
 /* Phones keep conversation identity and navigation in a safe-area-aware header.
    Native details controls expose the rail and contextual panel without scripts. */
 @media(max-width:720px){
-:root{--mobile-header-height:calc(64px + env(safe-area-inset-top,0px));--mobile-drawer-width:min(320px,100vw)}
+:root{--mobile-header-height:calc(64px + env(safe-area-inset-top,0px));--mobile-drawer-width:min(320px,100vw);--mobile-drawer-duration:.15s}
 html:has(signer-connection:not([hidden])){--mobile-header-height:calc(108px + env(safe-area-inset-top,0px))}
 html,body{overflow:auto;scroll-padding-top:var(--mobile-header-height)}
 #topbar{display:block;position:fixed;top:0;left:0;right:0;height:var(--mobile-header-height);background:var(--rail);border-bottom:1px solid var(--line);color:var(--ink);z-index:5;box-sizing:border-box}
@@ -402,10 +402,12 @@ body:has(signer-connection:not([hidden])) #session-status{display:none}
 #layout,#layout>tbody,#layout>tbody>tr,#layout>tbody>tr>td{display:block;width:auto;height:auto}
 #layout{padding:var(--mobile-header-height) 0 env(safe-area-inset-bottom,0px)}
 #railbox,#content,#panel{position:static;overflow:visible}
-#layout>tbody>tr>td#rail{position:fixed;top:var(--mobile-header-height);bottom:calc(96px + env(safe-area-inset-bottom,0px));left:0;width:var(--mobile-drawer-width);height:auto;box-sizing:border-box;border-right:1px solid var(--line);transform:translateX(-102%);visibility:hidden;transition:transform .15s;z-index:4;overflow:hidden auto}
+#layout>tbody>tr>td#rail{position:fixed;top:var(--mobile-header-height);bottom:calc(96px + env(safe-area-inset-bottom,0px));left:0;width:var(--mobile-drawer-width);height:auto;box-sizing:border-box;border-right:1px solid var(--line);z-index:4;overflow:hidden auto}
+#layout>tbody>tr>td#rail,#footer{transform:translateX(-102%);visibility:hidden;transition:transform var(--mobile-drawer-duration) ease,visibility 0s linear var(--mobile-drawer-duration)}
 #railbox{position:relative;min-height:100%}
 body:has(#nav-menu[open]) #main::after{content:"";position:fixed;top:var(--mobile-header-height);bottom:0;left:0;right:0;background:rgba(0,0,0,.25);z-index:3}
-#topbar:has(#nav-menu[open]) + #layout>tbody>tr>td#rail{transform:none;visibility:visible;box-shadow:8px 0 24px rgba(0,0,0,.15)}
+body:has(#nav-menu[open]) #layout>tbody>tr>td#rail,body:has(#nav-menu[open]) #footer{transform:none;visibility:visible;transition-delay:0s}
+body:has(#nav-menu[open]) #layout>tbody>tr>td#rail{box-shadow:8px 0 24px rgba(0,0,0,.15)}
 #layout>tbody>tr>td#aside{display:none;width:auto;border-left:0;border-top:0}
 body:has(#context-menu[open]) #layout>tbody>tr>td#aside{display:block;position:fixed;top:var(--mobile-header-height);bottom:0;left:0;right:0;height:auto;overflow:auto;z-index:4;background:var(--paper);padding-bottom:env(safe-area-inset-bottom,0px)}
 #content>section{padding:14px 2.5ch 20px}
@@ -417,13 +419,11 @@ body:has(#context-menu[open]) #layout>tbody>tr>td#aside{display:block;position:f
 #mobile-actions page-link{display:block}
 html[data-js=no] #mobile-actions page-link{display:none}
 #prompt{display:none}
-#footer{height:0;padding:0;border:0;background:none;z-index:4}
-#footer>table,#footer #install{display:none}
-body:has(#nav-menu[open]) #footer{width:var(--mobile-drawer-width);height:calc(96px + env(safe-area-inset-bottom,0px));padding:0 12px env(safe-area-inset-bottom,0px);border-top:1px solid var(--line);border-right:1px solid var(--line);background:var(--rail)}
-body:has(#nav-menu[open]) #footer>table{display:table;height:56px;table-layout:fixed}
+#footer{width:var(--mobile-drawer-width);height:calc(96px + env(safe-area-inset-bottom,0px));padding:0 12px env(safe-area-inset-bottom,0px);border-top:1px solid var(--line);border-right:1px solid var(--line);background:var(--rail);z-index:4}
+#footer>table{display:table;height:56px;table-layout:fixed}
 #footer td:first-child{display:none}#footer td:last-child{text-align:left;white-space:nowrap;overflow:hidden}
 #who{font-size:11px}#who>a{display:inline-block;max-width:100px;vertical-align:middle;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}#who button{min-height:44px}
-body:has(#nav-menu[open]) #install:not([hidden]){display:block;position:static;transform:none;width:100%;height:40px;text-align:left}
+#install:not([hidden]){display:block;position:static;transform:none;width:100%;height:40px;text-align:left}
 #navigation-status:not(:empty),#session-status:not(:empty){position:fixed;bottom:env(safe-area-inset-bottom,0px);left:0;right:0;padding:6px 12px;background:var(--rail);border-top:1px solid var(--line);white-space:normal}
 #split,#split>tbody,#split>tbody>tr,#split>tbody>tr>td{display:block;width:auto}
 #tree{border-right:0;border-bottom:1px solid var(--line)}
@@ -450,6 +450,7 @@ room-message[data-own]{margin-left:12px;padding-right:10px}
 #wiki-list #rows thead{display:none}#wiki-list #rows,#wiki-list #rows tbody,#wiki-list #rows tr{display:block;width:auto}#wiki-list #rows tr{padding:8px 0;border-bottom:1px solid var(--line)}#wiki-list #rows td{display:inline;padding:0;border:0;width:auto;height:auto;line-height:1.4;font:12px var(--mono);color:var(--muted)}#wiki-list #rows td:first-child{display:block;font:14px var(--sans);color:var(--ink);margin:0 0 2px}#wiki-list #rows td:first-child small{display:block;margin:2px 0 0}#wiki-list #rows td:nth-child(3){display:none}#wiki-list #rows td:nth-child(2)::after,#wiki-list #rows td:nth-child(4)::after{content:" | "}
 room-compose{bottom:0;margin:8px -2.5ch 0;padding:8px 12px calc(8px + env(safe-area-inset-bottom,0px));z-index:1}
 }
+@media(max-width:720px) and (prefers-reduced-motion:reduce){:root{--mobile-drawer-duration:0s}}
 
 /* Social: a calm reading stream that keeps short notes quick and gives
    long-form posts a clear title, image and reading measure. */
