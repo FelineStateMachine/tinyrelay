@@ -66,7 +66,7 @@ export function setup({attributes = {}, result = {accepted: true}, change = fals
   const content = new FakeNode("div"); content.id = "content"; content.scrollHeight = 500; content.clientHeight = 400; content.scrollTop = 100;
   const list = new FakeNode("div"); list.id = "messages";
   const members = new FakeNode("ul"); members.id = "members";
-  const agentRow = new FakeNode("li"); agentRow.dataset.agent = "";
+  const agentRow = new FakeNode("li"); agentRow.dataset.agent = ""; agentRow.setAttribute("data-operator", "a".repeat(64));
   const agentKey = new FakeNode("nostr-name"); agentKey.setAttribute("pubkey", "b".repeat(64));
   agentRow.append(agentKey, " ", Object.assign(new FakeNode("small"), {childNodes: ["member | agent"]}));
   members.append(agentRow);
@@ -377,7 +377,7 @@ test("room-live appends streamed messages once, summarizes reactions and reconne
   const agentNode = s.list.children[1];
   assert.equal("agent" in agentNode.dataset, true);
   assert.equal(agentNode.querySelector("footer a").href, "/r/work/rooms/build/thread/" + agent.id);
-  assert.equal(agentNode.querySelector("header").textContent.includes("| member"), true);
+  assert.equal(agentNode.querySelector("header").textContent.includes("'s agent"), true);
   // The list stays bounded.
   for (let i = 0; i < 520; i++) s.rooms.roomAppend({...message, id: i.toString(16).padStart(64, "0")}, {room: "build"});
   assert.equal(s.list.children.length, 500);

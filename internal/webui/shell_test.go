@@ -309,7 +309,12 @@ func TestGuestsSeeSignInInsteadOfManagementPages(t *testing.T) {
 	}
 }
 
-type connectionsBackend struct{ fakeBackend }
+type connectionsBackend struct {
+	fakeBackend
+	sharePresence bool
+}
+
+func (b *connectionsBackend) SharePresence(context.Context, string) bool { return b.sharePresence }
 
 func (b *connectionsBackend) Query(_ context.Context, method string, _ []json.RawMessage, _ string) (any, error) {
 	if method == "connections" {
@@ -319,18 +324,26 @@ func (b *connectionsBackend) Query(_ context.Context, method string, _ []json.Ra
 }
 
 func TestAccountPageOffersRelayListsAndHomeShowsConnectCards(t *testing.T) {
-	backend := &connectionsBackend{fakeBackend{policy: policy.Defaults(strings.Repeat("a", 64))}}
+	backend := &connectionsBackend{fakeBackend: fakeBackend{policy: policy.Defaults(strings.Repeat("a", 64))}, sharePresence: true}
 	app, err := New(backend, Options{Actor: func(*http.Request) (string, error) { return backend.policy.Owner, nil }})
 	if err != nil {
 		t.Fatal(err)
 	}
 	recorder := httptest.NewRecorder()
-	app.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/signin", nil))
+	app.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/account", nil))
 	body := recorder.Body.String()
 	for _, want := range []string{`<relay-lists relay="ws://relay.example" server="http://relay.example" pubkey="` + backend.policy.Owner + `">`, `data-kind="10002" data-tag="r"`, `data-kind="10050"`, `data-kind="10007"`, `data-kind="10063" data-tag="server"`} {
 		if !strings.Contains(body, want) {
 			t.Errorf("account page missing %q", want)
 		}
+	}
+	if !strings.Contains(body, `<input type="checkbox" name="share_presence" checked disabled>`) {
+		t.Error("account page did not show saved presence preference")
+	}
+	recorder = httptest.NewRecorder()
+	app.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/signin", nil))
+	if strings.Contains(recorder.Body.String(), "<relay-lists") {
+		t.Fatal("sign-in page still exposes account relay settings")
 	}
 	if !strings.Contains(servedScript(t, app, "/scripts/components.js"), `customElements.define("relay-lists"`) {
 		t.Error("components script missing relay-lists")

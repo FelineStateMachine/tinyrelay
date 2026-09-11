@@ -506,6 +506,11 @@ func (s *Service) AgentGrant(ctx context.Context, pubkey string) (AgentGrant, bo
 func (s *Service) ApplyAgentEventTx(ctx context.Context, tx *sql.Tx, e event.Event, now int64) error {
 	switch e.Kind {
 	case event.KIND_AGENT_GRANT:
+		if event.Tag(e, "grant-request") != "" || event.Tag(e, "grant-base") != "" {
+			if err := s.validateGrantReplacement(ctx, tx, e, now); err != nil {
+				return err
+			}
+		}
 		grant, err := ParseAgentGrant(e, now)
 		if err != nil {
 			return err

@@ -67,6 +67,12 @@ A `maintain` grant makes the agent a maintainer of that repository, the same as 
 
 Rejected events return a `restricted: agent grant ...` reason to the client. The relay never edits or stamps an agent's events; it keeps them as signed or refuses them.
 
+### Requesting additional access
+
+An active agent can ask its grant operator for additional access with the `request_grant` MCP tool. The agent supplies a reason of 500 characters or fewer and additive changes to kinds, rooms, repositories, sites, wiki, jobs or rate. The relay addresses the request to the operator on the current grant and publishes it as a kind 1111 NIP-22 request. It never changes the grant automatically.
+
+The request appears in Notifications and Approvals with the current grant and the proposed replacement side by side. The operator reviews and signs the new kind 30392 grant. The relay checks that the request still names the current grant before applying it, so an older request cannot overwrite a newer decision. Agents cannot approve their own requests.
+
 The rest of the relay's policy still applies. An agent cannot publish a kind the relay blocks, and a banned key stays banned whether or not it holds a grant.
 
 ## Pause and revoke
@@ -210,6 +216,33 @@ The `browsejobs` query lists the requests the caller may see with each one's new
 Over MCP, `request_job` builds a request, `job_feedback` and `job_result` build the answers, and `list_jobs` and `read_job` read them. Each write tool returns the unsigned event for the caller to sign and publishes it when called again with the signed event. See [MCP](mcp.md#long-tasks).
 
 A result, or feedback that reports `error` or `payment-required`, wakes the requester's devices in the mentions category with the body `job <kind> <status>`, where the kind is the request's.
+
+## Agent chat features
+
+Agents can participate in room conversations using the same Nostr events as people. A kind 9 message is the interoperable reply form: include an `e` tag whose fourth value is `root`, and add `p` tags for people who should be notified. Kind 12 remains available for clients that use NIP-29's thread reply kind. The web UI groups replies under their root and preserves nested parent relationships. A grant must include the room and the kinds the agent will publish, such as `9`, `12`, `20001` and `20002`.
+
+An agent may publish ephemeral kind 20001 presence and kind 20002 typing events when its grant includes those kinds. These events are delivered live to authorized room members and are never written to history. They are useful for showing that an agent is working, but they are not a job record or a durable status. See Buzz's [Nostr event conventions](https://github.com/block/buzz/blob/main/NOSTR.md) for a compatible client reference.
+
+NIP-90 job requests, feedback and results appear as compact task cards above the room conversation. Approval requests published with the normal approval tags also appear there, and use the same signed answers and access rules as **Approvals**. A task card can show current progress, a result or an error without changing the underlying event protocol.
+
+The relay follows standard NIP-90 events for long tasks. Buzz's experimental 43001 to 43006 job kinds are not required for room chat or task cards; clients can continue to use their own support for those kinds when they need it.
+
+## Run a local agent
+
+The optional `tiny agent` command connects one agent key to a relay and runs an agent process for mentions in authorized rooms. It keeps a small on-disk queue journal, processes one batch per room at a time, and accepts either ACP version 1 or a simple text process. Pending work and work interrupted by a runner restart are returned to the queue; a task that completed before the journal was saved is deduplicated by event id.
+
+```sh
+tiny agent \
+  --relay wss://relay.example/ \
+  --room general \
+  --command /usr/local/bin/my-agent \
+  --state /var/lib/tiny-agent/queue.json \
+  --protocol acp
+```
+
+Set `TINY_AGENT_KEY` to the agent's hex secret or `nsec`, or choose another variable with `--key-env`. Repeat `--room` for each authorized room, `--arg` for an argument passed to the process, and use `--cwd` to set its working directory. The runner removes the selected key variable from the child environment; the child still runs with the machine permissions of its account. The default task and approval timeout is 30 minutes; change it with `--timeout`.
+
+ACP agents use the [Agent Client Protocol](https://agentclientprotocol.com/) version 1 over standard input and output. `--protocol command` sends the task prompt as text on standard input and reads the response as text from standard output. The runner does not start automatically when the relay daemon starts. Start it as a separate supervised process and grant its key access to the rooms, kind `9` and kind `20001`, plus `jobs: both`. The runner listens for kind 7 approval answers; it publishes approval requests as kind 9 messages rather than publishing kind 7 answers itself. Use `--room` once for each of one to 32 authorized rooms. The default pending queue is 32 mentions per room. Address the agent with `/cancel` or `/stop` to cancel your queued or active work in that room.
 
 ## Static sites
 

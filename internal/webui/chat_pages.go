@@ -23,6 +23,10 @@ func (a *App) handleChatRoute(w http.ResponseWriter, r *http.Request) bool {
 		http.Redirect(w, r, target, http.StatusMovedPermanently)
 		return true
 	}
+	if path == "/chat/activity" {
+		a.chatActivityHTTP(w, r)
+		return true
+	}
 	if path == "/chat/events" {
 		a.directMessagesJSON(w, r)
 		return true

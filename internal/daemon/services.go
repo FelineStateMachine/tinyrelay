@@ -284,6 +284,10 @@ func (b backend) ReadAllowed(ctx context.Context, actor string) error {
 	return b.tenant.requirePrivateAccess(ctx, actor)
 }
 
+func (b backend) SharePresence(ctx context.Context, actor string) bool {
+	return b.tenant.chatSharePresence(ctx, actor)
+}
+
 // closeServices cancels and joins the tenant's worker, scheduler and Git
 // loops, then returns the worker's terminal queue error, if any. Store and
 // relay connection cleanup belong to Tenant.Close.

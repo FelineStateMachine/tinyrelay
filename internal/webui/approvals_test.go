@@ -105,6 +105,20 @@ func TestApprovalsPageRendersRequestsForTheOwner(t *testing.T) {
 	}
 }
 
+func TestGrantScopeRowsRenderNumericKinds(t *testing.T) {
+	review := map[string]any{
+		"before": map[string]any{"agent": strings.Repeat("a", 64), "scope": map[string]any{"kinds": []any{9.0, 30617.0}}},
+		"after":  map[string]any{"agent": strings.Repeat("a", 64), "scope": map[string]any{"kinds": []any{9.0, 30617.0, 30618.0}}},
+	}
+	rows := grantScopeRows(review)
+	if got := rows[7].Before; got != "9, 30617" {
+		t.Fatalf("before kinds = %q", got)
+	}
+	if got := rows[7].After; got != "9, 30617, 30618" {
+		t.Fatalf("after kinds = %q", got)
+	}
+}
+
 func TestApprovalsPageAsksGuestsToSignIn(t *testing.T) {
 	backend := &approvalsBackend{fakeBackend: &fakeBackend{policy: policy.Defaults(strings.Repeat("a", 64))}}
 	app, err := New(backend, Options{Actor: func(*http.Request) (string, error) { return "", nil }})

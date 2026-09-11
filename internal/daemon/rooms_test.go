@@ -254,6 +254,72 @@ func TestRoomsLifecycleRecordsAndBrowse(t *testing.T) {
 	}
 }
 
+func TestBuzzKindNineRepliesUseNIP10ThreadRoots(t *testing.T) {
+	h := newRoomHarness(t)
+	root := h.must("alice", event.KIND_CHAT, [][]string{{"h", "main"}}, "Buzz root")
+	parent := h.must("bob", event.KIND_CHAT, [][]string{
+		{"h", "main"}, {"e", root.ID, "", "reply"}, {"e", root.ID, "", "root"}, {"p", h.keys["alice"]},
+	}, "Buzz reply")
+	nested := h.must("alice", event.KIND_CHAT, [][]string{
+		{"h", "main"}, {"e", parent.ID, "", "reply"}, {"p", h.keys["bob"]},
+	}, "Nested reply")
+	thread, err := h.browse("bob", "browsethread", map[string]any{"id": "main", "event": root.ID, "limit": 10})
+	if err != nil {
+		t.Fatal(err)
+	}
+	replies := thread["replies"].([]any)
+	if len(replies) != 2 {
+		t.Fatalf("Buzz thread replies = %d, want 2: %v", len(replies), replies)
+	}
+	seen := map[string]bool{}
+	for _, row := range replies {
+		seen[row.(map[string]any)["id"].(string)] = true
+	}
+	if !seen[parent.ID] || !seen[nested.ID] {
+		t.Fatalf("Buzz thread omitted replies: %v", seen)
+	}
+	room, err := h.browse("bob", "browseroom", map[string]any{"id": "main", "limit": 100})
+	if err != nil {
+		t.Fatal(err)
+	}
+	roomSeen := map[string]int{}
+	for _, row := range room["messages"].([]any) {
+		roomSeen[row.(map[string]any)["id"].(string)]++
+	}
+	for _, id := range []string{root.ID, parent.ID, nested.ID} {
+		if roomSeen[id] != 1 {
+			t.Fatalf("room timeline count for %s = %d, want 1", id, roomSeen[id])
+		}
+	}
+}
+
+func TestRoomThreadRejectsCrossRoomRootsAndPaginatesNestedReplies(t *testing.T) {
+	h := newRoomHarness(t)
+	root := h.must("alice", event.KIND_CHAT, [][]string{{"h", "main"}}, "root")
+	first := h.must("bob", event.KIND_CHAT, [][]string{{"h", "main"}, {"e", root.ID, "", "reply"}}, "first")
+	second := h.must("alice", event.KIND_CHAT, [][]string{{"h", "main"}, {"e", first.ID, "", "reply"}}, "second")
+	page, err := h.browse("bob", "browsethread", map[string]any{"id": "main", "event": root.ID, "limit": 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(page["replies"].([]any)) != 1 || page["next_cursor"] == "" {
+		t.Fatalf("first thread page = %v", page)
+	}
+	more, err := h.browse("bob", "browsethread", map[string]any{"id": "main", "event": root.ID, "limit": 1, "cursor": page["next_cursor"]})
+	if err != nil || len(more["replies"].([]any)) != 1 {
+		t.Fatalf("second thread page = %v (%v)", more, err)
+	}
+	if page["replies"].([]any)[0].(map[string]any)["id"] == more["replies"].([]any)[0].(map[string]any)["id"] {
+		t.Fatal("thread cursor repeated a reply")
+	}
+	other := h.must("alice", event.KIND_CREATE_GROUP, [][]string{{"h", "other"}, {"visibility", "open"}}, "")
+	_ = other
+	if _, err := h.browse("bob", "browsethread", map[string]any{"id": "other", "event": root.ID}); err == nil {
+		t.Fatal("cross-room root was accepted")
+	}
+	_ = second
+}
+
 func TestTypedRoomReaderPreservesSignedEvents(t *testing.T) {
 	h := newRoomHarness(t)
 	message := h.must("alice", event.KIND_CHAT, [][]string{{"h", "main"}, {"imeta", "url https://files.example/report.pdf", "m application/pdf", "filename report.pdf"}}, "typed room read")

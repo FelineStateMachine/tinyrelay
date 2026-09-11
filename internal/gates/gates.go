@@ -71,6 +71,9 @@ func (g *Gate) agentAdmission(ctx context.Context, e event.Event, now int64) err
 		return fmt.Errorf("check agent grant: %w", err)
 	}
 	if !ok {
+		if community.IsAgentGrantRequest(e) {
+			return errors.New("restricted: grant requests require an active agent grant")
+		}
 		return nil
 	}
 	role, err := g.cfg.Community.Role(ctx, e.PubKey)
@@ -78,10 +81,20 @@ func (g *Gate) agentAdmission(ctx context.Context, e event.Event, now int64) err
 		return fmt.Errorf("check agent role: %w", err)
 	}
 	if role != "" && role != "agent" {
+		if community.IsAgentGrantRequest(e) {
+			return errors.New("restricted: only the granted agent may request a grant change")
+		}
 		return nil
 	}
-	if err := grant.Check(e, now); err != nil {
-		return err
+	if community.IsAgentGrantRequest(e) {
+		if _, reviewErr := g.cfg.Community.ReviewAgentGrantRequest(ctx, e, now); reviewErr != nil {
+			return reviewErr
+		}
+	}
+	if !community.IsAgentGrantRequest(e) {
+		if err := grant.Check(e, now); err != nil {
+			return err
+		}
 	}
 	if err := g.jobReply(ctx, e, now, true); err != nil {
 		return err
@@ -106,6 +119,11 @@ func (g *Gate) agentGrantShape(ctx context.Context, e event.Event, now int64) er
 	}
 	if !community.CanGrantAgents(role) {
 		return errors.New("restricted: only the owner or a moderator can grant an agent")
+	}
+	if event.Tag(e, "grant-request") != "" || event.Tag(e, "grant-base") != "" {
+		if err := g.cfg.Community.ValidateAgentGrantReplacement(ctx, e, now); err != nil {
+			return err
+		}
 	}
 	_, err = community.ParseAgentGrant(e, now)
 	return err
@@ -674,6 +692,12 @@ func (g *Gate) Read(ctx context.Context, filters []event.Filter, s relay.Session
 // ban, repository privacy, policy, room and recipient checks.
 func (g *Gate) CanSee(ctx context.Context, e event.Event, s relay.Session, f *event.Filter) bool {
 	p := g.cfg.Policy()
+	if community.IsAgentGrantRequest(e) {
+		operator := event.Tag(e, "p")
+		if !contains(s.PubKeys, e.PubKey) && !contains(s.PubKeys, operator) {
+			return false
+		}
+	}
 	if g.cfg.Store != nil {
 		var held int
 		if err := g.cfg.Store.DB().QueryRowContext(ctx, `SELECT COUNT(*) FROM (SELECT id FROM hidden_events WHERE id=? UNION ALL SELECT id FROM pending_events WHERE id=?)`, e.ID, e.ID).Scan(&held); err != nil || held > 0 {

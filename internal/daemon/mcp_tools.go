@@ -71,9 +71,9 @@ const (
 	mcpMergeShape       = `Expected a signed kind 818 event with tags ["a","30818:<destination>:<page name>"], ["p","<destination>"], ["e","<proposed version id>","","source"] and optional ["e","<base version id>"], with the explanation in content.`
 	mcpRoomShape        = `Expected a signed kind 9007 event with tags ["h","<new room id>"], ["name","<name>"], optional ["about","<description>"] and ["visibility","open" or "members"].`
 	mcpRequestShape     = `Expected a signed kind 9 event with ["h","<room id>"], or a signed kind 1111 event with NIP-22 tags ["E","<root id>","","<root pubkey>"], ["K","<root kind>"], ["P","<root pubkey>"], ["e","<root id>","","<root pubkey>"] and ["k","<root kind>"], carrying ["request","approve", "decide" or "question"], ["p","<asked pubkey>"] and optional ["expiration","<unix time>"] and ["subject","<subject>"], with the question in content.`
-	mcpJobRequestShape  = `Expected a signed event of kind 5000 to 5127 or 5129 to 5999 with optional tags ["i","<data>","url" or "event" or "job" or "text","<relay>","<marker>"], ["output","<mime type>"], ["param","<key>","<value>"], ["bid","<millisats>"], ["relays","wss://..."], ["p","<provider pubkey>"] and ["expiration","<unix time>"], with content empty or the encrypted inputs.`
-	mcpJobFeedbackShape = `Expected a signed kind 7000 event with tags ["status","payment-required" or "processing" or "error" or "success" or "partial","<info>"], ["e","<request id>"], ["p","<requester pubkey>"] and optional ["amount","<millisats>","<bolt11>"], with content empty or a partial result.`
-	mcpJobResultShape   = `Expected a signed event of the request kind plus 1000 (6000 to 6999) with tags ["e","<request id>"], ["p","<requester pubkey>"], optional ["request","<request event JSON>"], the request's ["i",...] tags and optional ["amount","<millisats>","<bolt11>"], with the output in content.`
+	mcpJobRequestShape  = `Expected a signed event of kind 5000 to 5127 or 5129 to 5999 with optional ["h","<room id>"], ["i","<data>","url" or "event" or "job" or "text","<relay>","<marker>"], ["output","<mime type>"], ["param","<key>","<value>"], ["bid","<millisats>"], ["relays","wss://..."], ["p","<provider pubkey>"] and ["expiration","<unix time>"], with content empty or the encrypted inputs.`
+	mcpJobFeedbackShape = `Expected a signed kind 7000 event with tags ["status","payment-required" or "processing" or "error" or "success" or "partial","<info>"], ["e","<request id>"], ["p","<requester pubkey>"], optional ["h","<room id>"] and ["amount","<millisats>","<bolt11>"], with content empty or a partial result.`
+	mcpJobResultShape   = `Expected a signed event of the request kind plus 1000 (6000 to 6999) with tags ["e","<request id>"], ["p","<requester pubkey>"], optional ["h","<room id>"], ["request","<request event JSON>"], the request's ["i",...] tags and optional ["amount","<millisats>","<bolt11>"], with the output in content.`
 	mcpSiteShape        = `Expected a signed kind 15128 event for your own site, or a signed kind 35128 event with ["d","<site name>"] for a named site under your key, with one ["path","/<file path>","<sha256 of the file>"] tag per file, the blobs already uploaded, and an optional ["expiration","<unix time>"] tag.`
 	mcpSignNext         = "Sign this event with your Nostr key and call the tool again with the signed event as the event argument."
 	mcpAnswerNote       = " The answer arrives as a kind 7 reaction from the asked key on the published event: + approves, - declines, and any other content is the person's reply. Read the room or thread, or query kind 7 events with #e set to the event id, to collect it."
@@ -230,9 +230,10 @@ func (t *Tenant) mcpTools() (*mcp.Registry, error) {
 	add("publish_site", "Publish a static site manifest (NIP-5A). Upload the files to the blob store first, then pass paths as [path, sha256] pairs, an optional label (your npub for your own site, the default, or a named site label under your key) and an optional expiration, to receive the unsigned kind 15128 or 35128 event, sign it, then call again with the signed event. An agent needs a sites grant that covers the label; a grant with a ttl requires the expiration.", mcp.Object(map[string]any{"event": mcpEvent, "label": map[string]any{"type": "string", "minLength": 1, "description": "Site label: your npub, or a named site label under your key. Defaults to your own site."}, "paths": map[string]any{"type": "array", "items": map[string]any{"type": "array", "items": mcpText}, "description": "One [path, sha256] pair per file, such as [\"/index.html\", \"<sha256>\"]."}, "expiration": mcpUnixTime}), mcpPublishes, t.mcpWrite(mcpBuildSite, mcpCheckSite, mcpSiteShape))
 	add("create_room", "Create a chat room with a kind 9007 event. Relay members may do this. Pass room (the new id), name and optional about and visibility (open or members) to receive the unsigned event, sign it, then call again with the signed event. The signer becomes the room owner.", mcp.Object(map[string]any{"event": mcpEvent, "room": mcpRoomID, "name": mcpText, "about": mcpText, "visibility": map[string]any{"type": "string", "enum": []string{"open", "members"}}}), mcpPublishes, t.mcpWrite(mcpBuildRoom, mcpCheckRoom, mcpRoomShape))
 	add("request_decision", "Ask a person for an approval, a decision or an answer. Pass pubkey (the person asked), request (approve, decide or question) and content, plus room for a kind 9 room message or root, root_kind and root_pubkey for a kind 1111 comment under an issue, pull request or other event, and optional expiration and subject, to receive the unsigned event carrying a request tag, sign it, then call again with the signed event."+mcpAnswerNote, mcp.Object(map[string]any{"event": mcpEvent, "pubkey": mcpPubKey, "request": map[string]any{"type": "string", "enum": mcpRequestKinds}, "content": mcpText, "room": mcpRoomID, "root": mcpHash, "root_kind": map[string]any{"type": "integer", "minimum": 0}, "root_pubkey": mcpPubKey, "expiration": mcpUnixTime, "subject": mcpText}), mcpPublishes, t.mcpWrite(mcpBuildRequest, mcpCheckRequest, mcpRequestShape))
-	add("request_job", "Ask for a long task with a NIP-90 job request. Pass kind (5000 to 5127 or 5129 to 5999) and inputs, plus optional output, params, bid in millisats, relays and expiration, to receive the unsigned event, sign it, then call again with the signed event. A serving agent answers with job feedback and a result naming the request; read them with read_job.", mcp.Object(map[string]any{"event": mcpEvent, "kind": mcpJobKind, "inputs": mcpJobInputs, "output": map[string]any{"type": "string", "description": "Expected output MIME type."}, "params": map[string]any{"type": "object", "description": "Job parameters as key and string value, each becoming a param tag."}, "bid": mcpMsats, "relays": map[string]any{"type": "array", "items": mcpText}, "expiration": mcpUnixTime}), mcpPublishes, t.mcpWrite(mcpBuildJobRequest, mcpCheckJobRequest, mcpJobRequestShape))
-	add("job_feedback", "Report progress on a long task with a kind 7000 job feedback event. Pass e (the request id), p (the requester) and status (payment-required, processing, error, success or partial), plus optional info, amount in millisats, invoice and content, to receive the unsigned event, sign it, then call again with the signed event.", mcp.Object(map[string]any{"event": mcpEvent, "e": mcpHash, "p": mcpPubKey, "status": mcpJobStatus, "info": mcpText, "amount": mcpMsats, "invoice": mcpText, "content": mcpText}), mcpPublishes, t.mcpWrite(mcpBuildJobFeedback, mcpCheckJobFeedback, mcpJobFeedbackShape))
-	add("job_result", "Deliver a long task's output with a NIP-90 job result. Pass request (the job request event) or kind, e and p, plus content and optional amount and invoice, to receive the unsigned event of the request kind plus 1000, sign it, then call again with the signed event.", mcp.Object(map[string]any{"event": mcpEvent, "request": map[string]any{"type": "object", "description": "The job request event being answered."}, "kind": map[string]any{"type": "integer", "minimum": event.KIND_JOB_RESULT_MIN, "maximum": event.KIND_JOB_RESULT_MAX}, "e": mcpHash, "p": mcpPubKey, "content": mcpText, "amount": mcpMsats, "invoice": mcpText}), mcpPublishes, t.mcpWrite(mcpBuildJobResult, mcpCheckJobResult, mcpJobResultShape))
+	add("request_job", "Ask for a long task with a NIP-90 job request. Pass kind, inputs and optional room, output, params, bid in millisats, relays and expiration. A room-scoped job keeps its h tag on feedback and results; read them with read_job.", mcp.Object(map[string]any{"event": mcpEvent, "kind": mcpJobKind, "room": mcpRoomID, "inputs": mcpJobInputs, "output": map[string]any{"type": "string", "description": "Expected output MIME type."}, "params": map[string]any{"type": "object", "description": "Job parameters as key and string value, each becoming a param tag."}, "bid": mcpMsats, "relays": map[string]any{"type": "array", "items": mcpText}, "expiration": mcpUnixTime}), mcpPublishes, t.mcpWrite(mcpBuildJobRequest, mcpCheckJobRequest, mcpJobRequestShape))
+	add("job_feedback", "Report progress on a long task with a kind 7000 job feedback event. Pass e, p, status and optional room, info, amount in millisats, invoice and content. For a room-scoped request, pass the same room so private feedback stays private.", mcp.Object(map[string]any{"event": mcpEvent, "e": mcpHash, "p": mcpPubKey, "room": mcpRoomID, "status": mcpJobStatus, "info": mcpText, "amount": mcpMsats, "invoice": mcpText, "content": mcpText}), mcpPublishes, t.mcpWrite(mcpBuildJobFeedback, mcpCheckJobFeedback, mcpJobFeedbackShape))
+	add("job_result", "Deliver a long task's output with a NIP-90 job result. Pass request (the job request event) or kind, e and p, plus content and optional room, amount and invoice. When request is supplied, its room and inputs are copied into the result.", mcp.Object(map[string]any{"event": mcpEvent, "request": map[string]any{"type": "object", "description": "The job request event being answered."}, "room": mcpRoomID, "kind": map[string]any{"type": "integer", "minimum": event.KIND_JOB_RESULT_MIN, "maximum": event.KIND_JOB_RESULT_MAX}, "e": mcpHash, "p": mcpPubKey, "content": mcpText, "amount": mcpMsats, "invoice": mcpText}), mcpPublishes, t.mcpWrite(mcpBuildJobResult, mcpCheckJobResult, mcpJobResultShape))
+	add("request_grant", "Ask your grant operator for additional agent permissions. Pass a short reason and additive changes; the relay targets your current grant operator and returns an unsigned NIP-22 request for you to sign. The request never changes your grant or grants authority; the operator must review and publish the replacement grant.", mcpGrantRequestSchema(), mcpPublishes, t.mcpGrantRequest)
 	return registry, err
 }
 
@@ -917,6 +918,12 @@ func mcpBuildJobRequest(call mcp.Call) (mcpUnsigned, error) {
 		return mcpUnsigned{}, errors.New("kind is required and must be 5000 to 5127 or 5129 to 5999")
 	}
 	tags := [][]string{}
+	if room := strings.TrimSpace(call.String("room")); room != "" {
+		if !community.ValidRoomID(room) {
+			return mcpUnsigned{}, errors.New("room must be a room id")
+		}
+		tags = append(tags, []string{"h", room})
+	}
 	if inputs, ok := call.Arguments["inputs"].([]any); ok {
 		for _, raw := range inputs {
 			input, _ := raw.(map[string]any)
@@ -1010,7 +1017,14 @@ func mcpBuildJobFeedback(call mcp.Call) (mcpUnsigned, error) {
 	if info := strings.TrimSpace(call.String("info")); info != "" {
 		statusTag = append(statusTag, info)
 	}
-	tags, err := mcpJobAmount(call, [][]string{statusTag, {"e", request}, {"p", requester}})
+	tags := [][]string{statusTag, {"e", request}, {"p", requester}}
+	if room := strings.TrimSpace(call.String("room")); room != "" {
+		if !community.ValidRoomID(room) {
+			return mcpUnsigned{}, errors.New("room must be a room id")
+		}
+		tags = append(tags, []string{"h", room})
+	}
+	tags, err := mcpJobAmount(call, tags)
 	if err != nil {
 		return mcpUnsigned{}, err
 	}
@@ -1053,11 +1067,25 @@ func mcpBuildJobResult(call mcp.Call) (mcpUnsigned, error) {
 	}
 	tags := [][]string{}
 	if hasRequest {
+		if room := event.Tag(request, "h"); room != "" {
+			tags = append(tags, []string{"h", room})
+		}
 		canonical, err := event.Canonical(request)
 		if err != nil {
 			return mcpUnsigned{}, err
 		}
 		tags = append(tags, []string{"request", string(canonical)})
+	}
+	if room := strings.TrimSpace(call.String("room")); room != "" {
+		if !community.ValidRoomID(room) {
+			return mcpUnsigned{}, errors.New("room must be a room id")
+		}
+		if hasRequest && event.Tag(request, "h") != room {
+			return mcpUnsigned{}, errors.New("room must match the request")
+		}
+		if !hasRequest {
+			tags = append(tags, []string{"h", room})
+		}
 	}
 	tags = append(tags, []string{"e", id})
 	if hasRequest {

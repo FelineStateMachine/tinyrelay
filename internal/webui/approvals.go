@@ -3,6 +3,7 @@ package webui
 import (
 	"context"
 	"encoding/json"
+	"strconv"
 	"strings"
 )
 
@@ -23,7 +24,16 @@ type approvalView struct {
 	Decision                string
 	AnsweredAt              int64
 	AnswerContent           string
+	Grant                   *grantRequestView
 }
+
+type grantRequestView struct {
+	Raw   string
+	Error string
+	Rows  []grantScopeRow
+}
+
+type grantScopeRow struct{ Label, Before, After string }
 
 // approvalViews returns the items in the given states, in the order the
 // backend listed them.
@@ -81,7 +91,89 @@ func approvalViewFrom(item map[string]any, base string) approvalView {
 	if answer := valueMap(item["answer"]); len(answer) > 0 {
 		view.Decision, view.AnsweredAt, view.AnswerContent = plainString(answer["decision"]), unixSeconds(answer["created_at"]), strings.TrimSpace(plainString(answer["content"]))
 	}
+	if view.Type == "grant" {
+		raw := valueMap(item["grant"])
+		rows := []grantScopeRow{}
+		if len(raw) > 0 {
+			rows = grantScopeRows(raw)
+		} else {
+			raw = map[string]any{"request_id": view.ID, "agent": view.Asker, "operator": joinJSONValues(item["asked"])}
+		}
+		encoded, _ := json.Marshal(raw)
+		view.Grant = &grantRequestView{Raw: string(encoded), Error: plainString(item["grant_error"]), Rows: rows}
+	}
 	return view
+}
+
+func grantScopeRows(review map[string]any) []grantScopeRow {
+	before := valueMap(review["before"])
+	after := valueMap(review["after"])
+	bs, as := valueMap(before["scope"]), valueMap(after["scope"])
+	rows := []grantScopeRow{{"agent", shortID(plainString(before["pubkey"])), shortID(plainString(after["pubkey"]))}, {"name", plainString(before["name"]), plainString(after["name"])}, {"rooms", joinJSONValues(bs["rooms"]), joinJSONValues(as["rooms"])}, {"repos", joinGrantRepos(bs["repos"]), joinGrantRepos(as["repos"])}, {"wiki", plainString(bs["wiki"]), plainString(as["wiki"])}, {"jobs", plainString(bs["jobs"]), plainString(as["jobs"])}, {"sites", joinGrantSites(bs["sites"]), joinGrantSites(as["sites"])}, {"kinds", joinJSONValues(bs["kinds"]), joinJSONValues(as["kinds"])}, {"rate", plainString(bs["rate"]), plainString(as["rate"])}}
+	for i := range rows {
+		if rows[i].Before == "" {
+			rows[i].Before = "none"
+		}
+		if rows[i].After == "" {
+			rows[i].After = "none"
+		}
+	}
+	return rows
+}
+
+func joinJSONValues(value any) string {
+	// JSON numbers do not unmarshal into []string. Render both numeric kind
+	// lists and textual lists through their JSON representation so the review
+	// table never silently loses a proposed permission.
+	var values []any
+	if encoded, err := json.Marshal(value); err == nil {
+		_ = json.Unmarshal(encoded, &values)
+	}
+	parts := make([]string, 0, len(values))
+	for _, item := range values {
+		switch typed := item.(type) {
+		case string:
+			parts = append(parts, typed)
+		case float64:
+			parts = append(parts, strconv.FormatInt(int64(typed), 10))
+		default:
+			if encoded, err := json.Marshal(item); err == nil {
+				parts = append(parts, string(encoded))
+			}
+		}
+	}
+	return strings.Join(parts, ", ")
+}
+
+func joinGrantRepos(value any) string {
+	var repos []map[string]any
+	if encoded, err := json.Marshal(value); err == nil {
+		_ = json.Unmarshal(encoded, &repos)
+	}
+	parts := make([]string, 0, len(repos))
+	for _, repo := range repos {
+		parts = append(parts, plainString(repo["owner"])+":"+plainString(repo["identifier"])+":"+plainString(repo["level"]))
+	}
+	return strings.Join(parts, ", ")
+}
+
+func joinGrantSites(value any) string {
+	var sites []map[string]any
+	if encoded, err := json.Marshal(value); err == nil {
+		_ = json.Unmarshal(encoded, &sites)
+	}
+	parts := make([]string, 0, len(sites))
+	for _, site := range sites {
+		part := plainString(site["label"])
+		if ttl := plainString(site["ttl"]); ttl != "" && ttl != "0" {
+			part += " ttl=" + ttl
+		}
+		if site["encrypted"] == true {
+			part += " encrypted"
+		}
+		parts = append(parts, part)
+	}
+	return strings.Join(parts, ", ")
 }
 
 // includeApproval makes sure the request a notification opened is on the

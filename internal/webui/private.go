@@ -19,7 +19,7 @@ type PrivateReader interface {
 func privatePolicyEnabled(p policy.Policy) bool { return p.Features.Grasp08 }
 
 func privateShellPath(path string) bool {
-	if path == "/" || path == "/signin" || path == "/manage/connect" {
+	if path == "/" || path == "/signin" || path == "/account" || path == "/manage/connect" {
 		return true
 	}
 	if path == "/manage/rpc" || path == "/manage/jobs/status" {

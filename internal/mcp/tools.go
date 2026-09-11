@@ -11,6 +11,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 )
 
 // Tool is one entry in a server's tool table.
@@ -186,10 +187,10 @@ func validate(schema map[string]any, value any, path string) error {
 		}
 	}
 	if text, ok := value.(string); ok {
-		if min, ok := number(schema["minLength"]); ok && float64(len(text)) < min {
+		if min, ok := number(schema["minLength"]); ok && float64(utf8.RuneCountInString(text)) < min {
 			return fmt.Errorf("%s must not be empty", where())
 		}
-		if max, ok := number(schema["maxLength"]); ok && float64(len(text)) > max {
+		if max, ok := number(schema["maxLength"]); ok && float64(utf8.RuneCountInString(text)) > max {
 			return fmt.Errorf("%s is longer than %d characters", where(), int(max))
 		}
 	}

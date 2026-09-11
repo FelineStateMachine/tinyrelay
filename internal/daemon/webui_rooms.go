@@ -119,7 +119,7 @@ func (t *Tenant) readThreadCore(ctx context.Context, actor, roomID, rootID, curs
 	if err := t.browseRead(ctx, actor); err != nil {
 		return webui.RoomPage{}, err
 	}
-	room, _, err := t.roomFor(ctx, actor, roomID)
+	room, role, err := t.roomFor(ctx, actor, roomID)
 	if err != nil {
 		return webui.RoomPage{}, err
 	}
@@ -130,23 +130,25 @@ func (t *Tenant) readThreadCore(ctx context.Context, actor, roomID, rootID, curs
 	if err != nil {
 		return webui.RoomPage{}, errors.New("invalid: thread cursor")
 	}
-	roots, err := t.Query(ctx, []event.Filter{{IDs: []string{rootID}, Limit: intPtr(1)}}, browseSession(t, actor))
+	root, err := t.roomThreadRoot(ctx, actor, room.ID, rootID)
 	if err != nil {
 		return webui.RoomPage{}, err
 	}
-	if len(roots) != 1 || event.Tag(roots[0], "h") != room.ID || (roots[0].Kind != event.KIND_THREAD && roots[0].Kind != event.KIND_CHAT && roots[0].Kind != event.KIND_RICH_CONTENT) {
-		return webui.RoomPage{}, errors.New("not found: thread")
-	}
-	replies, next, err := t.roomMessages(ctx, actor, event.Filter{Kinds: []int{event.KIND_THREAD_REPLY}, Tags: map[string][]string{"h": {room.ID}, "e": {rootID}}}, position, normalizeRoomLimit(limit))
+	all, err := t.roomThreadReplies(ctx, actor, room.ID, root.ID)
 	if err != nil {
 		return webui.RoomPage{}, err
 	}
-	targets := append([]event.Event{roots[0]}, replies...)
+	replies, next := roomThreadPage(all, position, normalizeRoomLimit(limit))
+	targets := append([]event.Event{root}, replies...)
 	edits, err := t.roomEdits(ctx, actor, room.ID, targets)
 	if err != nil {
 		return webui.RoomPage{}, err
 	}
-	return webui.RoomPage{Room: webuiRoomSummaryFromRoom(room), Root: &roots[0], Replies: replies, Edits: edits, NextCursor: next}, nil
+	members, err := t.webuiRoomMembers(ctx, room.ID, role)
+	if err != nil {
+		return webui.RoomPage{}, err
+	}
+	return webui.RoomPage{Room: webuiRoomSummaryFromRoom(room), Members: members, Root: &root, Replies: replies, Edits: edits, NextCursor: next}, nil
 }
 
 func (t *Tenant) webuiRoomMembers(ctx context.Context, roomID, role string) ([]webui.RoomMember, error) {
@@ -163,7 +165,17 @@ func (t *Tenant) webuiRoomMembers(ctx context.Context, roomID, role string) ([]w
 		if err != nil {
 			return nil, err
 		}
-		members = append(members, webui.RoomMember{PubKey: row.PubKey, Role: row.Role, AddedAt: row.AddedAt, Agent: tenantRole == "agent"})
+		member := webui.RoomMember{PubKey: row.PubKey, Role: row.Role, AddedAt: row.AddedAt, Agent: tenantRole == "agent"}
+		if member.Agent {
+			grant, found, grantErr := t.community.AgentGrant(ctx, row.PubKey)
+			if grantErr != nil {
+				return nil, grantErr
+			}
+			if found {
+				member.Operator = grant.Owner
+			}
+		}
+		members = append(members, member)
 	}
 	return members, nil
 }

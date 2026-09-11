@@ -77,7 +77,14 @@ func (t *Tenant) roomStreamHTTP(w http.ResponseWriter, r *http.Request) {
 	events := make(chan event.Event, roomStreamBuffer)
 	overflow := make(chan struct{}, 1)
 	stop := t.router.Listen(func(e event.Event) {
-		if e.Kind == event.KIND_MARMOT_GROUP || event.Tag(e, "h") != id {
+		globalPresence := e.Kind == 20001 && event.Tag(e, "h") == "" && actor != ""
+		if globalPresence {
+			allowed, _, err := t.community.RoomWriteAllowed(r.Context(), id, e.PubKey)
+			if err != nil || !allowed {
+				return
+			}
+		}
+		if e.Kind == event.KIND_MARMOT_GROUP || (event.Tag(e, "h") != id && !globalPresence) {
 			return
 		}
 		select {

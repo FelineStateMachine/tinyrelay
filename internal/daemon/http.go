@@ -72,6 +72,10 @@ func (t *Tenant) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		t.pushHTTP(w, r)
 		return
 	}
+	if r.URL.Path == "/chat/preferences" {
+		t.chatPreferencesHTTP(w, r)
+		return
+	}
 	if r.URL.Path == "/mcp" {
 		t.mcpHTTP(w, r)
 		return

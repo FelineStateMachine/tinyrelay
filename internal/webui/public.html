@@ -29,26 +29,29 @@
 <h1>{{if .Actor}}Your account{{else}}Sign in{{end}}</h1>
 {{if .Notice}}<p role="status">{{.Notice}}</p>{{end}}
 {{if .Actor}}<p>Signed in as {{template "nostrKey" .Actor}}.</p>
-<p><a href="/manage/people">Manage relay</a> | <a href="/tools">Browser tools</a> | <a href="/chat">Chat</a></p>
+<p><a href="/account">Open your account</a> | <a href="/chat">Chat</a></p>
 <p>Use the sign out control in the footer to end this session.</p>
-<details id="relay-setup"><summary>Your relay lists (optional)</summary>
-<p>Choose where other Nostr clients find your notes, messages and files. Add this relay to any lists you want to use. Existing entries stay.</p>
-<relay-lists relay="{{wsURL .URL}}" server="{{.URL}}" pubkey="{{.Actor}}">
-<table id="rows">
-<tbody>
-<tr data-kind="10002" data-tag="r"><td>Relay list <small>NIP-65</small></td><td>where clients read your notes and send you mentions</td><td><button type="button" name="check">check</button> <button type="button" name="add">add this relay</button></td></tr>
-<tr data-kind="10050" data-tag="relay"><td>DM inbox <small>NIP-17</small></td><td>where people send you private messages</td><td><button type="button" name="check">check</button> <button type="button" name="add">add this relay</button></td></tr>
-<tr data-kind="10007" data-tag="relay"><td>Search relays <small>NIP-51</small></td><td>where clients run your searches</td><td><button type="button" name="check">check</button> <button type="button" name="add">add this relay</button></td></tr>
-<tr data-kind="10063" data-tag="server" data-value="server"><td>Blossom servers <small>BUD-03</small></td><td>where clients upload and look for your files</td><td><button type="button" name="check">check</button> <button type="button" name="add">add this relay</button></td></tr>
-</tbody>
-</table>
-<output role="status"></output>
-</relay-lists>
-</details>
 {{else}}<p>Use a browser extension, or connect Amber on your phone. The relay never sees a private key.</p>
 {{template "signerControls" .}}
 {{end}}</section>
 {{end}}
+
+{{define "account"}}<section id="account">
+<h1>Account</h1>
+<p>Manage your profile, chat preferences and relay lists.</p>
+<table id="account-identity"><tbody><tr><th>signed in as</th><td>{{template "nostrName" .Actor}}</td></tr><tr><th>profile</th><td><a href="/profile">Edit your profile</a></td></tr></tbody></table>
+<h2>Chat preferences</h2>
+<chat-preferences actor="{{.Actor}}"><label><input type="checkbox" name="share_presence"{{if .SharePresence}} checked{{end}} disabled> Share presence and typing</label><p>Show when you are online or typing in chat.</p><output role="status"></output></chat-preferences><noscript><p>Changing preferences requires JavaScript and a connected signer.</p></noscript>
+<h2>Your relay lists</h2>
+<p>Choose where other Nostr clients find your notes, messages and files. Existing entries stay.</p>
+<relay-lists relay="{{wsURL .URL}}" server="{{.URL}}" pubkey="{{.Actor}}">
+<table id="rows"><tbody>
+<tr data-kind="10002" data-tag="r"><td>Relay list <small>NIP-65</small></td><td>where clients read your notes and send you mentions</td><td><button type="button" name="check">check</button> <button type="button" name="add">add this relay</button></td></tr>
+<tr data-kind="10050" data-tag="relay"><td>DM inbox <small>NIP-17</small></td><td>where people send you private messages</td><td><button type="button" name="check">check</button> <button type="button" name="add">add this relay</button></td></tr>
+<tr data-kind="10007" data-tag="relay"><td>Search relays <small>NIP-51</small></td><td>where clients run your searches</td><td><button type="button" name="check">check</button> <button type="button" name="add">add this relay</button></td></tr>
+<tr data-kind="10063" data-tag="server" data-value="server"><td>Blossom servers <small>BUD-03</small></td><td>where clients upload and look for your files</td><td><button type="button" name="check">check</button> <button type="button" name="add">add this relay</button></td></tr>
+</tbody></table><output role="status"></output></relay-lists>
+</section>{{end}}
 
 {{define "signerControls"}}<p><button id="session-login" type="button">Sign in with connected signer</button></p>
 <h2>Phone signer</h2>

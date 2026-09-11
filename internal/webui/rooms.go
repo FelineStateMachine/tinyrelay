@@ -6,8 +6,11 @@ import (
 	"html/template"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
+
+	"github.com/FelineStateMachine/tinyrelay/internal/event"
 )
 
 // roomPath is one rooms page: the list, one room, or one thread in a room.
@@ -123,12 +126,8 @@ func memberIndex(value any) map[string]map[string]any {
 func replyCounts(value any) map[string]int {
 	counts := map[string]int{}
 	for _, row := range roomSlice(value, "messages") {
-		e := valueMap(row)
-		if plainString(e["kind"]) != "12" {
-			continue
-		}
-		if roots := tagValues(row, "e"); len(roots) > 0 {
-			counts[roots[0]]++
+		if root := webRoomReplyRoot(row); root != "" {
+			counts[root]++
 		}
 	}
 	return counts
@@ -289,13 +288,13 @@ func clock(value any) string {
 // roomItem is one message as the page shows it: the event's fields, the
 // author's markers, the thread state and the reactions it has received.
 type roomItem struct {
-	ID, PubKey, Avatar, Kind, Content, Room, Root, Quote, Role, Notice string
-	CreatedAt, UpdatedAt                                               int64
-	Agent, InThread, Edited, Own                                       bool
-	Mentions                                                           []string
-	Replies                                                            int
-	Reactions                                                          []reaction
-	Attachments                                                        []roomAttachment
+	ID, PubKey, Avatar, Kind, Content, Room, Root, Quote, Role, Operator, Notice string
+	CreatedAt, UpdatedAt                                                         int64
+	Agent, InThread, Edited, Own                                                 bool
+	Mentions                                                                     []string
+	Replies                                                                      int
+	Reactions                                                                    []reaction
+	Attachments                                                                  []roomAttachment
 }
 
 // roomItems turns a browse result's messages or replies into view items,
@@ -312,7 +311,7 @@ func roomItems(value any, field string, actors ...string) []roomItem {
 	items := make([]roomItem, 0, len(rows))
 	for i := len(rows) - 1; i >= 0; i-- {
 		item, ok := newRoomItem(rows[i], room, members)
-		if !ok {
+		if !ok || field == "messages" && item.Root != "" {
 			continue
 		}
 		// Only the author edits their own message, and only forward in time.
@@ -374,10 +373,8 @@ func newRoomItem(row any, room string, members map[string]map[string]any) (roomI
 		if item.Kind == "44101" {
 			item.Notice = "left the room"
 		}
-	case "12":
-		if roots := tagValues(row, "e"); len(roots) > 0 {
-			item.Root = roots[0]
-		}
+	case "9", "12":
+		item.Root = webRoomReplyRoot(row)
 	}
 	if len(item.PubKey) >= 2 {
 		item.Avatar = strings.ToUpper(item.PubKey[:2])
@@ -385,6 +382,7 @@ func newRoomItem(row any, room string, members map[string]map[string]any) (roomI
 	if member := members[item.PubKey]; member != nil {
 		item.Role = plainString(member["role"])
 		item.Agent, _ = member["agent"].(bool)
+		item.Operator = plainString(member["operator"])
 	}
 	if item.Notice == "" {
 		for _, mention := range tagValues(row, "p") {
@@ -400,4 +398,12 @@ func newRoomItem(row any, room string, members map[string]map[string]any) (roomI
 func roomAdmin(role any) bool {
 	value := plainString(role)
 	return value == "owner" || value == "admin"
+}
+
+func webRoomReplyRoot(row any) string {
+	kind, err := strconv.Atoi(plainString(valueMap(row)["kind"]))
+	if err != nil {
+		return ""
+	}
+	return event.RoomReplyRoot(event.Event{Kind: kind, Tags: roomTags(row)})
 }

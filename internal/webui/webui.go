@@ -43,6 +43,12 @@ type Backend interface {
 	Identity() string
 }
 
+// AccountPreferencesReader provides private, account-scoped preferences to
+// server-rendered account pages. It is optional for small embedders.
+type AccountPreferencesReader interface {
+	SharePresence(context.Context, string) bool
+}
+
 // CustomViewSource is the optional backend summary of the custom views the
 // renderers show in place of fenced code blocks: names and languages only.
 type CustomViewSource interface {
@@ -73,29 +79,31 @@ type Options struct {
 }
 
 type PageData struct {
-	Version  string
-	Revision string
-	Title    string
-	URL      string
-	Slug     string
-	Identity string
-	Policy   policy.Policy
-	Actor    string
-	Owner    bool
-	Tab      string
-	Notice   string
-	Error    string
-	Methods  []string
-	Event    any
-	Invite   string
-	View     string
-	Feed     []any
-	Base     string
-	Query    url.Values
-	Private  bool
-	Path     string
-	Readme   template.HTML
-	Tree     []any
+	Activity      chatActivityPage
+	SharePresence bool
+	Version       string
+	Revision      string
+	Title         string
+	URL           string
+	Slug          string
+	Identity      string
+	Policy        policy.Policy
+	Actor         string
+	Owner         bool
+	Tab           string
+	Notice        string
+	Error         string
+	Methods       []string
+	Event         any
+	Invite        string
+	View          string
+	Feed          []any
+	Base          string
+	Query         url.Values
+	Private       bool
+	Path          string
+	Readme        template.HTML
+	Tree          []any
 	// Merge is the browsewikimerge detail shown by a wiki page compare view.
 	Merge any
 	// Connections lists the ways to open this relay in client apps that the
@@ -642,6 +650,7 @@ func (a *App) browse(writer http.ResponseWriter, request *http.Request) {
 		data.Rooms = data.Feed
 	case "room", "thread":
 		data.Rooms = a.roomList(request.Context(), actor)
+		data.Activity = a.chatActivity(request.Context(), actor, room.id, plainString(valueMap(valueMap(result)["root"])["id"]))
 	}
 	if method == "browserepo" && pageQuery.Get("view") == "home" {
 		data.Readme = a.readme(request.Context(), actor, pageQuery)
@@ -774,6 +783,11 @@ func (a *App) render(writer http.ResponseWriter, request *http.Request, data Pag
 	}
 	data.URL, data.Slug, data.Identity, data.Policy, data.Actor, data.Base = a.backend.URL(), a.backend.Slug(), a.backend.Identity(), a.backend.Policy(), actor, requestPrefix(request)
 	data.Owner = actor != "" && actor == data.Policy.Owner
+	if actor != "" && data.Tab == "account" {
+		if preferences, ok := a.backend.(AccountPreferencesReader); ok {
+			data.SharePresence = preferences.SharePresence(request.Context(), actor)
+		}
+	}
 	data.Version, data.Revision = a.version, a.revision
 	data.Methods = supportedMethods
 	if data.Query == nil {
@@ -781,13 +795,15 @@ func (a *App) render(writer http.ResponseWriter, request *http.Request, data Pag
 	}
 	data.Path = strings.TrimPrefix(request.URL.Path, data.Base)
 	a.privatePageData(&data, request, actor)
-	if !data.Private && data.Actor == "" && (railKind(data.Tab) == "manage" || data.Tab == "profile") {
+	if !data.Private && data.Actor == "" && (railKind(data.Tab) == "manage" || data.Tab == "profile" || data.Tab == "account") {
 		// Management pages and the profile editor are for signed-in people
 		// only. Guests see the sign-in page at the same address and come back
 		// after signing in.
 		data.Tab, data.Notice = "signin", "Sign in to manage this relay."
 		if data.Path == "/profile" {
 			data.Notice = "Sign in to edit your profile."
+		} else if data.Path == "/account" {
+			data.Notice = "Sign in to open your account."
 		}
 		data.Event, data.Feed, data.Error = nil, nil, ""
 	}
@@ -1267,6 +1283,8 @@ func tabForPath(path string) string {
 		return "approvals"
 	case "profile":
 		return "profile"
+	case "account":
+		return "account"
 	case "signin", "sites":
 		return path
 	case "people", "agents", "moderation", "rules", "identity", "connect", "data", "sync", "views", "health", "owner":

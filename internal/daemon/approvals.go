@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/FelineStateMachine/tinyrelay/internal/community"
 	"github.com/FelineStateMachine/tinyrelay/internal/event"
 	"github.com/FelineStateMachine/tinyrelay/internal/storage"
 )
@@ -26,8 +27,8 @@ const (
 )
 
 // approvalTypes is the bounded vocabulary of the request tag.
-var approvalTypes = []string{"approve", "decide", "question"}
-var approvalKinds = []int{kindComment, kindChatMessage, kindThreadRoot}
+var approvalTypes = []string{"approve", "decide", "question", "grant"}
+var approvalKinds = []int{kindComment, kindChatMessage, kindThreadRoot, event.KIND_THREAD_REPLY}
 
 const (
 	approvalWikiProposal = "wiki-proposal"
@@ -36,20 +37,22 @@ const (
 
 // approvalItem is one request as the asked person sees it.
 type approvalItem struct {
-	ID        string          `json:"id"`
-	Kind      int             `json:"kind"`
-	Type      string          `json:"type"`
-	Asker     string          `json:"asker"`
-	Asked     []string        `json:"asked"`
-	Subject   string          `json:"subject,omitempty"`
-	Content   string          `json:"content"`
-	CreatedAt int64           `json:"created_at"`
-	Expires   int64           `json:"expires,omitempty"`
-	State     string          `json:"state"`
-	Room      string          `json:"room,omitempty"`
-	About     *approvalAbout  `json:"about,omitempty"`
-	Answer    *approvalAnswer `json:"answer,omitempty"`
-	Event     event.Event     `json:"event"`
+	ID         string                      `json:"id"`
+	Kind       int                         `json:"kind"`
+	Type       string                      `json:"type"`
+	Asker      string                      `json:"asker"`
+	Asked      []string                    `json:"asked"`
+	Subject    string                      `json:"subject,omitempty"`
+	Content    string                      `json:"content"`
+	CreatedAt  int64                       `json:"created_at"`
+	Expires    int64                       `json:"expires,omitempty"`
+	State      string                      `json:"state"`
+	Room       string                      `json:"room,omitempty"`
+	About      *approvalAbout              `json:"about,omitempty"`
+	Answer     *approvalAnswer             `json:"answer,omitempty"`
+	Event      event.Event                 `json:"event"`
+	Grant      *community.AgentGrantReview `json:"grant,omitempty"`
+	GrantError string                      `json:"grant_error,omitempty"`
 }
 
 // approvalAbout is what the request refers to: a repository coordinate, an
@@ -80,6 +83,9 @@ func approvalRequest(e event.Event) (string, bool) {
 	}
 	kind := strings.ToLower(strings.TrimSpace(event.Tag(e, "request")))
 	if !containsString(approvalTypes, kind) || len(approvalAsked(e)) == 0 {
+		return "", false
+	}
+	if kind == "grant" && !community.IsAgentGrantRequest(e) {
 		return "", false
 	}
 	return kind, true
@@ -166,6 +172,11 @@ func (t *Tenant) approvalAnswers(ctx context.Context, items []approvalItem, now 
 	if err != nil {
 		return nil, err
 	}
+	grants, err := t.grantApprovalHistory(ctx, items)
+	if err != nil {
+		return nil, err
+	}
+	rows.Events = append(rows.Events, grants...)
 	sortEventsNewestFirst(rows.Events)
 	for _, row := range rows.Events {
 		if _, isRequest := approvalRequest(row); isRequest {
@@ -183,6 +194,10 @@ func (t *Tenant) approvalAnswers(ctx context.Context, items []approvalItem, now 
 // approvalSettle fills the answer and state of one request from its answers,
 // which arrive newest first.
 func approvalSettle(item *approvalItem, rows []event.Event, now int64) {
+	if item.Type == "grant" {
+		settleGrantApproval(item, rows, now)
+		return
+	}
 	var reply *event.Event
 	for i := range rows {
 		row := rows[i]
@@ -192,7 +207,7 @@ func approvalSettle(item *approvalItem, rows []event.Event, now int64) {
 				item.State = "answered"
 				return
 			}
-		} else if reply == nil {
+		} else if row.Kind == kindComment && reply == nil {
 			reply = &row
 		}
 	}
@@ -230,6 +245,7 @@ func (t *Tenant) approvalsFor(ctx context.Context, pubkey string, before *storag
 	}
 	for i := range items {
 		approvalSettle(&items[i], answers[items[i].ID], now)
+		t.reviewGrantApproval(ctx, &items[i], now)
 	}
 	wikiItems, wikiMore, err := t.wikiApprovalItems(ctx, pubkey, before, limit)
 	if err != nil {
@@ -287,6 +303,10 @@ func (t *Tenant) approvalNotices(e event.Event, kind string) []pushNotice {
 	actions := []pushAction{{Action: "reply", Title: "Reply"}}
 	if kind != "question" {
 		actions = []pushAction{{Action: "approve", Title: "Approve"}, {Action: "deny", Title: "Deny"}, {Action: "reply", Title: "Reply"}}
+	}
+	if kind == "grant" {
+		body = shortKey(e.PubKey) + " requests an access change: " + excerpt(e.Content)
+		actions = []pushAction{{Action: "review", Title: "Review access"}}
 	}
 	var notices []pushNotice
 	for _, recipient := range approvalAsked(e) {

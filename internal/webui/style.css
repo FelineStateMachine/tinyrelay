@@ -324,7 +324,6 @@ room-message>div pre{margin:0 0 6px;padding:6px 8px;background:var(--rail);borde
 room-message>[data-room-attachments]{margin-top:8px}room-message>[data-room-attachments] figure{display:inline-block;vertical-align:top;margin:0 12px 12px 0;max-width:100%;min-width:0}room-message>[data-room-attachments] img{display:block;width:auto;max-width:100%;max-height:360px;border:1px solid var(--line);object-fit:contain}room-message>[data-room-attachments] video{display:block;width:420px;max-width:100%;max-height:360px}room-message>[data-room-attachments] audio{display:block;width:360px;max-width:100%}room-message>[data-room-attachments] figcaption{margin-top:4px;font:12px var(--mono);overflow-wrap:anywhere}room-message>[data-room-attachments] a[data-download]{color:var(--accent)}room-message>[data-room-attachments] small{color:var(--muted);font:11px var(--mono)}
 room-message>footer{font:12px var(--mono);color:var(--muted);margin-top:4px}
 room-message>footer>*+*::before{content:" | "}
-room-message[data-agent]>header b::after{content:" agent";color:var(--bark);font-size:11px}
 room-message[data-notice]>p{color:var(--muted);font-size:13px}
 room-live{display:block;font:11px var(--mono);color:var(--muted);text-align:right}room-live:empty{display:none}
 room-compose{display:block;position:sticky;bottom:0;margin:8px -22px 0;padding:10px 22px 8px;background:var(--paper);border-top:1px solid var(--line)}
@@ -522,3 +521,36 @@ direct-file article{padding:0;margin:0;border:0}
 direct-file button{display:block;margin:8px 0;padding:8px 12px;min-height:40px}
 direct-file output,direct-settings output{display:block;font-size:12px;color:var(--muted);margin-top:6px}
 direct-file pre{max-height:360px;overflow:auto;padding:10px;background:var(--rail);font:13px/1.5 var(--mono)}
+
+/* Chat activity stays compact; details and decisions share the room width. */
+chat-activity,chat-presence{display:block;min-width:0}
+chat-activity:empty{display:none}
+chat-activity>article{display:block;margin:10px 0;padding:12px 14px;border:1px solid var(--line);border-radius:10px;background:var(--rail);overflow-wrap:anywhere}
+chat-activity header,chat-activity summary{font:13px/1.6 var(--sans)}
+chat-activity header small,chat-activity summary small{font:11px var(--mono);color:var(--muted);margin-left:8px}
+chat-activity p{margin:6px 0;font:13px/1.5 var(--sans)}
+chat-activity details>div{font:13px/1.5 var(--sans)}
+chat-activity details>div pre{white-space:pre-wrap;overflow-wrap:anywhere;padding:8px;background:var(--paper)}
+chat-activity [data-status=processing],chat-activity [data-status=partial]{color:var(--bark)}
+chat-activity [data-status=success]{color:var(--accent)}
+chat-activity [data-status=error]{color:var(--alert)}
+chat-decision{display:block;margin-top:10px}chat-decision button{margin-right:8px;min-height:36px}
+chat-decision textarea{display:block;width:100%;min-width:0;max-width:100%;margin:6px 0}
+chat-decision output{display:block;font:12px var(--mono);margin-top:6px;color:var(--muted)}
+chat-decision output[data-error]{color:var(--alert)}
+chat-presence{padding:4px 0;color:var(--muted);font:11px/1.6 var(--mono)}
+chat-presence output{display:block;min-height:18px;overflow-wrap:anywhere}
+
+chat-activity blockquote{margin:8px 0;padding:6px 10px;border-left:2px solid var(--accent);font:13px/1.5 var(--sans);white-space:pre-wrap}
+
+chat-presence output>span+span::before{content:" | "}
+
+chat-preferences{display:block;margin:12px 0}
+chat-preferences label{display:block;text-transform:none;letter-spacing:0}
+chat-preferences output{display:block;color:var(--muted);font:12px var(--mono);margin:6px 0}
+
+agent-grant-request { display: block; min-width: 0; }
+agent-grant-request table { display: table; table-layout: fixed; width: 100%; margin: 1rem 0; }
+agent-grant-request th, agent-grant-request td { white-space: normal; overflow-wrap: anywhere; text-align: left; vertical-align: top; padding: .5rem .4rem; }
+agent-grant-request th:first-child { width: 24%; }
+agent-grant-request output { display: block; margin-top: .5rem; }

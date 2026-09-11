@@ -66,7 +66,7 @@ func (b *roomsBackend) Query(_ context.Context, method string, params []json.Raw
 	default:
 		return nil, nil
 	}
-	members := []any{map[string]any{"pubkey": roomOwner, "role": "owner", "added_at": 1757200000}, map[string]any{"pubkey": roomAgent, "role": "member", "added_at": 1757200100, "agent": true}}
+	members := []any{map[string]any{"pubkey": roomOwner, "role": "owner", "added_at": 1757200000}, map[string]any{"pubkey": roomAgent, "role": "member", "added_at": 1757200100, "agent": true, "operator": roomOwner}}
 	root := roomEvent(roomThread, roomAgent, 11, 1757203000, "Release notes draft", []string{"h", id})
 	reply := roomEvent(roomReply, roomOwner, 12, 1757203300, "Looks good", []string{"h", id}, []string{"e", roomThread}, []string{"p", roomAgent})
 	if method == "browsethread" {
@@ -156,11 +156,10 @@ func TestRoomPageRendersMessagesOldestFirstWithMarkers(t *testing.T) {
 		`<span data-reaction="&#43;1">&#43;1 1</span>`,
 		`<div><p>hello again, see <a href="https://example.com/docs" rel="noopener">`, `<span data-edited>edited</span>`,
 		`<a href="/rooms/general/thread/` + roomThread + `">thread | 1 reply</a>`,
-		`<a href="/rooms/general/thread/` + roomThread + `">in thread</a>`,
 		`<room-live room="general"></room-live>`,
 		`<room-compose room="general" pubkey="` + roomOwner + `">`,
 		`<noscript><p>Sending needs JavaScript and a connected signer.</p></noscript>`,
-		`<ul id="members"><li><nostr-name pubkey="` + roomOwner + `"`, `<li data-agent><nostr-name pubkey="` + roomAgent + `"`, `<small>member | agent</small>`,
+		`<ul id="members"><li><nostr-name pubkey="` + roomOwner + `"`, `<li data-agent data-operator="` + roomOwner + `"><nostr-name pubkey="` + roomAgent + `"`, `<small><nostr-name pubkey="` + roomOwner + `" title="` + roomOwner + `">` + shortID(roomOwner) + `</nostr-name>'s agent</small>`,
 		`<room-action room="general" kind="9000">`, `<room-action room="general" kind="9002">`, `<room-action room="general" kind="9022">`,
 		`<nav id="room-list"><a href="/rooms/general" aria-current="page">General`,
 		`&raquo; <page-link url="http://relay.example/rooms/general" title="Copy the page address">rooms/general</page-link></span>`,
@@ -170,7 +169,7 @@ func TestRoomPageRendersMessagesOldestFirstWithMarkers(t *testing.T) {
 		}
 	}
 	hello, chat, thread, reply := strings.Index(body, `id="msg-`+roomHello), strings.Index(body, `id="msg-`+roomChat), strings.Index(body, `id="msg-`+roomThread), strings.Index(body, `id="msg-`+roomReply)
-	if !(hello < chat && chat < thread && thread < reply) {
+	if !(hello < chat && chat < thread && reply == -1) {
 		t.Fatalf("messages are not oldest first: %d %d %d %d", hello, chat, thread, reply)
 	}
 	if strings.Contains(body, `data-kind="7"`) || strings.Contains(body, "<script>alert") {

@@ -179,6 +179,7 @@ func (t *Tenant) browseApproval(ctx context.Context, actor, id string) (any, err
 		return nil, err
 	}
 	approvalSettle(&item, answers[item.ID], now)
+	t.reviewGrantApproval(ctx, &item, now)
 	history := answers[item.ID]
 	if history == nil {
 		history = []event.Event{}

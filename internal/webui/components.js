@@ -1667,7 +1667,7 @@
       if (root && !(url.pathname === root || url.pathname.startsWith(root + "/"))) return null;
       return root ? url.pathname.slice(root.length) || "/" : url.pathname;
     };
-    const allowedRoute = path => /^(?:\/(?:inbox|approvals|profile|outbox|search|social|articles|private|chat|media|sites|marmot|grasp|terms|signin|connect|tools|repo|repos|file|files|wiki|rooms)?\/?|\/manage(?:\/(?:people|agents|moderation|rules|identity|connect|data|sync|views|health|owner|status))?\/?|\/(?:invite|e|a|wiki|social)\/.+|\/chat\/dm\/[0-9a-f]{64}|\/rooms\/[a-z0-9_-]{1,64}(?:\/thread\/[0-9a-f]{64})?\/?)$/.test(path || "");
+    const allowedRoute = path => /^(?:\/(?:inbox|approvals|profile|account|outbox|search|social|articles|private|chat|media|sites|marmot|grasp|terms|signin|connect|tools|repo|repos|file|files|wiki|rooms)?\/?|\/manage(?:\/(?:people|agents|moderation|rules|identity|connect|data|sync|views|health|owner|status))?\/?|\/(?:invite|e|a|wiki|social)\/.+|\/chat\/dm\/[0-9a-f]{64}|\/rooms\/[a-z0-9_-]{1,64}(?:\/thread\/[0-9a-f]{64})?\/?)$/.test(path || "");
     let navigationSerial = 0, activeAbort;
     const streams = new Set();
     const closeStreams = () => {
@@ -1682,7 +1682,7 @@
     document.addEventListener("fx:sse:close", event => streams.delete(event.detail.cfg));
     window.addEventListener("pagehide", closeStreams);
     const repairComponents = () => {
-      document.querySelectorAll("rpc-form,view-form,signed-form,publish-list,agent-grant,profile-form,nostr-react,social-compose,social-reaction,wiki-compose,room-compose,room-create,room-action").forEach(node => {
+      document.querySelectorAll("rpc-form,view-form,signed-form,publish-list,agent-grant,profile-form,nostr-react,social-compose,social-reaction,wiki-compose,room-compose,room-create,room-action,chat-decision").forEach(node => {
         if (node.form?.isConnected) return;
         node.form = null;
         node.output = null;

@@ -103,6 +103,47 @@ func TestSignedSessionSurvivesNavigationAndRevokes(t *testing.T) {
 	}
 }
 
+func TestChatPreferencesArePrivateAndDurablePerAccount(t *testing.T) {
+	a, tenant := testTenant(t)
+	login := httptest.NewRequest(http.MethodPost, "http://relay.test/session", strings.NewReader(""))
+	signRequest(t, login, "")
+	loginResult := httptest.NewRecorder()
+	a.ServeHTTP(loginResult, login)
+	if loginResult.Code != http.StatusOK {
+		t.Fatalf("login: %d %s", loginResult.Code, loginResult.Body.String())
+	}
+	cookie := loginResult.Result().Cookies()[0]
+	read := httptest.NewRequest(http.MethodGet, "http://relay.test/chat/preferences", nil)
+	read.AddCookie(cookie)
+	result := httptest.NewRecorder()
+	a.ServeHTTP(result, read)
+	if result.Code != http.StatusOK || result.Body.String() != `{"share_presence":false}` {
+		t.Fatalf("default preference: %d %s", result.Code, result.Body.String())
+	}
+	update := httptest.NewRequest(http.MethodPost, "http://relay.test/chat/preferences", strings.NewReader(`{"share_presence":true}`))
+	signRequest(t, update, `{"share_presence":true}`)
+	updated := httptest.NewRecorder()
+	a.ServeHTTP(updated, update)
+	if updated.Code != http.StatusOK || updated.Body.String() != `{"share_presence":true}` {
+		t.Fatalf("updated preference: %d %s", updated.Code, updated.Body.String())
+	}
+	if !tenant.chatSharePresence(context.Background(), tenant.Policy().Owner) {
+		t.Fatal("preference was not persisted")
+	}
+	reloaded := httptest.NewRequest(http.MethodGet, "http://relay.test/chat/preferences", nil)
+	reloaded.AddCookie(cookie)
+	reloadedResult := httptest.NewRecorder()
+	a.ServeHTTP(reloadedResult, reloaded)
+	if reloadedResult.Code != http.StatusOK || reloadedResult.Body.String() != `{"share_presence":true}` {
+		t.Fatalf("reloaded preference: %d %s", reloadedResult.Code, reloadedResult.Body.String())
+	}
+	guest := httptest.NewRecorder()
+	a.ServeHTTP(guest, httptest.NewRequest(http.MethodGet, "http://relay.test/chat/preferences", nil))
+	if guest.Code != http.StatusUnauthorized {
+		t.Fatalf("guest preference: %d", guest.Code)
+	}
+}
+
 func TestTenantMaintenanceUsesPersistedRetention(t *testing.T) {
 	_, tenant := testTenant(t)
 	ctx := context.Background()

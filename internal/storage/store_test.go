@@ -60,6 +60,31 @@ func TestDurableAcceptanceIncludesIntents(t *testing.T) {
 	}
 }
 
+func TestDeletionArchivesAgentGrant(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+	agent := "0000000000000000000000000000000000000000000000000000000000000002"
+	grant := sampleEvent(t, event.KIND_AGENT_GRANT, 100, [][]string{{"d", agent}, {"p", agent}, {"expiration", "200"}})
+	if _, err := s.Save(ctx, grant, SaveOptions{Now: 100}); err != nil {
+		t.Fatal(err)
+	}
+	del := sampleEvent(t, event.KIND_DELETION, 110, [][]string{{"e", grant.ID}})
+	del.PubKey = grant.PubKey
+	if err := event.Sign(&del, "0000000000000000000000000000000000000000000000000000000000000001"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Save(ctx, del, SaveOptions{Now: 110}); err != nil {
+		t.Fatal(err)
+	}
+	var raw string
+	if err := s.DB().QueryRowContext(ctx, "SELECT raw FROM agent_grant_revisions WHERE event_id=?", grant.ID).Scan(&raw); err != nil {
+		t.Fatal(err)
+	}
+	if raw == "" {
+		t.Fatal("deleted grant revision is empty")
+	}
+}
+
 func TestEventAndIntentRollbackTogether(t *testing.T) {
 	s := openTestStore(t)
 	e := sampleEvent(t, 1, 100, nil)

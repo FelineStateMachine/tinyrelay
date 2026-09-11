@@ -182,6 +182,11 @@ func replace(ctx context.Context, tx *sql.Tx, e event.Event, now int64) error {
 			return fmt.Errorf("archive replaced wiki revision: %w", err)
 		}
 	}
+	if e.Kind == event.KIND_AGENT_GRANT {
+		if _, err := tx.ExecContext(ctx, "INSERT OR IGNORE INTO agent_grant_revisions(event_id,author,d,created_at,raw,superseded_by) SELECT id,pubkey,d,created_at,raw,? FROM events WHERE pubkey=? AND kind=? AND d=?", e.ID, e.PubKey, e.Kind, d); err != nil {
+			return fmt.Errorf("archive replaced agent grant: %w", err)
+		}
+	}
 	_, err = tx.ExecContext(ctx, "DELETE FROM events WHERE pubkey=? AND kind=? AND d=?", e.PubKey, e.Kind, d)
 	if err != nil {
 		return fmt.Errorf("replace event: %w", err)
@@ -199,6 +204,11 @@ func applyDeletion(ctx context.Context, tx *sql.Tx, e event.Event, tag []string)
 		if err != nil {
 			return nil
 		}
+		if kind == event.KIND_AGENT_GRANT {
+			if err := archiveAgentGrantDeletion(ctx, tx, e, parts[1], parts[2]); err != nil {
+				return err
+			}
+		}
 		if _, err := tx.ExecContext(ctx, "DELETE FROM events WHERE kind=? AND pubkey=? AND d=? AND created_at<=?", kind, e.PubKey, parts[2], e.CreatedAt); err != nil {
 			return fmt.Errorf("delete address: %w", err)
 		}
@@ -211,6 +221,9 @@ func applyDeletion(ctx context.Context, tx *sql.Tx, e event.Event, tag []string)
 			}
 		}
 	} else {
+		if err := archiveAgentGrantEventDeletion(ctx, tx, e, tag[1]); err != nil {
+			return err
+		}
 		if _, err := tx.ExecContext(ctx, "DELETE FROM events WHERE id=? AND (pubkey=? OR (kind=1059 AND EXISTS(SELECT 1 FROM tags WHERE event_id=events.id AND name='p' AND value=?)))", tag[1], e.PubKey, e.PubKey); err != nil {
 			return fmt.Errorf("delete event: %w", err)
 		}
@@ -224,6 +237,22 @@ func applyDeletion(ctx context.Context, tx *sql.Tx, e event.Event, tag []string)
 	_, err := tx.ExecContext(ctx, "INSERT INTO deletions(author,target_type,target,until) VALUES(?,?,?,?) ON CONFLICT(author,target_type,target) DO UPDATE SET until=max(until,excluded.until)", e.PubKey, tag[0], tag[1], e.CreatedAt)
 	if err != nil {
 		return fmt.Errorf("persist deletion tombstone: %w", err)
+	}
+	return nil
+}
+
+func archiveAgentGrantDeletion(ctx context.Context, tx *sql.Tx, deletion event.Event, owner, d string) error {
+	_, err := tx.ExecContext(ctx, "INSERT OR IGNORE INTO agent_grant_revisions(event_id,author,d,created_at,raw,superseded_by) SELECT id,pubkey,d,created_at,raw,? FROM events WHERE pubkey=? AND kind=? AND d=? AND created_at<=?", deletion.ID, owner, event.KIND_AGENT_GRANT, d, deletion.CreatedAt)
+	if err != nil {
+		return fmt.Errorf("archive deleted agent grant: %w", err)
+	}
+	return nil
+}
+
+func archiveAgentGrantEventDeletion(ctx context.Context, tx *sql.Tx, deletion event.Event, target string) error {
+	_, err := tx.ExecContext(ctx, "INSERT OR IGNORE INTO agent_grant_revisions(event_id,author,d,created_at,raw,superseded_by) SELECT id,pubkey,d,created_at,raw,? FROM events WHERE id=? AND kind=? AND pubkey=?", deletion.ID, target, event.KIND_AGENT_GRANT, deletion.PubKey)
+	if err != nil {
+		return fmt.Errorf("archive deleted agent grant: %w", err)
 	}
 	return nil
 }

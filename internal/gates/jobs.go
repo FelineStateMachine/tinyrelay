@@ -122,6 +122,9 @@ func (g *Gate) jobReply(ctx context.Context, e event.Event, now int64, agent boo
 	if event.IsJobResult(e.Kind) && e.Kind != event.JobResultKind(request.Kind) {
 		return fmt.Errorf("invalid: job result kind %d does not answer a kind %d request", e.Kind, request.Kind)
 	}
+	if room := event.Tag(request, "h"); room != "" && event.Tag(e, "h") != room {
+		return errors.New("invalid: job result or feedback must keep the request's room h tag")
+	}
 	if event.Tag(e, "p") != request.PubKey {
 		return errors.New("invalid: job result or feedback p tag must name the requester")
 	}

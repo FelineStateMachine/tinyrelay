@@ -16,7 +16,7 @@ import (
 // templateFS holds every page template. page.html owns the shell and the
 // shared partials; the other files each define one group of tabs.
 //
-//go:embed page.html public.html manage.html browse.html repo.html collaboration.html wiki.html rooms.html social.html chat.html
+//go:embed page.html public.html manage.html browse.html repo.html collaboration.html wiki.html rooms.html social.html chat.html chat-activity.html
 var templateFS embed.FS
 
 // styleCSS is inlined into every page so the UI needs no extra request and
@@ -40,6 +40,15 @@ var componentsJS string
 
 //go:embed rooms.js
 var roomsJS string
+
+//go:embed chat-presence.js
+var chatPresenceJS string
+
+//go:embed chat-activity.js
+var chatActivityJS string
+
+//go:embed grant-request.js
+var grantRequestJS string
 
 //go:embed chat.js
 var chatJS string
@@ -241,7 +250,7 @@ func repoView(query url.Values) string {
 // scripts are served at /scripts/<name> and cached by the service worker.
 // One version stamp covers them all, so a change to any file refreshes every
 // cached copy together.
-var scripts = map[string]string{"bridge.js": bridgeJS, "tiny.js": tinyJS, "components.js": componentsJS, "rooms.js": roomsJS, "chat.js": chatJS, "chat-files.js": chatFilesJS, "direct-messages.js": directMessagesJS, "nostr-name.js": nostrNameJS, "blossom-encryption.js": blossomEncryptionJS, "blossom-manifests.js": blossomManifestsJS, "blossom-upload.js": blossomUploadJS, "file-messages.js": fileMessagesJS, "private-services.js": privateServicesJS, "file-workspace.js": fileWorkspaceJS, "file-catalog.js": fileCatalogJS}
+var scripts = map[string]string{"bridge.js": bridgeJS, "tiny.js": tinyJS, "components.js": componentsJS, "rooms.js": roomsJS, "chat.js": chatJS, "chat-presence.js": chatPresenceJS, "chat-activity.js": chatActivityJS, "grant-request.js": grantRequestJS, "chat-files.js": chatFilesJS, "direct-messages.js": directMessagesJS, "nostr-name.js": nostrNameJS, "blossom-encryption.js": blossomEncryptionJS, "blossom-manifests.js": blossomManifestsJS, "blossom-upload.js": blossomUploadJS, "file-messages.js": fileMessagesJS, "private-services.js": privateServicesJS, "file-workspace.js": fileWorkspaceJS, "file-catalog.js": fileCatalogJS}
 
 var scriptsVersion = func() string {
 	names := make([]string, 0, len(scripts))

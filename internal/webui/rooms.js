@@ -325,9 +325,22 @@
    const members = {};
    document.querySelectorAll("#members li").forEach(item => {
      const hex = item.querySelector("nostr-name")?.getAttribute("pubkey") || item.querySelector("nostr-key")?.getAttribute("hex");
-     if (hex) members[hex] = {role: (item.querySelector("small")?.textContent || "").split("|")[0].trim(), agent: item.hasAttribute("data-agent")};
+     if (hex) members[hex] = {role: (item.querySelector("small")?.textContent || "").split("|")[0].trim(), agent: item.hasAttribute("data-agent"), operator: item.getAttribute("data-operator") || ""};
    });
    return members;
+ };
+ const replyRoot = event => {
+   if (![9, 12].includes(event?.kind)) return "";
+   let root = "", reply = "", first = "", marked = false;
+   for (const tag of event.tags || []) {
+     if (tag[0] !== "e" || !isHex64(tag[1])) continue;
+     const marker = tag[3] || "";
+     marked ||= Boolean(marker);
+     if (marker === "root") root = tag[1];
+     else if (marker === "reply") reply = tag[1];
+     else if (!marker && !first) first = tag[1];
+   }
+   return root || reply || (!marked ? first : "");
  };
  const messageNode = (event, {members = {}, room = "", inThread = false} = {}) => {
    const node = el("room-message");
@@ -354,7 +367,12 @@
    small.append(time);
    header.append(name);
    if (own) { const label = el("span", "you"); label.dataset.ownLabel = ""; header.append(label); }
-   header.append(member?.role ? " | " + member.role : "", small);
+   if (member?.agent) {
+     header.append(" | ");
+     if (member.operator) header.append(nameNode(member.operator), "'s agent");
+     else header.append("agent");
+   } else if (member?.role) header.append(" | " + member.role);
+   header.append(small);
    const attachments = notice ? [] : roomAttachments(event);
    const body = notice ? el("p", notice) : chatMarkdown(el("div"), attachmentContent(event.content || "", attachments));
    node.append(avatar, header);
@@ -365,9 +383,9 @@
    const footer = el("footer");
    const mentions = notice ? [] : (event.tags || []).filter(tag => tag[0] === "p" && isHex64(tag[1]) && tag[1] !== pubkey).map(tag => tag[1]);
    if (mentions.length) { const span = el("span", "to "); mentions.forEach(key => span.append(nameNode(key), " ")); footer.append(span); }
-   if (!inThread && room && event.kind === 11) { const link = el("a", "thread"); link.href = roomPath(room, "/thread/" + event.id); footer.append(link); }
-   const root = tagValue(event, "e");
-   if (!inThread && room && event.kind === 12 && isHex64(root)) { const link = el("a", "in thread"); link.href = roomPath(room, "/thread/" + root); footer.append(link); }
+   if (!inThread && room && [9, 11, 40002].includes(event.kind)) { const link = el("a", "thread"); link.href = roomPath(room, "/thread/" + event.id); footer.append(link); }
+   const root = replyRoot(event);
+   if (!inThread && room && isHex64(root)) { const link = el("a", "in thread"); link.href = roomPath(room, "/thread/" + root); footer.append(link); }
    if (footer.childNodes.length) node.append(footer);
    return node;
  };
@@ -388,6 +406,16 @@
  const roomAppend = (event, {room = "", inThread = false, own = false} = {}) => {
    const list = document.getElementById("messages");
    if (!list || !isHex64(event?.id) || document.getElementById("msg-" + event.id)) return null;
+   list.roomSeen ||= new Set();
+   if (list.roomSeen.has(event.id)) return null;
+   list.roomSeen.add(event.id);
+   while (list.roomSeen.size > 2000) list.roomSeen.delete(list.roomSeen.values().next().value);
+   const reference = replyRoot(event);
+   if (reference && !inThread) {
+     const link = document.querySelector("#msg-" + reference + " > footer > a");
+     if (link) { const count = Number((link.textContent.match(/(\d+) repl/) || [])[1] || 0) + 1; link.textContent = "thread | " + count + (count === 1 ? " reply" : " replies"); }
+     return null;
+   }
    const follow = own || roomNearBottom();
    list.querySelector("#empty")?.remove();
    const node = messageNode(event, {members: panelMembers(), room, inThread});
@@ -575,10 +603,10 @@
      const kind = Number(this.getAttribute("kind") || 9);
      if (kind !== 9 && kind !== 12) throw Error("Unsupported message kind.");
      const tags = [["h", room]];
-     if (kind === 12) {
+     if (kind === 12 || this.getAttribute("root")) {
        const root = this.getAttribute("root"), author = this.getAttribute("root-pubkey");
        if (!isHex64(root)) throw Error("The thread root is missing.");
-       tags.push(["e", root]);
+       tags.push(kind === 12 ? ["e", root] : ["e", root, "", "root"]);
        if (isHex64(author) && author !== this.getAttribute("pubkey")) tags.push(["p", author]);
      }
      const quote = this.getAttribute("quote");
@@ -650,7 +678,7 @@
        this.renderFiles();
        this.resizeContent();
        this.report("");
-       roomAppend(event, {room: this.getAttribute("room"), inThread: event.kind === 12, own: true});
+       roomAppend(event, {room: this.getAttribute("room"), inThread: Boolean(this.getAttribute("root")), own: true});
      } finally { this.uploadController = null; }
    }
  }
@@ -760,16 +788,22 @@
 
    receive(event) {
      if (!event || typeof event !== "object") return;
+     const room = this.getAttribute("room");
+     if (tagValue(event, "h") !== room && !(event.kind === 20001 && !tagValue(event, "h"))) return;
+     if (typeof CustomEvent === "function") document.dispatchEvent?.(new CustomEvent("tiny:room-event", {detail: {room, event}}));
      if (event.kind === 7) { roomReact(event); return; }
      if (event.kind === 40003) { roomEdit(event); return; }
      if (!roomKinds.includes(event.kind)) return;
      const root = this.getAttribute("root");
-     if (root && (event.kind !== 12 || tagValue(event, "e") !== root)) return;
+     if (root) {
+       const reference = replyRoot(event);
+       if (reference !== root && !document.getElementById("msg-" + reference)) return;
+     }
      roomAppend(event, {room: this.getAttribute("room"), inThread: Boolean(root)});
    }
  }
 
-  tiny.rooms = Object.freeze({keyHex, roomMentions, roomID, messageNode, roomAppend, roomReact, roomEdit, linkify, chatMarkdown, roomAttachments, attachmentContent, attachmentNodes});
+  tiny.rooms = Object.freeze({keyHex, roomMentions, roomID, replyRoot, messageNode, roomAppend, roomReact, roomEdit, linkify, chatMarkdown, roomAttachments, attachmentContent, attachmentNodes});
   tiny.roomElements = Object.freeze({RoomCompose, RoomCreate, RoomAction, RoomLive});
   customElements.define("room-compose", RoomCompose);
   customElements.define("room-create", RoomCreate);

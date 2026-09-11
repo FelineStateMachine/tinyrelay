@@ -31,10 +31,12 @@ establishes the initial state. */}}
 {{with str (index $room "about")}}<p>{{.}}</p>{{end}}
 {{with index $data "next_cursor"}}<p id="pages"><a href="/rooms/{{$id}}?cursor={{urlquery (str .)}}">load earlier</a></p>{{end}}
 {{if .Query.Get "cursor"}}<p id="newest"><a href="/rooms/{{$id}}">newest messages</a></p>{{end}}
+{{template "chatActivity" .Activity}}
 <div id="messages">{{range roomItems .Event "messages" .Actor}}
 {{template "roomMessage" .}}{{else}}<p id="empty">No messages yet.</p>{{end}}
 </div>
 {{if not (.Query.Get "cursor")}}<room-live room="{{$id}}"></room-live>
+{{template "chatPresence" .}}
 {{if .Actor}}<room-compose room="{{$id}}" pubkey="{{.Actor}}">{{if .Policy.Features.Files}}<room-files aria-label="Attachments" aria-live="polite"></room-files>{{end}}<room-compose-bar>{{if .Policy.Features.Files}}{{template "roomFilePicker" .}}{{end}}<textarea name="content" rows="1" aria-label="Message" placeholder="Message…" title="Mention someone with @npub or @hex" required></textarea><button type="submit" aria-label="Send" title="Send message">{{template "roomSendIcon" .}}</button></room-compose-bar></room-compose>
 <noscript><p>Sending needs JavaScript and a connected signer.</p></noscript>
 {{else}}<p id="guest"><a href="{{signinURL .Base .Path .Query}}">Sign in</a> to send messages.</p>
@@ -49,12 +51,14 @@ establishes the initial state. */}}
 <p id="crumbs"><a href="/rooms/{{$id}}">{{or (str (index $room "name")) $id}}</a></p>
 <h1>Thread <small>{{$root.Replies}} {{if eq $root.Replies 1}}reply{{else}}replies{{end}}</small></h1>
 <div id="root">{{template "roomMessage" $root}}</div>
+{{template "chatActivity" .Activity}}
 <div id="messages">{{range roomItems .Event "replies" .Actor}}
 {{template "roomMessage" .}}{{else}}<p id="empty">No replies yet.</p>{{end}}
 </div>
 {{with index $data "next_cursor"}}<p id="pages"><a href="/rooms/{{$id}}/thread/{{$root.ID}}?cursor={{urlquery (str .)}}">load earlier</a></p>{{end}}
 {{if not (.Query.Get "cursor")}}<room-live room="{{$id}}" root="{{$root.ID}}"></room-live>
-{{if .Actor}}<room-compose room="{{$id}}" pubkey="{{.Actor}}" kind="12" root="{{$root.ID}}" root-pubkey="{{$root.PubKey}}">{{if .Policy.Features.Files}}<room-files aria-label="Attachments" aria-live="polite"></room-files>{{end}}<room-compose-bar>{{if .Policy.Features.Files}}{{template "roomFilePicker" .}}{{end}}<textarea name="content" rows="1" aria-label="Reply" placeholder="Reply in this thread…" required></textarea><button type="submit" aria-label="Reply" title="Send reply">{{template "roomSendIcon" .}}</button></room-compose-bar></room-compose>
+{{template "chatPresence" .}}
+{{if .Actor}}<room-compose room="{{$id}}" pubkey="{{.Actor}}" kind="{{if eq $root.Kind "11"}}12{{else}}9{{end}}" root="{{$root.ID}}" root-pubkey="{{$root.PubKey}}">{{if .Policy.Features.Files}}<room-files aria-label="Attachments" aria-live="polite"></room-files>{{end}}<room-compose-bar>{{if .Policy.Features.Files}}{{template "roomFilePicker" .}}{{end}}<textarea name="content" rows="1" aria-label="Reply" placeholder="Reply in this thread…" required></textarea><button type="submit" aria-label="Reply" title="Send reply">{{template "roomSendIcon" .}}</button></room-compose-bar></room-compose>
 <noscript><p>Replying needs JavaScript and a connected signer.</p></noscript>
 {{else}}<p id="guest"><a href="{{signinURL .Base .Path .Query}}">Sign in</a> to reply.</p>
 {{end}}{{end}}</section>
@@ -65,7 +69,9 @@ establishes the initial state. */}}
 
 {{/* One message. room-live builds the same markup for messages that arrive on the stream. */}}
 {{define "roomMessage"}}<room-message id="msg-{{.ID}}" data-id="{{.ID}}" data-kind="{{.Kind}}" data-updated-at="{{.UpdatedAt}}" data-pubkey="{{.PubKey}}"{{if .Own}} data-own{{end}}{{if .Agent}} data-agent{{end}}{{if .Notice}} data-notice{{end}}{{if .Edited}} data-edited{{end}}><nostr-avatar pubkey="{{.PubKey}}" aria-hidden="true">{{.Avatar}}</nostr-avatar>
-<header><b>{{template "nostrName" .PubKey}}</b>{{if .Own}}<span data-own-label>you</span>{{end}}{{if .Role}} | {{.Role}}{{end}}<small><time datetime="{{datetime .CreatedAt}}" title="{{when .CreatedAt}}">{{clock .CreatedAt}}</time></small></header>
+<header><b>{{template "nostrName" .PubKey}}</b>{{if .Own}}<span data-own-label>you</span>{{end}}{{if .Agent}} | {{if .Operator}}{{template "nostrName" .Operator}}'s agent{{else}}agent{{end}}{{else if .Role}} | {{.Role}}{{end}}<small><time datetime="{{datetime .CreatedAt}}" title="{{when .CreatedAt}}">{{clock .CreatedAt}}</time></small></header>
 {{if .Notice}}<p>{{.Notice}}</p>{{else}}{{if .Quote}}<blockquote data-quote><a href="/open?target={{urlquery (printf "nostr:%s" .Quote)}}">quoted event {{shortID .Quote}}</a></blockquote>{{end}}<div>{{chatMarkdown (roomAttachmentContent .Content .Attachments)}}</div>{{roomAttachmentMarkup .Attachments}}{{end}}
-{{if or .Mentions (and (not .InThread) (or (eq .Kind "11") .Root)) .Reactions .Edited}}<footer>{{if .Mentions}}<span>to {{range .Mentions}}{{template "nostrName" .}} {{end}}</span>{{end}}{{if not .InThread}}{{if eq .Kind "11"}}<a href="/rooms/{{.Room}}/thread/{{.ID}}">thread{{if .Replies}} | {{.Replies}} {{if eq .Replies 1}}reply{{else}}replies{{end}}{{end}}</a>{{else if .Root}}<a href="/rooms/{{.Room}}/thread/{{.Root}}">in thread</a>{{end}}{{end}}{{range .Reactions}}<span data-reaction="{{.Content}}">{{.Content}} {{.Count}}</span>{{end}}{{if .Edited}}<span data-edited>edited</span>{{end}}</footer>{{end}}
+{{if or .Mentions (and (not .InThread) (or (eq .Kind "11") (eq .Kind "9") (eq .Kind "40002") .Root)) .Reactions .Edited}}<footer>{{if .Mentions}}<span>to {{range .Mentions}}{{template "nostrName" .}} {{end}}</span>{{end}}{{if not .InThread}}{{if or (eq .Kind "11") (eq .Kind "9") (eq .Kind "40002")}}<a href="/rooms/{{.Room}}/thread/{{.ID}}">thread{{if .Replies}} | {{.Replies}} {{if eq .Replies 1}}reply{{else}}replies{{end}}{{end}}</a>{{else if .Root}}<a href="/rooms/{{.Room}}/thread/{{.Root}}">in thread</a>{{end}}{{end}}{{range .Reactions}}<span data-reaction="{{.Content}}">{{.Content}} {{.Count}}</span>{{end}}{{if .Edited}}<span data-edited>edited</span>{{end}}</footer>{{end}}
 </room-message>{{end}}
+
+{{define "chatPresence"}}<chat-presence room="{{.View}}" actor="{{.Actor}}"><output aria-live="polite"></output></chat-presence>{{end}}

@@ -37,7 +37,7 @@ func main() {
 // to out. Returning errors to main keeps process exit at the command boundary.
 func run(ctx context.Context, args []string, out io.Writer) error {
 	if len(args) == 0 || args[0] == "help" || args[0] == "--help" || args[0] == "-h" {
-		_, err := fmt.Fprintln(out, "tiny serve [--data-dir PATH] [--listen :7447]\ntiny tenant create --name NAME --owner PUBKEY [--template default]\ntiny tenant list|enable|disable|host [options]\ntiny git-token --repo URL [--key-env TINY_AGENT_KEY] [--format header|value|git]\ntiny templates\ntiny version")
+		_, err := fmt.Fprintln(out, "tiny serve [--data-dir PATH] [--listen :7447]\ntiny agent --relay URL --room ROOM --command PROGRAM [--protocol acp|command]\ntiny tenant create --name NAME --owner PUBKEY [--template default]\ntiny tenant list|enable|disable|host [options]\ntiny git-token --repo URL [--key-env TINY_AGENT_KEY] [--format header|value|git]\ntiny templates\ntiny version")
 		return err
 	}
 	switch args[0] {
@@ -48,6 +48,8 @@ func run(ctx context.Context, args []string, out io.Writer) error {
 		return json.NewEncoder(out).Encode(templates.Names())
 	case "serve":
 		return serve(ctx, args[1:], out)
+	case "agent":
+		return agent(ctx, args[1:], out)
 	case "tenant":
 		return tenantCommand(ctx, args[1:], out)
 	case "git-token":

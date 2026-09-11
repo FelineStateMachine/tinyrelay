@@ -55,10 +55,11 @@ type RoomSummary struct {
 }
 
 type RoomMember struct {
-	PubKey  string `json:"pubkey"`
-	Role    string `json:"role,omitempty"`
-	Agent   bool   `json:"agent,omitempty"`
-	AddedAt int64  `json:"added_at,omitempty"`
+	PubKey   string `json:"pubkey"`
+	Role     string `json:"role,omitempty"`
+	Agent    bool   `json:"agent,omitempty"`
+	Operator string `json:"operator,omitempty"`
+	AddedAt  int64  `json:"added_at,omitempty"`
 }
 
 type RoomMessage = event.Event

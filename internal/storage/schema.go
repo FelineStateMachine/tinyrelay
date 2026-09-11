@@ -28,6 +28,7 @@ CREATE INDEX IF NOT EXISTS marmot_principal_pk ON marmot_principals(pubkey);
 CREATE TABLE IF NOT EXISTS list_history(owner TEXT NOT NULL,kind INTEGER NOT NULL,d TEXT NOT NULL DEFAULT '',event_id TEXT NOT NULL,created_at INTEGER NOT NULL,saved_at INTEGER NOT NULL,expires INTEGER NOT NULL DEFAULT 0,raw TEXT NOT NULL,PRIMARY KEY(owner,kind,d,event_id));
 CREATE INDEX IF NOT EXISTS list_history_owner ON list_history(owner,saved_at DESC);
 CREATE TABLE IF NOT EXISTS wiki_revisions(event_id TEXT PRIMARY KEY,author TEXT NOT NULL,d TEXT NOT NULL,created_at INTEGER NOT NULL,raw TEXT NOT NULL,superseded_by TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS agent_grant_revisions(event_id TEXT PRIMARY KEY,author TEXT NOT NULL,d TEXT NOT NULL,created_at INTEGER NOT NULL,raw TEXT NOT NULL,superseded_by TEXT NOT NULL);
 CREATE INDEX IF NOT EXISTS wiki_revisions_page ON wiki_revisions(d,created_at DESC);
 CREATE INDEX IF NOT EXISTS wiki_revisions_author ON wiki_revisions(author,d,created_at DESC);
 CREATE TABLE IF NOT EXISTS settings(key TEXT PRIMARY KEY,value TEXT NOT NULL);

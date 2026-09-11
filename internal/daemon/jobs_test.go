@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/FelineStateMachine/tinyrelay/internal/event"
+	"github.com/FelineStateMachine/tinyrelay/internal/mcp"
 )
 
 // jobTenant returns a tenant with a member who requests jobs and an agent
@@ -166,6 +167,43 @@ func TestMCPJobToolsBuildValidateAndPublish(t *testing.T) {
 	app.ServeHTTP(w, r)
 	if !strings.Contains(w.Body.String(), "request_job, job_feedback and job_result") || !strings.Contains(w.Body.String(), "list_jobs and read_job") {
 		t.Fatalf("llms.txt: %s", w.Body.String())
+	}
+}
+
+func TestMCPJobBuildersKeepRoomScope(t *testing.T) {
+	room := "private-work"
+	request, err := mcpBuildJobRequest(mcp.Call{Arguments: map[string]any{
+		"kind": float64(5001), "room": room,
+		"inputs": []any{map[string]any{"data": "hello", "type": "text"}},
+	}})
+	if err != nil {
+		t.Fatalf("request builder: %v", err)
+	}
+	if got := event.Tag(event.Event{Tags: request.Tags}, "h"); got != room {
+		t.Fatalf("request room = %q, want %q", got, room)
+	}
+
+	feedback, err := mcpBuildJobFeedback(mcp.Call{Arguments: map[string]any{
+		"e": strings.Repeat("a", 64), "p": strings.Repeat("b", 64),
+		"room": room, "status": "processing",
+	}})
+	if err != nil {
+		t.Fatalf("feedback builder: %v", err)
+	}
+	if got := event.Tag(event.Event{Tags: feedback.Tags}, "h"); got != room {
+		t.Fatalf("feedback room = %q, want %q", got, room)
+	}
+
+	requestEvent := event.Event{ID: strings.Repeat("c", 64), PubKey: strings.Repeat("d", 64), Kind: 5001, Tags: request.Tags}
+	result, err := mcpBuildJobResult(mcp.Call{Arguments: map[string]any{
+		"request": map[string]any{"id": requestEvent.ID, "pubkey": requestEvent.PubKey, "kind": float64(requestEvent.Kind), "created_at": float64(1), "tags": requestEvent.Tags, "content": ""},
+		"content": "done",
+	}})
+	if err != nil {
+		t.Fatalf("result builder: %v", err)
+	}
+	if got := event.Tag(event.Event{Tags: result.Tags}, "h"); got != room {
+		t.Fatalf("result room = %q, want %q", got, room)
 	}
 }
 
