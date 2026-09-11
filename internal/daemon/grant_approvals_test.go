@@ -114,7 +114,7 @@ func TestGrantApprovalDenialAndStaleReview(t *testing.T) {
 				t.Fatal(err)
 			}
 			if scenario == "deny" {
-				if err := publishAs(t, tenant, signedEvent(t, testOwnerSecret, 7, now-10, [][]string{{"e", request.ID}, {"p", agent}}, "-")); err != nil {
+				if err := publishAs(t, tenant, signedEvent(t, testOwnerSecret, 7, now-10, [][]string{{"e", request.ID}, {"p", agent}}, "\n-\t")); err != nil {
 					t.Fatal(err)
 				}
 			} else if err := publishAs(t, tenant, agentGrantEvent(t, agent, now-5, now+3600, []string{"k", "1"})); err != nil {
@@ -153,5 +153,23 @@ func TestGrantRequestNotificationRequiresReview(t *testing.T) {
 	notices := tenant.pushNotices(context.Background(), request)
 	if len(notices) != 1 || notices[0].recipient != tenant.Policy().Owner || notices[0].category != pushApprovals || len(notices[0].actions) != 1 || notices[0].actions[0].Action != "review" || !strings.Contains(notices[0].url, "/approvals?id="+request.ID) {
 		t.Fatalf("grant request notification: %+v", notices)
+	}
+}
+
+func TestGrantReviewReplacementAdvancesTimestamp(t *testing.T) {
+	_, tenant := testTenant(t)
+	now := time.Now().Unix()
+	agent, _ := event.PublicKey(testAgentSecret)
+	grant := agentGrantEvent(t, agent, now, now+3600, []string{"k", "9"})
+	if err := publishAs(t, tenant, grant); err != nil {
+		t.Fatal(err)
+	}
+	request := approvalGrantRequest(t, grant, now)
+	review, err := tenant.community.ReviewAgentGrantRequest(context.Background(), request, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if review.Unsigned.CreatedAt <= grant.CreatedAt {
+		t.Fatal("replacement can lose the same-second event ordering tie")
 	}
 }

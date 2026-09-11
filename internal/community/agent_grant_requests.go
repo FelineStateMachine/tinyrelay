@@ -23,23 +23,30 @@ const agentGrantReasonMax = 500
 
 type grantRequestReader interface {
 	QueryRowContext(context.Context, string, ...any) *sql.Row
+	QueryContext(context.Context, string, ...any) (*sql.Rows, error)
 }
 
 func grantRequestOpen(ctx context.Context, db grantRequestReader, request event.Event, now int64) error {
 	if expires := event.Expiration(request); expires != 0 && expires <= now {
 		return errors.New("conflict: grant request has expired")
 	}
-	var denied bool
-	err := db.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM events AS reaction
-		WHERE kind=7 AND pubkey=? AND trim(json_extract(raw,'$.content'))='-' AND EXISTS(
-		SELECT 1 FROM tags WHERE event_id=reaction.id AND name='e' AND value=?))`, event.Tag(request, "p"), request.ID).Scan(&denied)
+	rows, err := db.QueryContext(ctx, `SELECT json_extract(raw,'$.content') FROM events AS reaction
+		WHERE kind=7 AND pubkey=? AND (expires=0 OR expires>?) AND EXISTS(
+		SELECT 1 FROM tags WHERE event_id=reaction.id AND name='e' AND value=?)`, event.Tag(request, "p"), now, request.ID)
 	if err != nil {
 		return err
 	}
-	if denied {
-		return errors.New("conflict: grant request was denied")
+	defer rows.Close()
+	for rows.Next() {
+		var content string
+		if err := rows.Scan(&content); err != nil {
+			return err
+		}
+		if strings.TrimSpace(content) == "-" {
+			return errors.New("conflict: grant request was denied")
+		}
 	}
-	return nil
+	return rows.Err()
 }
 
 type AgentGrantChanges struct {
@@ -193,6 +200,9 @@ func (s *Service) reviewAgainstGrant(e event.Event, req AgentGrantRequest, befor
 	afterEvent.Tags = grantRequestTags(beforeEvent.Tags, req.Changes)
 	afterEvent.Tags = append(afterEvent.Tags, []string{"grant-request", e.ID}, []string{"grant-base", req.Base}, []string{"e", e.ID, "", "grant-request"})
 	afterEvent.ID, afterEvent.Sig, afterEvent.CreatedAt = "", "", now
+	if afterEvent.CreatedAt <= beforeEvent.CreatedAt {
+		afterEvent.CreatedAt = beforeEvent.CreatedAt + 1
+	}
 	after, err := ParseAgentGrant(afterEvent, now)
 	if err != nil {
 		return AgentGrantReview{}, err
