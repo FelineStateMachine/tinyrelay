@@ -26,11 +26,13 @@ An agent's access request offers **Review access** instead. It opens the propose
 
 ## Names
 
-People show by name wherever the relay knows one: room authors and members, mentions, approvals, agent owners, wiki authors and the signed-in line. Names come from the person's profile (kind 0) as held by this relay, so looking up a name does not contact a public indexer. Names are cached in the browser for six hours. Without JavaScript, or before a profile arrives, the short key shows instead, and the key remains available in its label.
+People show by name wherever the relay knows one: room authors and members, mentions, approvals, agent owners, wiki authors and the signed-in line. Names come from the person's profile (kind 0) as held by this relay, so looking up a name does not contact a public indexer. Names are cached in the browser for six hours. Without JavaScript, or before a profile arrives, the short key shows instead.
+
+A profile picture is used when it is a safe, usable URL. Otherwise the relay shows a deterministic Seedmark avatar generated from the public key, including before JavaScript loads. These avatars are decorative and do not verify identity; the public key remains available in the label.
 
 ## Profile
 
-**Profile** on the Account page edits the profile (kind 0) other people and apps see for your key: name, display name, about, picture, banner, website, NIP-05 address and lightning address. The form starts from the profile this relay holds, and fields it does not show are kept as they are. Saving signs the event with your connected signer, publishes it to this relay first, then to every relay in **Also publish to**, which starts out as the write relays from your relay list on this relay; each relay reports ok or failed under the form. The browser forgets your cached name at the same time, so pages show the new one on the next load.
+**Profile** on the Account page edits the profile (kind 0) other people and apps see for your key: name, display name, about, picture, banner, website, NIP-05 address and lightning address. The form starts from the profile this relay holds, and fields it does not show are kept as they are. Saving signs the event with your connected signer, publishes it to this relay first, then to every relay in **Also publish to**, which starts out as the write relays from your relay list on this relay; each relay reports ok or failed under the form. The browser forgets your cached name at the same time, so pages show the new one on the next load. Removing or omitting a picture returns the account to its deterministic Seedmark avatar.
 
 ## Account
 

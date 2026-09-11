@@ -15,7 +15,7 @@ test("live room and thread messages identify the viewer and render avatars", () 
     const avatar = own.querySelector(":scope > nostr-avatar");
     assert.equal(avatar.getAttribute("pubkey"), s.pubkey);
     assert.equal(avatar.getAttribute("aria-hidden"), "true");
-    assert.equal(avatar.textContent, s.pubkey.slice(0, 2).toUpperCase());
+    assert.equal(avatar.textContent, "", "the avatar component supplies an image rather than initials");
     const other = s.rooms.messageNode({...event, pubkey: "b".repeat(64)});
     assert.equal(other.hasAttribute("data-own"), false);
     assert.equal(other.querySelector("[data-own-label]"), null);

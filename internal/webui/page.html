@@ -110,7 +110,7 @@ then feature modules are loaded for the current page. */}}
 {{if .Actor}}<h4>Direct chats</h4><direct-chats actor="{{.Actor}}" relay="{{wsURL .URL}}" compact><p>Connect your signer to see direct chats.</p></direct-chats>
 <p><a href="/chat#new-chat">+ new chat</a></p>{{end}}
 <h4>Rooms</h4>
-<nav id="room-list">{{range .Rooms}}{{$r := asMap .}}<a href="/rooms/{{str (index $r "id")}}"{{if eq (str (index $r "id")) $.View}} aria-current="page"{{end}}>{{or (str (index $r "name")) (str (index $r "id"))}}{{with age (index $r "last_message_at")}} <small>{{.}}</small>{{end}}</a>{{else}}<a href="/chat">Browse rooms</a>{{end}}</nav>
+<nav id="room-list">{{range .Rooms}}{{$r := asMap .}}{{$id := str (index $r "id")}}{{$picture := socialMediaURL (str (index $r "picture"))}}<a href="/rooms/{{$id}}"{{if eq $id $.View}} aria-current="page"{{end}}><room-avatar picture="{{$picture}}" fallback="{{roomAvatarURL $.URL $id}}" aria-hidden="true"><img src="{{if $picture}}{{$picture}}{{else}}{{roomAvatarURL $.URL $id}}{{end}}" alt="" width="24" height="24" loading="lazy"></room-avatar>{{or (str (index $r "name")) $id}}{{with age (index $r "last_message_at")}} <small>{{.}}</small>{{end}}</a>{{else}}<a href="/chat">Browse rooms</a>{{end}}</nav>
 <p><a href="/chat#new-room">+ new room</a></p>
 {{else}}<header><span><a id="mark" href="/" title="{{.Slug}}"><i>t</i><i>i</i><i>n</i><i>y</i></a></span></header>
 {{range $group := navGroups relayItems}}<nav>{{range $item := $group}}<a href="{{$item.Href}}"{{if eq $item.Tab $.Tab}} aria-current="page"{{end}}>{{$item.Label}}</a>{{end}}</nav>{{end}}{{if .Actor}}<p id="personal-nav"><a href="/account"{{if eq .Tab "account"}} aria-current="page"{{end}}>account</a></p>{{end}}

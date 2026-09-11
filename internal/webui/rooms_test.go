@@ -115,7 +115,7 @@ func roomsPage(t *testing.T, app *App, path string) string {
 func TestRoomsListRendersRoomsRailAndCreateForm(t *testing.T) {
 	app, backend := roomsApp(t, roomOwner)
 	body := roomsPage(t, app, "/chat")
-	for _, want := range []string{`<table id="rows">`, `<a href="/rooms/general">General</a>`, `<a href="/rooms/build">Build</a>`, `members only <small>Where Build happens.</small>`, `<room-create>`, `<a href="/chat"><b>chat</b></a>`, `<nav id="room-list"><a href="/rooms/general">General`, `<a href="/chat#new-room">+ new room</a>`, `<p id="rail-tools"><a href="/">&larr; relay</a>`, `<h4>Rooms</h4>`, `<td>2</td>`} {
+	for _, want := range []string{`<table id="rows">`, `</room-avatar>General</a>`, `</room-avatar>Build</a>`, `members only <small>Where Build happens.</small>`, `<room-create>`, `<a href="/chat"><b>chat</b></a>`, `<nav id="room-list"><a href="/rooms/general"><room-avatar`, `<a href="/chat#new-room">+ new room</a>`, `<p id="rail-tools"><a href="/">&larr; relay</a>`, `<h4>Rooms</h4>`, `<td>2</td>`} {
 		if !strings.Contains(body, want) {
 			t.Errorf("rooms list missing %q", want)
 		}
@@ -141,11 +141,11 @@ func TestRoomPageRendersMessagesOldestFirstWithMarkers(t *testing.T) {
 	app, backend := roomsApp(t, roomOwner)
 	body := roomsPage(t, app, "/rooms/general")
 	for _, want := range []string{
-		`<h1>General <small>open room</small></h1>`, `<p>Where General happens.</p>`,
+		`</room-avatar>General <small>open room</small></h1>`, `<p>Where General happens.</p>`,
 		`<a href="/rooms/general?cursor=cursor-1">load earlier</a>`,
 		`<room-message id="msg-` + roomHello + `" data-id="` + roomHello + `" data-kind="9" data-updated-at="1757203650" data-pubkey="` + roomAgent + `" data-agent data-edited>`,
-		`<nostr-avatar pubkey="` + roomAgent + `" aria-hidden="true">BB</nostr-avatar>`,
-		`<room-message id="msg-` + roomChat + `" data-id="` + roomChat + `" data-kind="9" data-updated-at="1757202000" data-pubkey="` + roomOwner + `" data-own><nostr-avatar pubkey="` + roomOwner + `" aria-hidden="true">AA</nostr-avatar>`,
+		`<nostr-avatar pubkey="` + roomAgent + `" aria-hidden="true"><img src="` + avatarURL(roomAgent) + `" alt="" width="32" height="32" loading="lazy"></nostr-avatar>`,
+		`<room-message id="msg-` + roomChat + `" data-id="` + roomChat + `" data-kind="9" data-updated-at="1757202000" data-pubkey="` + roomOwner + `" data-own><nostr-avatar pubkey="` + roomOwner + `" aria-hidden="true"><img src="` + avatarURL(roomOwner) + `" alt="" width="32" height="32" loading="lazy"></nostr-avatar>`,
 		`</b><span data-own-label>you</span>`,
 		`<section id="room" data-viewer="` + roomOwner + `">`,
 		`<a href="https://example.com/docs" rel="noopener">https://example.com/docs</a>.`,
@@ -161,7 +161,7 @@ func TestRoomPageRendersMessagesOldestFirstWithMarkers(t *testing.T) {
 		`<noscript><p>Sending needs JavaScript and a connected signer.</p></noscript>`,
 		`<ul id="members"><li><nostr-name pubkey="` + roomOwner + `"`, `<li data-agent data-operator="` + roomOwner + `"><nostr-name pubkey="` + roomAgent + `"`, `<small><nostr-name pubkey="` + roomOwner + `" title="` + roomOwner + `">` + shortID(roomOwner) + `</nostr-name>'s agent</small>`,
 		`<room-action room="general" kind="9000">`, `<room-action room="general" kind="9002">`, `<room-action room="general" kind="9022">`,
-		`<nav id="room-list"><a href="/rooms/general" aria-current="page">General`,
+		`<nav id="room-list"><a href="/rooms/general" aria-current="page"><room-avatar`,
 		`&raquo; <page-link url="http://relay.example/rooms/general" title="Copy the page address">rooms/general</page-link></span>`,
 	} {
 		if !strings.Contains(body, want) {
@@ -196,7 +196,7 @@ func TestMembersOnlyRoomIsHiddenFromGuests(t *testing.T) {
 	}
 	app, _ := roomsApp(t, roomOwner)
 	body = roomsPage(t, app, "/rooms/build")
-	if !strings.Contains(body, `<h1>Build <small>members only</small></h1>`) || !strings.Contains(body, `id="msg-`+roomHello) {
+	if !strings.Contains(body, `</room-avatar>Build <small>members only</small></h1>`) || !strings.Contains(body, `id="msg-`+roomHello) {
 		t.Fatal("owner did not see the members-only room")
 	}
 }
@@ -205,7 +205,7 @@ func TestThreadPageRendersRootRepliesAndReplyCompose(t *testing.T) {
 	app, _ := roomsApp(t, roomOwner)
 	body := roomsPage(t, app, "/rooms/general/thread/"+roomThread)
 	for _, want := range []string{
-		`<p id="crumbs"><a href="/rooms/general">General</a></p>`, `<h1>Thread <small>1 reply</small></h1>`,
+		`<p id="crumbs"><a href="/rooms/general"><room-avatar`, `</room-avatar>General</a></p>`, `<h1>Thread <small>1 reply</small></h1>`,
 		`<div id="root"><room-message id="msg-` + roomThread + `"`, `<div id="messages">`, `id="msg-` + roomReply + `"`,
 		`data-viewer="` + roomOwner + `"`, `<span data-own-label>you</span>`,
 		`<room-live room="general" root="` + roomThread + `"></room-live>`,

@@ -288,13 +288,13 @@ func clock(value any) string {
 // roomItem is one message as the page shows it: the event's fields, the
 // author's markers, the thread state and the reactions it has received.
 type roomItem struct {
-	ID, PubKey, Avatar, Kind, Content, Room, Root, Quote, Role, Operator, Notice string
-	CreatedAt, UpdatedAt                                                         int64
-	Agent, InThread, Edited, Own                                                 bool
-	Mentions                                                                     []string
-	Replies                                                                      int
-	Reactions                                                                    []reaction
-	Attachments                                                                  []roomAttachment
+	ID, PubKey, Kind, Content, Room, Root, Quote, Role, Operator, Notice string
+	CreatedAt, UpdatedAt                                                 int64
+	Agent, InThread, Edited, Own                                         bool
+	Mentions                                                             []string
+	Replies                                                              int
+	Reactions                                                            []reaction
+	Attachments                                                          []roomAttachment
 }
 
 // roomItems turns a browse result's messages or replies into view items,
@@ -375,9 +375,6 @@ func newRoomItem(row any, room string, members map[string]map[string]any) (roomI
 		}
 	case "9", "12":
 		item.Root = webRoomReplyRoot(row)
-	}
-	if len(item.PubKey) >= 2 {
-		item.Avatar = strings.ToUpper(item.PubKey[:2])
 	}
 	if member := members[item.PubKey]; member != nil {
 		item.Role = plainString(member["role"])

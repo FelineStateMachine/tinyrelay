@@ -21,6 +21,7 @@ Each tenant has a SQLite store, a policy snapshot and a set of services. The dae
 | [`relay`](../internal/relay/doc.go), [`mcp`](../internal/mcp/doc.go), [`webui`](../internal/webui/doc.go) | WebSocket sessions, MCP requests, HTML pages and browser interactions. |
 | [`agentrunner`](../internal/agentrunner) | The optional agent process: room mentions, durable queue recovery, ACP or command execution, and permission prompts. |
 | [`views`](../internal/views/doc.go), [`wiki`](../internal/wiki/doc.go), [`webpush`](../internal/webpush/doc.go) | Fenced-block parsing, article rendering and encrypted browser push delivery. |
+| [`seedmark`](../internal/seedmark) | Deterministic decorative SVG avatars for people and rooms without a profile picture. |
 | [`catalog`](../internal/catalog/doc.go), [`domains`](../internal/domains/doc.go) | Tenant lifecycle records, filesystem paths and host mappings. |
 | [`templates`](../internal/templates/doc.go), [`configport`](../internal/configport/doc.go) | Built-in policy templates and configuration import, export and application. |
 | [`telemetry`](../internal/telemetry/doc.go), [`daemon`](../internal/daemon/doc.go) | Observability, service assembly, request routing and worker ownership. |

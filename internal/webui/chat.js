@@ -116,7 +116,7 @@
   const messages = (value, peer) => chronological(value).filter(rumor => [14, 15].includes(rumor.kind) && !deleted(value, rumor) && (!peer || peerFor(rumor, value.actor) === peer));
   const profile = pubkey => {
     const author = node("span"); author.setAttribute("data-author", "");
-    const avatar = node("nostr-avatar", pubkey.slice(0, 2)); avatar.setAttribute("pubkey", pubkey); avatar.setAttribute("aria-hidden", "true");
+    const avatar = node("nostr-avatar"); avatar.setAttribute("pubkey", pubkey); avatar.setAttribute("aria-hidden", "true");
     const name = node("nostr-name", pubkey.slice(0, 8)); name.setAttribute("pubkey", pubkey);
     author.append(avatar, name); return author;
   };

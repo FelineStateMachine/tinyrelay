@@ -299,17 +299,25 @@ wiki-compose output{display:block;font:12px var(--mono);color:var(--muted);margi
 /* Rooms: the rail lists rooms, messages read oldest first, and the compose bar stays at the bottom of the column. */
 #rail h4{margin:16px 0 4px;padding:0 2ch 0 2.5ch;font:11px var(--mono);color:var(--muted);text-transform:uppercase;letter-spacing:.04em}
 #room-list a{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}#room-list a small{float:right;color:var(--muted);font-size:11px}
+#room-list room-avatar{display:inline-block;vertical-align:middle;width:24px;height:24px;margin-right:7px}
+#room-list room-avatar img{display:block;width:100%;height:100%;border-radius:50%;object-fit:cover}
+#rooms #rows room-avatar,#chat #rows room-avatar{display:inline-block;vertical-align:middle;width:32px;height:32px;margin-right:8px}
+#rooms #rows room-avatar img,#chat #rows room-avatar img{display:block;width:100%;height:100%;border-radius:50%;object-fit:cover}
 #rooms #rows td:first-child{width:220px}#rooms #rows td:nth-child(3){text-align:right;width:80px;font:12px var(--mono)}
 #content>section#room,#content>section#thread{padding-bottom:0}
 #room h1 small,#thread h1 small{font:12px var(--mono);color:var(--muted)}
+#room h1 room-avatar{display:inline-block;vertical-align:middle;width:40px;height:40px;margin-right:10px}
+#room h1 room-avatar img{display:block;width:100%;height:100%;border-radius:50%;object-fit:cover}
+#thread #crumbs room-avatar{display:inline-block;vertical-align:middle;width:28px;height:28px;margin-right:7px}
+#thread #crumbs room-avatar img{display:block;width:100%;height:100%;border-radius:50%;object-fit:cover}
 #crumbs,#newest,#empty{font:12px var(--mono);color:var(--muted)}
 /* Rooms read as a centered conversation column; the compose bar spans the
    content column but its controls sit in the same 720px lane. */
 #room>*:not(room-compose),#thread>*:not(room-compose),room-compose>*{max-width:720px;margin-left:auto;margin-right:auto}
 room-message{display:block;position:relative;min-width:0;margin:10px 0;padding:12px 0 14px 44px;border-bottom:1px solid var(--line)}
 room-message>nostr-avatar{position:absolute;top:12px;left:0}
-nostr-avatar{display:inline-block;box-sizing:border-box;width:32px;height:32px;overflow:hidden;border:1px solid var(--line);border-radius:50%;background:var(--rail);color:var(--muted);text-align:center;font:11px/30px var(--mono);user-select:none;-webkit-user-select:none}
-nostr-avatar img{display:block;width:100%;height:100%;object-fit:cover}
+nostr-avatar,room-avatar{display:inline-block;box-sizing:border-box;width:32px;height:32px;overflow:hidden;border:1px solid var(--line);border-radius:50%;background:var(--rail);color:var(--muted);text-align:center;font:11px/30px var(--mono);user-select:none;-webkit-user-select:none}
+nostr-avatar img,room-avatar img{display:block;width:100%;height:100%;object-fit:cover}
 room-message>header{font:12px/1.5 var(--mono);color:var(--muted);margin-bottom:6px;overflow-wrap:anywhere;user-select:none;-webkit-user-select:none}
 room-message>header b{color:var(--ink);font-weight:500}room-message>header b nostr-key{cursor:copy}
 room-message>header small{float:right;margin-left:8px;white-space:nowrap}

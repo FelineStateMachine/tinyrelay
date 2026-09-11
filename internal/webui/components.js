@@ -768,18 +768,32 @@
 
     render() {
       const pubkey = String(this.getAttribute("pubkey") || "").toLowerCase();
-      const fallback = pubkey.slice(0, 2).toUpperCase();
+      const valid = /^[0-9a-f]{64}$/.test(pubkey);
+      const seed = valid ? pubkey : "0".repeat(64);
+      const fallback = tiny.localPath ? tiny.localPath("/avatars/v1/" + seed + ".svg") : "/avatars/v1/" + seed + ".svg";
       const serial = (this.serial || 0) + 1;
       this.serial = serial;
+      const changed = this.renderedPubkey !== undefined && this.renderedPubkey !== pubkey;
+      this.renderedPubkey = pubkey;
       const restore = () => {
         if (serial !== this.serial) return;
-        this.replaceChildren(document.createTextNode(fallback));
+        const image = el("img");
+        image.src = fallback;
+        image.alt = "";
+        image.loading = "lazy";
+        image.referrerPolicy = "no-referrer";
+        image.setAttribute("aria-hidden", "true");
+        this.replaceChildren(image);
       };
-      const load = window.tinyNames?.load;
-      if (!load || !/^[0-9a-f]{64}$/.test(pubkey)) {
+      const current = this.querySelector("img");
+      if (!valid) {
         restore();
         return;
       }
+      if (changed || !current) restore();
+      else current.addEventListener("error", restore, {once: true});
+      const load = window.tinyNames?.load;
+      if (!load) return;
       Promise.resolve(load({pubkey, refresh: true})).then(user => {
         const raw = user?.image;
         let url;
@@ -797,6 +811,56 @@
         image.addEventListener("error", restore, {once: true});
         this.replaceChildren(image);
       }).catch(restore);
+    }
+  }
+
+  class RoomAvatar extends HTMLElement {
+    static get observedAttributes() { return ["picture", "fallback"]; }
+
+    connectedCallback() { this.render(); }
+
+    attributeChangedCallback() { this.render(); }
+
+    render(forceFallback = false) {
+      const serial = (this.serial || 0) + 1;
+      this.serial = serial;
+      let picture;
+      try {
+        const raw = this.getAttribute("picture") || "";
+        if (/^https?:\/\/\S+$/i.test(raw)) {
+          const candidate = new URL(raw);
+          picture = candidate.href;
+        }
+      } catch {}
+      let fallback;
+      try {
+        const candidate = new URL(this.getAttribute("fallback") || "", location.href);
+        if (candidate.origin === location.origin && /^(?:\/avatars|\/r\/[^/]+\/avatars)\/v1\/[0-9a-f]{64}\.svg$/.test(candidate.pathname)) fallback = candidate.href;
+      } catch {}
+      const src = forceFallback ? fallback : picture || fallback;
+      const current = this.querySelector("img");
+      if (current && current.src === src) {
+        if (picture && !forceFallback) {
+          if (current.complete && current.naturalWidth === 0) this.render(true);
+          else current.addEventListener("error", () => this.restore(serial), {once: true});
+        }
+        return;
+      }
+      this.replaceChildren();
+      if (!src) return;
+      const image = el("img");
+      image.src = src;
+      image.alt = "";
+      image.loading = "lazy";
+      image.referrerPolicy = "no-referrer";
+      image.setAttribute("aria-hidden", "true");
+      if (picture && !forceFallback) image.addEventListener("error", () => this.restore(serial), {once: true});
+      this.append(image);
+    }
+
+    restore(serial) {
+      if (serial !== this.serial) return;
+      this.render(true);
     }
   }
 
@@ -1639,6 +1703,7 @@
   customElements.define("share-link", ShareLink);
   customElements.define("nostr-key", NostrKey);
   customElements.define("nostr-avatar", NostrAvatar);
+  customElements.define("room-avatar", RoomAvatar);
   customElements.define("page-link", PageLink);
   customElements.define("json-view", JsonView);
 

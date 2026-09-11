@@ -14,6 +14,7 @@ func TestInjectBasePreservesExternalURLsAndContent(t *testing.T) {
 		{"external image", `<img src="//example.org/icon.png">`, `<img src="//example.org/icon.png">`},
 		{"already scoped", `<a href="/r/alice/files">files</a>`, `<a href="/r/alice/files">files</a>`},
 		{"script source", `<script src="/fixi.js"></script>`, `<script src="/r/alice/fixi.js"></script>`},
+		{"room avatar fallback", `<room-avatar fallback="/avatars/v1/avatar.svg"><img src="/avatars/v1/avatar.svg"></room-avatar>`, `<room-avatar fallback="/r/alice/avatars/v1/avatar.svg"><img src="/r/alice/avatars/v1/avatar.svg"></room-avatar>`},
 		{"script text", `<script>const example = ' href="/example"';</script>`, `<script>const example = ' href="/example"';</script>`},
 		{"textarea", `<textarea> href="/example"</textarea>`, `<textarea> href="/example"</textarea>`},
 		{"local action", `<button fx-action="/connect/fragment">preview</button>`, `<button fx-action="/r/alice/connect/fragment">preview</button>`},

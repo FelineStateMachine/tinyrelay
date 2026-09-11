@@ -301,6 +301,8 @@ func parseTemplates(a *App) (*template.Template, error) {
 		"socialBody":          a.socialBody,
 		"socialPreview":       socialPreview,
 		"socialMediaURL":      socialMediaURL,
+		"avatarURL":           avatarURL,
+		"roomAvatarURL":       roomAvatarURL,
 		"markdown":            a.markdown,
 		"chatMarkdown":        a.chatMarkdown,
 		"hasPrefix":           strings.HasPrefix,

@@ -181,6 +181,10 @@ func defaultQR(text string) ([]byte, error) {
 }
 
 func (a *App) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
+	if strings.HasPrefix(request.URL.Path, "/avatars/") {
+		serveAvatar(writer, request)
+		return
+	}
 	if a.denyPrivateEndpoint(writer, request) {
 		return
 	}

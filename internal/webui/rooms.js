@@ -357,7 +357,7 @@
    if (own) node.dataset.own = "";
    if (member?.agent) node.dataset.agent = "";
    if (notice) node.dataset.notice = "";
-   const avatar = el("nostr-avatar", pubkey.slice(0, 2).toUpperCase());
+   const avatar = el("nostr-avatar");
    avatar.setAttribute("pubkey", pubkey);
    avatar.setAttribute("aria-hidden", "true");
    const header = el("header"), name = el("b"), time = el("time", clock(event.created_at)), small = el("small");
