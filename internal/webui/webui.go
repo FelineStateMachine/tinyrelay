@@ -179,6 +179,9 @@ func (a *App) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
 	if a.handleControlRoute(writer, request) || a.handleWebMCPRoute(writer, request) || a.handleBrowseRoute(writer, request) {
 		return
 	}
+	if a.handleSocialRoute(writer, request) {
+		return
+	}
 	if request.Method != http.MethodGet && request.Method != http.MethodHead {
 		http.Error(writer, "method not allowed", http.StatusMethodNotAllowed)
 		return
@@ -441,6 +444,9 @@ func (a *App) eventPage(writer http.ResponseWriter, request *http.Request) {
 	address := strings.HasPrefix(request.URL.Path, "/a/")
 	if address {
 		identifier = strings.TrimPrefix(request.URL.Path, "/a/")
+	}
+	if a.socialReferencePage(writer, request, identifier, address, actor) {
+		return
 	}
 	method := "eventdetail"
 	params := []json.RawMessage{json.RawMessage(fmt.Sprintf(`%q`, identifier))}

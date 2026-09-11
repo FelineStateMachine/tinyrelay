@@ -73,7 +73,7 @@ func TestShellNavigationIsProgressiveAndAccessible(t *testing.T) {
 
 	// The menu is part of the shell, so each viewer and rail context retains
 	// one native control and one shared navigation container.
-	for _, path := range []string{"/search", "/articles", "/files", "/repo?owner=alice&repo=notes&view=history", "/e/" + strings.Repeat("1", 64), "/manage/rules"} {
+	for _, path := range []string{"/search", "/social", "/files", "/repo?owner=alice&repo=notes&view=history", "/e/" + strings.Repeat("1", 64), "/manage/rules"} {
 		recorder := httptest.NewRecorder()
 		app.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, path, nil))
 		if recorder.Code != http.StatusOK {

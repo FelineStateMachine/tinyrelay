@@ -33,7 +33,8 @@ then feature modules are loaded for the current page. */}}
 {{else if eq .Tab "inbox"}}{{template "inbox" .}}
 {{else if eq .Tab "outbox"}}{{template "outbox" .}}
 {{else if eq .Tab "search"}}{{template "search" .}}
-{{else if eq .Tab "articles"}}{{template "articles" .}}
+{{else if eq .Tab "social"}}{{template "social" .}}
+{{else if eq .Tab "social-thread"}}{{template "social-thread" .}}
 {{else if eq .Tab "private"}}{{template "private" .}}
 {{else if eq .Tab "chat"}}{{template "chat" .}}
 {{else if eq .Tab "media"}}{{template "media" .}}
@@ -110,6 +111,7 @@ then feature modules are loaded for the current page. */}}
 {{else if eq .Tab "agents"}}{{template "panel-agents" .}}
 {{else if eq $kind "manage"}}{{template "panel-manage" .}}
 {{else if eq $kind "rooms"}}{{template "panel-rooms" .}}
+{{else if or (eq .Tab "social") (eq .Tab "social-thread")}}{{template "panel-social" .}}
 {{else if or (eq .Tab "inbox") (eq .Tab "outbox") (eq .Tab "search") (eq .Tab "articles")}}{{template "panel-feed" .}}
 {{else if eq .Tab "repos"}}{{template "panel-repos" .}}
 {{else if or (eq .Tab "files") (eq .Tab "file")}}{{template "panel-files" .}}

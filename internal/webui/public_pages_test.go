@@ -62,7 +62,7 @@ func TestPublicSearchAndInboxRenderBackendResults(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, path := range []string{"/search?q=visible", "/inbox", "/outbox", "/articles"} {
+	for _, path := range []string{"/search?q=visible", "/inbox", "/outbox"} {
 		recorder := httptest.NewRecorder()
 		app.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, path, nil))
 		body := recorder.Body.String()

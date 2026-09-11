@@ -991,6 +991,203 @@
   // until the button is pressed: permission is requested then, and the
   // device subscription is registered with a signed request.
   const pushCategories = [["messages", "private messages"], ["replies", "replies to you"], ["mentions", "mentions"], ["approvals", "requests for a decision"], ["relay", "relay notices"]];
+  // Social follows NIP-10 notes, NIP-23 articles and NIP-22 comments.
+  const socialValue = (form, name) => String(form?.elements?.[name]?.value || "").trim();
+  const socialDraftFields = ["title", "summary", "cover", "content", "tags", "media", "alt"];
+  const socialDraftKey = node => {
+    const actor = node.getAttribute("actor");
+    if (!isHex64(actor)) return "";
+    return "tiny.social.draft." + JSON.stringify([location.origin, tiny.root || "", actor, node.getAttribute("mode") || "note", node.getAttribute("address") || "", node.getAttribute("target") || ""]);
+  };
+  const socialHTTPURL = value => {
+    if (!value) return "";
+    let url; try { url = new URL(value); } catch { throw Error("Enter a valid HTTP or HTTPS URL."); }
+    if (!["http:", "https:"].includes(url.protocol) || url.username || url.password) throw Error("Media URLs must use HTTP or HTTPS without credentials.");
+    return url.href;
+  };
+  const socialRelay = node => {
+    const value = node.getAttribute("relay") || "";
+    return /^wss?:\/\//.test(value) ? value : "";
+  };
+  const socialSend = async event => {
+    const response = await tiny.signedFetch("/events", "POST", JSON.stringify(event), {contentType: "application/json"});
+    let result = {};
+    try { result = await response.json(); } catch {}
+    if (!response.ok || result.accepted !== true) throw Error(result.error || result.message || "The relay rejected the post.");
+    return event;
+  };
+  class SocialCompose extends FormElement {
+    connectedCallback() {
+      if (this.form) return;
+      super.connectedCallback();
+      this.restoreDraft();
+      this.form.addEventListener("input", () => this.saveDraft());
+      this.querySelector("[data-preview]")?.addEventListener("click", () => this.preview().catch(error => this.report(error.message, true)));
+    }
+    saveDraft() {
+      const key = socialDraftKey(this);
+      if (!key) return;
+      try {
+        const values = Object.fromEntries(socialDraftFields.map(name => [name, this.form.elements[name]?.value || ""]));
+        if (!Object.values(values).some(Boolean)) { localStorage.removeItem(key); return; }
+        localStorage.setItem(key, JSON.stringify({values, articleID: this.articleID || "", publishedAt: this.publishedAt || 0}));
+      } catch {}
+    }
+    restoreDraft() {
+      const key = socialDraftKey(this);
+      if (!key) return;
+      try {
+        const draft = JSON.parse(localStorage.getItem(key) || "null");
+        if (!draft || typeof draft.values !== "object") return;
+        for (const name of socialDraftFields) {
+          const input = this.form.elements[name];
+          if (input && !input.value && typeof draft.values[name] === "string") input.value = draft.values[name];
+        }
+        if (typeof draft.articleID === "string" && /^[a-z0-9-]{1,100}$/.test(draft.articleID)) this.articleID = draft.articleID;
+        if (Number.isSafeInteger(draft.publishedAt) && draft.publishedAt > 0) this.publishedAt = draft.publishedAt;
+      } catch {}
+    }
+    clearDraft() { try { const key = socialDraftKey(this); if (key) localStorage.removeItem(key); } catch {} }
+    kind() {
+      const mode = this.getAttribute("mode") || "note";
+      if (mode === "article") return 30023;
+      if (mode === "note") return 1;
+      if (mode !== "comment") throw Error("Choose a valid post format.");
+      const parent = this.getAttribute("target-kind") || "1";
+      if (parent === "1") return 1;
+      if (parent === "30023" || parent === "1111") return 1111;
+      throw Error("This post does not support replies here.");
+    }
+    replyTags(kind) {
+      const target = this.getAttribute("target") || "", author = this.getAttribute("target-pubkey") || "";
+      const root = this.getAttribute("root") || target, rootAuthor = this.getAttribute("root-pubkey") || (root === target ? author : "");
+      const hint = socialRelay(this);
+      if (![target, author, root].every(isHex64)) throw Error("The reply address is incomplete. Reload the conversation.");
+      if (kind === 1) {
+        const tags = [["e", root, hint, "root", ...(isHex64(rootAuthor) ? [rootAuthor] : [])]];
+        if (target !== root) tags.push(["e", target, hint, "reply", author]);
+        const participants = new Set([...(isHex64(rootAuthor) ? [rootAuthor] : []), author]);
+        try { for (const tag of JSON.parse(this.getAttribute("target-tags") || "[]")) if (Array.isArray(tag) && tag[0] === "p" && isHex64(tag[1])) participants.add(tag[1]); } catch {}
+        for (const pubkey of participants) tags.push(["p", pubkey, hint]);
+        return tags;
+      }
+      const address = this.getAttribute("address") || "";
+      const parentKind = this.getAttribute("target-kind") || "30023";
+      if (!isHex64(rootAuthor) || !address.startsWith("30023:" + rootAuthor + ":") || !["30023", "1111"].includes(parentKind)) throw Error("The article address is incomplete. Reload the conversation.");
+      const tags = [["A", address, hint], ["K", "30023"], ["P", rootAuthor, hint]];
+      if (parentKind === "30023") tags.push(["a", address, hint]);
+      tags.push(["e", target, hint, author], ["k", parentKind], ["p", author, hint]);
+      return tags;
+    }
+    tags(form, kind) {
+      const tags = this.getAttribute("mode") === "comment" ? this.replyTags(kind) : [];
+      if (kind === 30023) {
+        if (!socialValue(form, "title")) throw Error("Give your article a title.");
+        this.articleID ||= crypto.randomUUID();
+        this.publishedAt ||= unixNow();
+        tags.push(["d", this.articleID], ["title", socialValue(form, "title")], ["published_at", String(this.publishedAt)]);
+        if (socialValue(form, "summary")) tags.push(["summary", socialValue(form, "summary")]);
+        const cover = socialHTTPURL(socialValue(form, "cover"));
+        if (cover) tags.push(["image", cover]);
+      }
+      const topics = new Set(socialValue(form, "tags").split(",").map(value => value.trim().replace(/^#/, "").toLowerCase()).filter(Boolean));
+      for (const topic of topics) tags.push(["t", topic]);
+      return tags;
+    }
+    async attachments(form) {
+      const files = [...(form.elements["media-file"]?.files || [])];
+      if (files.length > 10 || files.some(file => file.size > 256 * 1024 * 1024)) throw Error("Choose up to 10 attachments, each at most 256 MiB.");
+      if (files.some(file => !/^(image|video|audio)\//.test(file.type))) throw Error("Choose an image, video or audio file.");
+      this.mediaUploads ||= new WeakMap();
+      const items = [];
+      for (const file of files) {
+        let item = this.mediaUploads.get(file);
+        if (!item) {
+          this.report("Uploading " + file.name + "…");
+          const bytes = new Uint8Array(await file.arrayBuffer()), hash = await tiny.sha256hex(bytes);
+          const path = "/upload?filename=" + encodeURIComponent(file.name) + "&purpose=file";
+          const response = await tiny.signedFetch(path, "PUT", bytes, {contentType: file.type});
+          const descriptor = await response.json();
+          if (!response.ok || descriptor.sha256 !== hash || descriptor.size !== bytes.length) throw Error("The attachment could not be verified. Try again.");
+          item = {url: socialHTTPURL(descriptor.url), type: file.type, hash, size: file.size, filename: file.name};
+          if (!item.url) throw Error("The attachment URL is missing.");
+          this.mediaUploads.set(file, item);
+        }
+        items.push({...item, alt: socialValue(form, "alt") || file.name});
+      }
+      const media = socialHTTPURL(socialValue(form, "media"));
+      if (media && !items.some(item => item.url === media)) items.push({url: media, alt: socialValue(form, "alt")});
+      return items;
+    }
+    async preview() {
+      const output = this.querySelector("[data-preview-output]");
+      if (!output) return;
+      const response = await tiny.signedFetch("/social/preview", "POST", JSON.stringify({content: this.form.elements.content?.value || "", kind: this.kind()}));
+      if (!response.ok) throw Error("Preview is unavailable. Your draft is still saved.");
+      const result = await response.json();
+      if (typeof result.html !== "string") throw Error("Preview is unavailable.");
+      output.innerHTML = result.html;
+      output.hidden = false;
+    }
+    async submit(form) {
+      if (this.sending) return;
+      this.sending = true;
+      try {
+        const kind = this.kind(), content = form.elements.content?.value || "";
+        if (!content.trim() && !(form.elements["media-file"]?.files?.length) && !socialValue(form, "media")) throw Error("Write something or attach media first.");
+        const tags = this.tags(form, kind);
+        this.saveDraft();
+        const attachments = await this.attachments(form);
+        const urls = attachments.map(item => item.url).filter(url => !content.includes(url));
+        const body = [content, ...urls].filter(Boolean).join("\n\n");
+        for (const item of attachments) tags.push(["imeta", "url " + item.url, ...(item.type ? ["m " + item.type] : []), ...(item.hash ? ["x " + item.hash, "size " + item.size] : []), ...(item.alt ? ["alt " + item.alt] : [])]);
+        const fingerprint = JSON.stringify({kind, tags, content: body});
+        if (this.prepared?.fingerprint !== fingerprint) this.prepared = {fingerprint, unsigned: {kind, created_at: unixNow(), tags, content: body}};
+        this.report("Signing and publishing…");
+        this.prepared.event ||= await tiny.signing.signEvent(this.prepared.unsigned);
+        const event = await socialSend(this.prepared.event);
+        this.prepared = null;
+        this.clearDraft();
+        this.articleID = ""; this.publishedAt = 0;
+        form.reset?.();
+        this.report("Published.");
+        try { await tiny.navigate?.(this.getAttribute("refresh") || location.href); } catch { this.report("Published. Refresh to see your post."); }
+        return event;
+      } finally { this.sending = false; }
+    }
+  }
+  class SocialReaction extends HTMLElement {
+    connectedCallback() {
+      if (this.bound) return;
+      this.bound = true;
+      const button = this.querySelector("button");
+      if (!button) return;
+      button.addEventListener("click", () => this.react(button));
+    }
+    async react(button) {
+      if (this.busy || button.getAttribute("aria-pressed") === "true") return;
+      const target = this.getAttribute("event"), author = this.getAttribute("pubkey"), kind = this.getAttribute("kind"), hint = socialRelay(this);
+      if (!isHex64(target) || !isHex64(author)) return;
+      this.busy = true; button.disabled = true;
+      try {
+        const tags = [["e", target, hint, author], ["p", author, hint]];
+        if (/^\d+$/.test(kind || "")) tags.push(["k", kind]);
+        if (kind === "30023" && this.getAttribute("address")) tags.push(["a", this.getAttribute("address"), hint, author]);
+        const content = this.getAttribute("content") || "+";
+        this.prepared ||= await tiny.signing.signEvent({kind: 7, created_at: unixNow(), tags, content});
+        await socialSend(this.prepared);
+        button.setAttribute("aria-pressed", "true");
+        try { await tiny.navigate?.(location.href); } catch { button.textContent = content === "+" ? "Liked" : content; }
+      } catch (error) {
+        button.disabled = false;
+        let output = this.querySelector("output");
+        if (!output) { output = el("output"); output.setAttribute("role", "status"); this.append(output); }
+        output.textContent = "Error: " + error.message;
+      } finally { this.busy = false; }
+    }
+  }
+
+  // Social end.
   class PushToggle extends HTMLElement {
     connectedCallback() {
       if (this.bound) return;
@@ -1434,6 +1631,8 @@
   customElements.define("agent-grant", AgentGrant);
   customElements.define("profile-form", ProfileForm);
   customElements.define("nostr-react", NostrReact);
+  customElements.define("social-compose", SocialCompose);
+  customElements.define("social-reaction", SocialReaction);
   customElements.define("approval-item", ApprovalItem);
   customElements.define("wiki-compose", WikiCompose);
   customElements.define("push-toggle", PushToggle);
@@ -1468,7 +1667,7 @@
       if (root && !(url.pathname === root || url.pathname.startsWith(root + "/"))) return null;
       return root ? url.pathname.slice(root.length) || "/" : url.pathname;
     };
-    const allowedRoute = path => /^(?:\/(?:inbox|approvals|profile|outbox|search|articles|private|chat|media|sites|marmot|grasp|terms|signin|connect|tools|repo|repos|file|files|wiki|rooms)?\/?|\/manage(?:\/(?:people|agents|moderation|rules|identity|connect|data|sync|views|health|owner|status))?\/?|\/(?:invite|e|a|wiki)\/.+|\/rooms\/[a-z0-9_-]{1,64}(?:\/thread\/[0-9a-f]{64})?\/?)$/.test(path || "");
+    const allowedRoute = path => /^(?:\/(?:inbox|approvals|profile|outbox|search|social|articles|private|chat|media|sites|marmot|grasp|terms|signin|connect|tools|repo|repos|file|files|wiki|rooms)?\/?|\/manage(?:\/(?:people|agents|moderation|rules|identity|connect|data|sync|views|health|owner|status))?\/?|\/(?:invite|e|a|wiki|social)\/.+|\/rooms\/[a-z0-9_-]{1,64}(?:\/thread\/[0-9a-f]{64})?\/?)$/.test(path || "");
     let navigationSerial = 0, activeAbort;
     const streams = new Set();
     const closeStreams = () => {
@@ -1483,7 +1682,7 @@
     document.addEventListener("fx:sse:close", event => streams.delete(event.detail.cfg));
     window.addEventListener("pagehide", closeStreams);
     const repairComponents = () => {
-      document.querySelectorAll("rpc-form,view-form,signed-form,publish-list,agent-grant,profile-form,nostr-react,wiki-compose,room-compose,room-create,room-action").forEach(node => {
+      document.querySelectorAll("rpc-form,view-form,signed-form,publish-list,agent-grant,profile-form,nostr-react,social-compose,social-reaction,wiki-compose,room-compose,room-create,room-action").forEach(node => {
         if (node.form?.isConnected) return;
         node.form = null;
         node.output = null;

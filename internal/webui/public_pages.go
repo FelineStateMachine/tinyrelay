@@ -179,7 +179,7 @@ func (a *App) pageFeatureEnabled(path string) bool {
 	if a.backend.Policy().Features.Pages {
 		return true
 	}
-	return !(path == "/articles.json" || path == "/feed" || path == "/feed.xml" || path == "/articles" || strings.HasPrefix(path, "/e/") || strings.HasPrefix(path, "/a/"))
+	return !(path == "/social" || path == "/social.json" || path == "/social.xml" || strings.HasPrefix(path, "/social/") || path == "/articles.json" || path == "/feed" || path == "/feed.xml" || path == "/articles" || strings.HasPrefix(path, "/e/") || strings.HasPrefix(path, "/a/"))
 }
 
 func (a *App) feed(writer http.ResponseWriter, request *http.Request) {
@@ -188,14 +188,20 @@ func (a *App) feed(writer http.ResponseWriter, request *http.Request) {
 		http.Error(writer, err.Error(), publicErrorStatus(err))
 		return
 	}
+	entries := make([]map[string]any, 0, len(items))
+	for _, value := range items {
+		if item, ok := articleItem(value, a.backend.URL()); ok {
+			entries = append(entries, item)
+		}
+	}
+	a.writeAtom(writer, entries)
+}
+
+func (a *App) writeAtom(writer http.ResponseWriter, items []map[string]any) {
 	writer.Header().Set("content-type", "application/atom+xml; charset=utf-8")
 	var out strings.Builder
 	fmt.Fprintf(&out, `<?xml version="1.0"?><feed xmlns="http://www.w3.org/2005/Atom"><title>%s</title><link href="%s"/>`, template.HTMLEscapeString(a.backend.Slug()), template.HTMLEscapeString(a.backend.URL()))
-	for _, value := range items {
-		item, ok := articleItem(value, a.backend.URL())
-		if !ok {
-			continue
-		}
+	for _, item := range items {
 		fmt.Fprintf(&out, `<entry><id>%s</id><title>%s</title><link href="%s"/><content type="text">%s</content></entry>`, template.HTMLEscapeString(fmt.Sprint(item["id"])), template.HTMLEscapeString(fmt.Sprint(item["title"])), template.HTMLEscapeString(fmt.Sprint(item["url"])), template.HTMLEscapeString(fmt.Sprint(item["content_text"])))
 	}
 	out.WriteString(`</feed>`)

@@ -34,7 +34,7 @@ type clientBrowseRequest struct {
 }
 
 func clientBrowseMethod(method string) bool {
-	return wikiBrowseMethod(method) || approvalBrowseMethod(method) || jobBrowseMethod(method) || containsString([]string{"browserepos", "browserepo", "browsefiles", "browsefile", "browsestatus", "browseissues", "browsepulls", "browseissue", "browsepull", "browseagent", "browseprofile"}, method)
+	return wikiBrowseMethod(method) || approvalBrowseMethod(method) || jobBrowseMethod(method) || socialBrowseMethod(method) || containsString([]string{"browserepos", "browserepo", "browsefiles", "browsefile", "browsestatus", "browseissues", "browsepulls", "browseissue", "browsepull", "browseagent", "browseprofile"}, method)
 }
 
 func (t *Tenant) browseRead(ctx context.Context, actor string) error {
@@ -66,6 +66,9 @@ func (t *Tenant) executeBrowse(ctx context.Context, actor, method string, params
 	}
 	if jobBrowseMethod(method) {
 		return t.executeJobs(ctx, actor, method, params)
+	}
+	if socialBrowseMethod(method) {
+		return t.executeSocial(ctx, actor, method, params)
 	}
 	q := clientBrowseRequest{}
 	if len(params) > 0 {

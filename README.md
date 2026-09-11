@@ -71,6 +71,8 @@ See [Membership](docs/membership.md) for invites, joining with NIP-43 and review
 
 See [Rooms](docs/rooms.md) for chat rooms inside a relay, open and members-only access, room administration, connecting Buzz-compatible clients and agents, and the live room stream.
 
+See [Social](docs/social.md) for notes, long-form articles, NIP-10 and NIP-22 conversations, reactions, Markdown, media and mixed feeds.
+
 See [Installed app](docs/app.md) for installing the relay as an app, sharing files to it, opening Nostr links and device notifications.
 
 See [Agent identities](docs/agents.md) for granting an assistant or bot its own scoped key, what the relay enforces and how to pause or revoke it.
