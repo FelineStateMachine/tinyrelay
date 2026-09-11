@@ -25,14 +25,15 @@ func (s *Service) pathUpload(w http.ResponseWriter, r *http.Request, expectedHas
 
 	urls := r.URL.Query()["url"]
 	if len(urls) == 0 {
-		entry, created, putErr := s.putValidated(r.Context(), r.Body,
+		entry, created, putErr := s.putValidatedWithMetadata(r.Context(), r.Body,
 			contentType(r.Header.Get("content-type")), pubkey, expectedHash,
+			r.URL.Query().Get("filename"), r.URL.Query().Get("path"), r.URL.Query().Get("access"), r.URL.Query().Get("purpose"),
 			func(actual string) error {
 				if s.config.ValidateUpload != nil {
 					return s.config.ValidateUpload(r, actual)
 				}
 				return nil
-			})
+			}, nil)
 		if putErr != nil {
 			s.fail(w, statusFor(putErr), putErr)
 			return
@@ -84,13 +85,13 @@ func (s *Service) pathUpload(w http.ResponseWriter, r *http.Request, expectedHas
 		if typ == "application/octet-stream" {
 			typ = typeForExtension(raw)
 		}
-		entry, created, putErr := s.putValidated(r.Context(), response.Body, typ,
-			pubkey, expectedHash, func(actual string) error {
+		entry, created, putErr := s.putValidatedWithMetadata(r.Context(), response.Body, typ,
+			pubkey, expectedHash, "", "", r.URL.Query().Get("access"), r.URL.Query().Get("purpose"), func(actual string) error {
 				if s.config.ValidateUpload != nil {
 					return s.config.ValidateUpload(r, actual)
 				}
 				return nil
-			})
+			}, nil)
 		_ = response.Body.Close()
 		if putErr == nil {
 			s.writeJSON(w, chooseStatus(created, http.StatusCreated), s.descriptor(r, entry))

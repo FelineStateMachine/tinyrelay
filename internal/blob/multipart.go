@@ -29,8 +29,8 @@ const (
 )
 
 type multipartRequest struct {
-	id, hash, uploader, typ, name, metadataPath string
-	length, offset, count                       int64
+	id, hash, uploader, typ, name, metadataPath, access, purpose string
+	length, offset, count                                        int64
 }
 
 type multipartError struct {
@@ -90,6 +90,14 @@ func parseMultipart(r *http.Request, hash, uploader string) (multipartRequest, e
 		return part, multipartFailure(http.StatusBadRequest, metadataErr.Error())
 	}
 	part.name, part.metadataPath = name, metadataPath
+	part.access, metadataErr = parseAccess(r.URL.Query().Get("access"))
+	if metadataErr != nil {
+		return part, multipartFailure(http.StatusBadRequest, metadataErr.Error())
+	}
+	part.purpose = strings.TrimSpace(r.URL.Query().Get("purpose"))
+	if part.purpose != "" && part.purpose != "chunk" && part.purpose != "file" {
+		return part, multipartFailure(http.StatusBadRequest, "invalid upload purpose")
+	}
 	if r.ContentLength < 0 {
 		return part, multipartFailure(411, "Content-Length is required")
 	}
@@ -174,12 +182,12 @@ func (s *Service) multipartAdmission(ctx context.Context, part multipartRequest)
 		return s.checkMultipartQuota(ctx, part, limits)
 	}
 	var length int64
-	var typ, name, metadataPath string
-	err := s.store.DB().QueryRowContext(ctx, "SELECT length,type,name,path FROM multipart_uploads WHERE id=?", part.id).Scan(&length, &typ, &name, &metadataPath)
+	var typ, name, metadataPath, access, purpose string
+	err := s.store.DB().QueryRowContext(ctx, "SELECT length,type,name,path,access,purpose FROM multipart_uploads WHERE id=?", part.id).Scan(&length, &typ, &name, &metadataPath, &access, &purpose)
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return err
 	}
-	if err == nil && (length != part.length || typ != part.typ) {
+	if err == nil && (length != part.length || typ != part.typ || access != part.access || (purpose != "" && purpose != part.purpose)) {
 		return ErrMultipartConflict
 	}
 	if err := s.checkMultipartQuota(ctx, part, limits); err != nil {
@@ -191,7 +199,10 @@ func (s *Service) multipartAdmission(ctx context.Context, part multipartRequest)
 	if part.name == "" && part.metadataPath == "" {
 		part.name, part.metadataPath = name, metadataPath
 	}
-	_, err = s.store.DB().ExecContext(ctx, "UPDATE multipart_uploads SET last_seen=?,name=?,path=? WHERE id=?", time.Now().Unix(), part.name, part.metadataPath, part.id)
+	if part.purpose == "" {
+		part.purpose = purpose
+	}
+	_, err = s.store.DB().ExecContext(ctx, "UPDATE multipart_uploads SET last_seen=?,name=?,path=?,purpose=? WHERE id=?", time.Now().Unix(), part.name, part.metadataPath, part.purpose, part.id)
 	return err
 }
 
@@ -230,7 +241,7 @@ func (s *Service) createMultipart(ctx context.Context, part multipartRequest) er
 		return err
 	}
 	now := time.Now().Unix()
-	_, err = s.store.DB().ExecContext(ctx, "INSERT INTO multipart_uploads(id,sha256,uploader,length,type,created,last_seen,name,path) VALUES(?,?,?,?,?,?,?,?,?)", part.id, part.hash, part.uploader, part.length, part.typ, now, now, part.name, part.metadataPath)
+	_, err = s.store.DB().ExecContext(ctx, "INSERT INTO multipart_uploads(id,sha256,uploader,length,type,created,last_seen,name,path,access,purpose) VALUES(?,?,?,?,?,?,?,?,?,?,?)", part.id, part.hash, part.uploader, part.length, part.typ, now, now, part.name, part.metadataPath, part.access, part.purpose)
 	if err != nil {
 		_ = os.Remove(path)
 	}
@@ -306,14 +317,14 @@ func (s *Service) commitMultipart(ctx context.Context, part multipartRequest, ch
 		s.multipartMu.Unlock()
 		return Blob{}, false, false, admissionErr
 	}
-	name, metadataPath := part.name, part.metadataPath
+	name, metadataPath, purpose := part.name, part.metadataPath, part.purpose
 	if name == "" && metadataPath == "" {
-		if err := s.store.DB().QueryRowContext(ctx, "SELECT name,path FROM multipart_uploads WHERE id=?", part.id).Scan(&name, &metadataPath); err != nil && !errors.Is(err, sql.ErrNoRows) {
+		if err := s.store.DB().QueryRowContext(ctx, "SELECT name,path,purpose FROM multipart_uploads WHERE id=?", part.id).Scan(&name, &metadataPath, &purpose); err != nil && !errors.Is(err, sql.ErrNoRows) {
 			s.multipartMu.Unlock()
 			return Blob{}, false, false, err
 		}
 	}
-	candidate := uploadCandidate{hash: part.hash, size: part.length, typ: part.typ, uploader: part.uploader, name: name, metadataPath: metadataPath, reservation: part.id}
+	candidate := uploadCandidate{hash: part.hash, size: part.length, typ: part.typ, uploader: part.uploader, name: name, metadataPath: metadataPath, access: part.access, purpose: purpose, reservation: part.id}
 	if existing, err := s.lookup(ctx, part.hash); err == nil {
 		if existing.Size != part.length {
 			s.multipartMu.Unlock()

@@ -31,6 +31,24 @@ func TestUploadStoresClaimScopedNameAndPath(t *testing.T) {
 	}
 }
 
+func TestBlobAccessIsDurableAndCannotChangeOnDeduplication(t *testing.T) {
+	s := testService(t)
+	ctx := context.Background()
+	entry, err := s.Put(ctx, PutOptions{Reader: strings.NewReader("member bytes"), Type: "text/plain", Uploader: "uploader", Access: AccessMembers})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if access, err := s.BlobAccess(ctx, entry.SHA256); err != nil || access != AccessMembers {
+		t.Fatalf("access = %q, %v", access, err)
+	}
+	if _, err := s.Put(ctx, PutOptions{Reader: strings.NewReader("member bytes"), Type: "text/plain", Uploader: "other", Access: AccessPublic}); !errors.Is(err, ErrAccessConflict) {
+		t.Fatalf("public deduplication error = %v", err)
+	}
+	if access, err := s.BlobAccess(ctx, entry.SHA256); err != nil || access != AccessMembers {
+		t.Fatalf("access changed after rejected deduplication = %q, %v", access, err)
+	}
+}
+
 func TestValidateClaimPath(t *testing.T) {
 	for _, path := range []string{"", "file.txt", "dir/file.txt"} {
 		if _, err := validateClaimPath(path); err != nil {

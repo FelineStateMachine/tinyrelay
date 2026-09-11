@@ -129,3 +129,23 @@ func (r *trackingReader) Read(p []byte) (int, error) {
 	*r.read = true
 	return r.Reader.Read(p)
 }
+
+func TestPathUploadPreservesAccessPurposeAndClaimMetadata(t *testing.T) {
+	s := testService(t)
+	body := "named member-only file"
+	digest := sha256.Sum256([]byte(body))
+	hash := hex.EncodeToString(digest[:])
+	r := httptest.NewRequest(http.MethodPut, "https://relay.test/"+hash+"?filename=note.txt&path=docs%2Fnote.txt&access=members&purpose=file", strings.NewReader(body))
+	r.Header.Set("Content-Type", "text/plain")
+	response := record(s.Handler(), r)
+	if response.Code != http.StatusCreated {
+		t.Fatalf("upload: %d %s", response.Code, response.Body.String())
+	}
+	entries, err := s.ListClaimMetadata(t.Context(), "uploader")
+	if err != nil || len(entries) != 1 || entries[0].Purpose != "file" || entries[0].Name != "note.txt" || entries[0].Path != "docs/note.txt" {
+		t.Fatalf("claim: %+v %v", entries, err)
+	}
+	if access, err := s.BlobAccess(t.Context(), hash); err != nil || access != AccessMembers {
+		t.Fatalf("access: %q %v", access, err)
+	}
+}

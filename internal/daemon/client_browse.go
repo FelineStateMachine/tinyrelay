@@ -240,6 +240,9 @@ func (t *Tenant) browseFile(ctx context.Context, actor, hash string) (any, error
 	if !t.Policy().Features.Files {
 		return nil, errors.New("not found: files are disabled")
 	}
+	if err := t.fileReadAccess(ctx, actor, hash); err != nil {
+		return nil, err
+	}
 	if err := t.roomAttachmentAccess(ctx, actor, hash); err != nil {
 		return nil, err
 	}
@@ -258,9 +261,18 @@ func (t *Tenant) browseFile(ctx context.Context, actor, hash string) (any, error
 	}
 	binary := bytes.IndexByte(data, 0) >= 0 || (!utf8.Valid(data) && !truncated)
 	result := t.browseBlobMetadata(entry)
+	if access, accessErr := t.blobs.BlobAccess(ctx, entry.SHA256); accessErr == nil {
+		result["access"] = access
+	}
 	if actor != "" {
 		var name, filePath string
-		if err := t.store.DB().QueryRowContext(ctx, `SELECT name,path FROM blob_claim_metadata WHERE sha256=? AND uploader=? ORDER BY updated_at DESC,path LIMIT 1`, entry.SHA256, actor).Scan(&name, &filePath); err == nil {
+		metadataQuery := `SELECT name,path FROM blob_claim_metadata WHERE sha256=? AND uploader=? ORDER BY updated_at DESC,path LIMIT 1`
+		metadataArgs := []any{entry.SHA256, actor}
+		if access, accessErr := t.blobs.BlobAccess(ctx, entry.SHA256); accessErr == nil && access == blob.AccessMembers {
+			metadataQuery = `SELECT name,path FROM blob_claim_metadata WHERE sha256=? ORDER BY updated_at DESC,path LIMIT 1`
+			metadataArgs = []any{entry.SHA256}
+		}
+		if err := t.store.DB().QueryRowContext(ctx, metadataQuery, metadataArgs...).Scan(&name, &filePath); err == nil {
 			if name != "" {
 				result["name"] = name
 			}

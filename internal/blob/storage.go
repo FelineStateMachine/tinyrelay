@@ -27,7 +27,7 @@ func (s *Service) Put(ctx context.Context, options PutOptions) (Blob, error) {
 }
 
 func (s *Service) putOptions(ctx context.Context, options PutOptions) (Blob, bool, error) {
-	return s.putValidatedWithMetadata(ctx, options.Reader, options.Type, options.Uploader, options.Hash, options.Name, options.Path, nil, options.Commit)
+	return s.putValidatedWithMetadata(ctx, options.Reader, options.Type, options.Uploader, options.Hash, options.Name, options.Path, options.Access, options.Purpose, nil, options.Commit)
 }
 
 // Get opens a verified metadata-backed blob for streaming to another service.
@@ -205,15 +205,23 @@ func (s *Service) put(ctx context.Context, source io.Reader, typ, uploader, clai
 }
 
 func (s *Service) putValidated(ctx context.Context, source io.Reader, typ, uploader, claimed string, validate func(string) error) (Blob, bool, error) {
-	return s.putValidatedWithMetadata(ctx, source, typ, uploader, claimed, "", "", validate, nil)
+	return s.putValidatedWithMetadata(ctx, source, typ, uploader, claimed, "", "", "", "", validate, nil)
+}
+
+func (s *Service) putValidatedWithAccess(ctx context.Context, source io.Reader, typ, uploader, claimed, access string, validate func(string) error) (Blob, bool, error) {
+	return s.putValidatedWithMetadata(ctx, source, typ, uploader, claimed, "", "", access, "", validate, nil)
 }
 
 func (s *Service) putValidatedWithCommit(ctx context.Context, source io.Reader, typ, uploader, claimed string, validate func(string) error, commit func(context.Context, *sql.Tx, Blob, bool) error) (Blob, bool, error) {
-	return s.putValidatedWithMetadata(ctx, source, typ, uploader, claimed, "", "", validate, commit)
+	return s.putValidatedWithMetadata(ctx, source, typ, uploader, claimed, "", "", "", "", validate, commit)
 }
 
-func (s *Service) putValidatedWithMetadata(ctx context.Context, source io.Reader, typ, uploader, claimed, name, path string, validate func(string) error, commit func(context.Context, *sql.Tx, Blob, bool) error) (Blob, bool, error) {
+func (s *Service) putValidatedWithMetadata(ctx context.Context, source io.Reader, typ, uploader, claimed, name, path, access, purpose string, validate func(string) error, commit func(context.Context, *sql.Tx, Blob, bool) error) (Blob, bool, error) {
 	var err error
+	access, err = parseAccess(access)
+	if err != nil {
+		return Blob{}, false, err
+	}
 	name, path, err = claimMetadata(name, path)
 	if err != nil {
 		return Blob{}, false, err
@@ -264,17 +272,21 @@ func (s *Service) putValidatedWithMetadata(ctx context.Context, source io.Reader
 			return Blob{}, false, err
 		}
 	}
-	return s.installUpload(ctx, uploadCandidate{path: tmpName, hash: sha, size: count, typ: typ, uploader: uploader, name: name, metadataPath: path, commit: commit})
+	return s.installUpload(ctx, uploadCandidate{path: tmpName, hash: sha, size: count, typ: typ, uploader: uploader, name: name, metadataPath: path, access: access, purpose: purpose, commit: commit})
 }
 
 type uploadCandidate struct {
-	path, hash, typ, uploader, reservation, name, metadataPath string
-	size                                                       int64
-	commit                                                     func(context.Context, *sql.Tx, Blob, bool) error
+	path, hash, typ, uploader, reservation, name, metadataPath, access, purpose string
+	size                                                                        int64
+	commit                                                                      func(context.Context, *sql.Tx, Blob, bool) error
 }
 
 func (s *Service) installUpload(ctx context.Context, candidate uploadCandidate) (Blob, bool, error) {
 	sha, count, typ, uploader := candidate.hash, candidate.size, candidate.typ, candidate.uploader
+	access, accessErr := parseAccess(candidate.access)
+	if accessErr != nil {
+		return Blob{}, false, accessErr
+	}
 	// Serialize the lookup, quota check, installation and metadata transaction.
 	// This closes the race where concurrent uploads could each observe the same
 	// remaining quota before one of them installs a new physical object.
@@ -295,6 +307,13 @@ func (s *Service) installUpload(ctx context.Context, candidate uploadCandidate) 
 		return Blob{}, false, ErrQuotaExceeded
 	}
 	if existing, err := s.lookup(ctx, sha); err == nil {
+		existingAccess, accessErr := s.BlobAccess(ctx, sha)
+		if accessErr != nil {
+			return Blob{}, false, accessErr
+		}
+		if existingAccess != access {
+			return Blob{}, false, ErrAccessConflict
+		}
 		if terms.Encrypted && !encryptedTypes[existing.Type] {
 			return Blob{}, false, ErrNotEncrypted
 		}
@@ -319,7 +338,7 @@ func (s *Service) installUpload(ctx context.Context, candidate uploadCandidate) 
 				if _, err := tx.ExecContext(ctx, claimSQL, sha, uploader, time.Now().Unix(), terms.ExpiresAt); err != nil {
 					return err
 				}
-				if err := s.saveClaimMetadata(ctx, tx, sha, uploader, candidate.name, candidate.metadataPath); err != nil {
+				if err := s.saveClaimMetadata(ctx, tx, sha, uploader, candidate.name, candidate.metadataPath, candidate.purpose); err != nil {
 					return err
 				}
 			}
@@ -385,14 +404,14 @@ func (s *Service) installUpload(ctx context.Context, candidate uploadCandidate) 
 		if _, err := tx.ExecContext(ctx, "DELETE FROM blob_tombstones WHERE sha256=?", entry.SHA256); err != nil {
 			return fmt.Errorf("clear blob deletion tombstone: %w", err)
 		}
-		if _, err := tx.ExecContext(ctx, "INSERT OR IGNORE INTO blobs(sha256,size,type,uploader,uploaded) VALUES(?,?,?,?,?)", entry.SHA256, entry.Size, entry.Type, entry.Uploader, entry.Uploaded); err != nil {
+		if _, err := tx.ExecContext(ctx, "INSERT OR IGNORE INTO blobs(sha256,size,type,uploader,uploaded,access) VALUES(?,?,?,?,?,?)", entry.SHA256, entry.Size, entry.Type, entry.Uploader, entry.Uploaded, access); err != nil {
 			return fmt.Errorf("record blob: %w", err)
 		}
 		if entry.Uploader != "" {
 			if _, err := tx.ExecContext(ctx, claimSQL, entry.SHA256, entry.Uploader, entry.Uploaded, terms.ExpiresAt); err != nil {
 				return fmt.Errorf("record blob claim: %w", err)
 			}
-			if err := s.saveClaimMetadata(ctx, tx, entry.SHA256, entry.Uploader, candidate.name, candidate.metadataPath); err != nil {
+			if err := s.saveClaimMetadata(ctx, tx, entry.SHA256, entry.Uploader, candidate.name, candidate.metadataPath, candidate.purpose); err != nil {
 				return err
 			}
 		}
@@ -529,6 +548,32 @@ func (s *Service) lookup(ctx context.Context, sha string) (Blob, error) {
 	var entry Blob
 	err := s.store.DB().QueryRowContext(ctx, "SELECT sha256,size,type,uploader,uploaded FROM blobs WHERE sha256=?", sha).Scan(&entry.SHA256, &entry.Size, &entry.Type, &entry.Uploader, &entry.Uploaded)
 	return entry, err
+}
+
+// BlobAccess returns the durable retrieval policy for a blob. Older databases
+// are treated as public through the column default and NULL-safe fallback.
+func (s *Service) BlobAccess(ctx context.Context, sha string) (string, error) {
+	var access string
+	err := s.store.DB().QueryRowContext(ctx, "SELECT COALESCE(access,?) FROM blobs WHERE sha256=?", AccessPublic, sha).Scan(&access)
+	if err != nil {
+		return "", err
+	}
+	parsed, parseErr := parseAccess(access)
+	if parseErr != nil {
+		return "", parseErr
+	}
+	return parsed, nil
+}
+
+func parseAccess(access string) (string, error) {
+	access = strings.ToLower(strings.TrimSpace(access))
+	if access == "" || access == AccessPublic {
+		return AccessPublic, nil
+	}
+	if access == AccessMembers {
+		return AccessMembers, nil
+	}
+	return "", ErrInvalidAccess
 }
 
 func (s *Service) blocked(ctx context.Context, sha string) bool {

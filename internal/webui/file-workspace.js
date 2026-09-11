@@ -15,6 +15,13 @@
   const hex = value => globalThis.tiny.util.hex(value);
   const fromHex = value => globalThis.tiny.util.fromHex(value || "", "Invalid hash or encryption key.");
   const element = globalThis.tiny.util.element;
+  const fileSize = value => {
+    let size = Number(value) || 0;
+    for (const unit of ["B", "KiB", "MiB", "GiB"]) {
+      if (size < 1024 || unit === "GiB") return (unit === "B" ? size : size.toFixed(1)) + " " + unit;
+      size /= 1024;
+    }
+  };
   const checkAbort = signal => {
     if (signal?.aborted)
       throw Object.assign(Error("Upload canceled. Retry while this page stays open."), {name: "AbortError"});
@@ -55,27 +62,37 @@
     return {root, name: commonRoot ? paths[0][0] : "folder"};
   }
 
-  async function storeEncrypted(plaintext, type, signal) {
+  async function storeEncrypted(plaintext, type, signal, session) {
     checkAbort(signal);
     const encrypted = await encryption().encryptCHK(plaintext);
     checkAbort(signal);
+    if (session?.completed.has(encrypted.hash)) return session.completed.get(encrypted.hash);
     const url = new URL(tiny.localPath("/"), location.href).href;
     const result = await upload().upload(encrypted.ciphertext, {
       url,
       hash: encrypted.hash,
       type,
       signal,
+      metadata: {purpose: "chunk"},
+      retries: 3,
+      state: session?.states.get(encrypted.hash) || (() => {
+        const state = new Map();
+        session?.states.set(encrypted.hash, state);
+        return state;
+      })(),
       authorize: (target, method, body) => tiny.authorization(target, method, body)
     });
     if (result.descriptor.sha256 !== encrypted.hash || result.descriptor.size !== encrypted.ciphertext.length)
       throw Error("Relay returned an unexpected blob descriptor.");
-    return {hash: encrypted.hash, key: fromHex(encrypted.key)};
+    const stored = {hash: encrypted.hash, key: fromHex(encrypted.key)};
+    session?.completed.set(encrypted.hash, stored);
+    return stored;
   }
 
   const manifestStore =
-    signal =>
+    (signal, session) =>
     async ({bytes, node}) =>
-      storeEncrypted(bytes, node.t === 2 || node.t === 3 ? directoryType : "application/octet-stream", signal);
+      storeEncrypted(bytes, node.t === 2 || node.t === 3 ? directoryType : "application/octet-stream", signal, session);
   const rootReference = details => {
     const stored = details.manifests.at(-1);
     return {
@@ -86,13 +103,13 @@
     };
   };
 
-  async function storeFile(file, signal, progress) {
+  async function storeFile(file, signal, progress, session) {
     if (file.size > MAX_FILE_BYTES) throw Error("Files must be at most 256 MiB in the browser workspace.");
     const chunks = [];
     for (let offset = 0; offset < file.size || offset === 0; offset += codec().CHUNK_SIZE) {
       checkAbort(signal);
       const plain = new Uint8Array(await file.slice(offset, offset + codec().CHUNK_SIZE).arrayBuffer());
-      const stored = await storeEncrypted(plain, "application/octet-stream", signal);
+      const stored = await storeEncrypted(plain, "application/octet-stream", signal, session);
       chunks.push({...stored, size: plain.length});
       progress?.(plain.length);
       if (file.size === 0) break;
@@ -100,16 +117,16 @@
     if (chunks.length === 1) return {...chunks[0], type: 0};
     return rootReference(
       await codec().buildFile(chunks, {
-        store: manifestStore(signal),
+        store: manifestStore(signal, session),
         returnDetails: true
       })
     );
   }
 
-  async function storeDirectory(directory, signal, progress) {
+  async function storeDirectory(directory, signal, progress, session) {
     const entries = [];
     for (const [name, file] of directory.files) {
-      const stored = await storeFile(file, signal, progress);
+      const stored = await storeFile(file, signal, progress, session);
       entries.push({
         ...stored,
         name,
@@ -117,12 +134,12 @@
       });
     }
     for (const [name, child] of directory.directories) {
-      const stored = await storeDirectory(child, signal, progress);
+      const stored = await storeDirectory(child, signal, progress, session);
       entries.push({...stored, name});
     }
     return rootReference(
       await codec().buildDirectory(entries, {
-        store: manifestStore(signal),
+        store: manifestStore(signal, session),
         returnDetails: true
       })
     );
@@ -157,11 +174,19 @@
       if (this.bound) return;
       this.bound = true;
       this.innerHTML =
-        '<form><label>Files <input type="file" name="file" multiple></label><input type="file" name="folder" webkitdirectory multiple hidden><p data-drop><button type="button" data-pick-folder>Choose folder</button> or drop files or a folder here</p><label><input type="checkbox" name="encrypt"> encrypt</label><button>Upload</button></form><p data-controls hidden><button type="button" data-cancel disabled>Cancel</button> <button type="button" data-retry disabled>Retry</button></p><label data-share hidden>Share link <input data-share-url readonly></label><output role="status"></output>';
+        '<form><label>Files <input type="file" name="file" multiple></label><input type="file" name="folder" webkitdirectory multiple hidden><p data-drop><button type="button" data-pick-folder>Choose folder</button> or drop files or a folder here</p><label>Who can open <select name="access"><option value="public">Anyone with the link</option><option value="members">Relay members</option></select></label><details data-advanced><summary>Advanced</summary><label><input type="checkbox" name="encrypt"> Encrypt with a secret link</label><p><small>Only people with the complete link can decrypt it. Saved in this browser for your account.</small></p><label data-background hidden><input type="checkbox" name="background"> Continue in the background</label></details><button>Upload</button></form><progress max="1" value="0" hidden aria-label="Upload progress"></progress><output role="status"></output><p data-controls hidden><button type="button" data-cancel disabled>Cancel</button> <button type="button" data-retry disabled>Retry</button></p><div data-share hidden><p><a data-open>Open file</a> <button type="button" data-copy-link>Copy secret link</button></p><label>Secret link <input data-share-url readonly></label></div>';
       this.out = this.querySelector("output");
       const form = this.querySelector("form");
       const files = form.elements.namedItem("file");
       const folder = form.elements.namedItem("folder");
+      const access = form.elements.namedItem("access");
+      access.value = "public";
+      access.addEventListener("change", () => {
+        const encrypt = form.elements.namedItem("encrypt");
+        if (access.value === "members") encrypt.checked = false;
+        encrypt.disabled = access.value === "members";
+      });
+      this.querySelector("[data-background]").hidden = !backgroundAvailable();
       files.addEventListener("change", () => this.choose([...files.files]));
       folder.addEventListener("change", () => this.choose([...folder.files]));
       this.querySelector("[data-pick-folder]").addEventListener("click", () => folder.click());
@@ -181,6 +206,7 @@
       });
       this.querySelector("[data-cancel]").addEventListener("click", () => this.controller?.abort());
       this.querySelector("[data-retry]").addEventListener("click", () => this.run().catch(() => {}));
+      this.querySelector("[data-copy-link]").addEventListener("click", () => this.copyLink());
       this.intake().catch(error => this.say(error.message, true));
       this.resumeBackground().catch(() => {});
     }
@@ -210,7 +236,7 @@
         ];
       }
       const id = "tiny-upload-" + crypto.randomUUID();
-      localStorage.setItem("tiny.bg." + id, JSON.stringify({hash, fragment: fragment || "", name, at: Date.now()}));
+      localStorage.setItem("tiny.bg." + id, JSON.stringify({hash, fragment: fragment || "", name, size: bytes.byteLength - (fragment ? 16 : 0), pubkey: this.getAttribute("pubkey") || "", root: tiny.root || "", at: Date.now()}));
       const task = await registration.backgroundFetch.fetch(id, requests, {
         title: "Uploading " + name,
         icons: [
@@ -271,8 +297,9 @@
           localStorage.removeItem(key);
           continue;
         }
+        if (info.pubkey !== (this.getAttribute("pubkey") || "") || info.root !== (tiny.root || "")) continue;
         const task = await registration.backgroundFetch.get(id).catch(() => null);
-        const finish = descriptor => {
+        const finish = async descriptor => {
           if (!info.fragment) {
             this.say("Background upload of " + info.name + " finished.");
             return tiny.navigate?.(location.href);
@@ -280,6 +307,8 @@
           const link = new URL(tiny.localPath("/file"), location.href);
           link.search = "?hash=" + descriptor.sha256;
           link.hash = info.fragment;
+          const params = new URLSearchParams(info.fragment);
+          await this.remember(link.href, [{name: info.name, size: info.size || Math.max(0, descriptor.size - 16), type: params.get("type") || "application/octet-stream"}], false);
           return this.showLink(link.href);
         };
         try {
@@ -381,6 +410,13 @@
       if (error) this.out.dataset.error = "";
       else delete this.out.dataset.error;
     }
+    progress(sent, total, phase = "Uploading") {
+      const fraction = total ? Math.min(1, sent / total) : 0;
+      const meter = this.querySelector("progress");
+      meter.hidden = false;
+      meter.value = fraction;
+      this.say(phase + " " + Math.round(fraction * 100) + "% — " + fileSize(sent) + " of " + fileSize(total));
+    }
     controls(busy, completed) {
       const retryable = Boolean(this.selection) && !completed;
       this.querySelector("[data-controls]").hidden = !busy && !retryable;
@@ -391,31 +427,41 @@
       if (this.busy) return;
       if (form) {
         if (!this.chosen) this.choose([...form.elements.namedItem("file").files]);
-        this.selection = {...this.chosen, encrypt: Boolean(form.elements.namedItem("encrypt").checked)};
+        const access = form.elements.namedItem("access").value === "members" ? "members" : "public";
+        this.selection = {...this.chosen, access, encrypt: access !== "members" && Boolean(form.elements.namedItem("encrypt").checked), background: Boolean(form.elements.namedItem("background").checked)};
         this.pending = null;
+        this.completedLink = null;
+        this.manifestSession = {completed: new Map(), states: new Map()};
+        this.plainStates = new Map();
       }
-      if (!this.selection?.files.length) throw Error("Choose a file or folder first.");
+      if (!this.selection?.files.length) { this.say("Choose a file or folder first.", true); return; }
       this.busy = true;
       this.controller = new AbortController();
       this.controls(true, false);
+      this.querySelector("[data-share]").hidden = true;
       let completed = false;
       // Keep the phone awake for the length of the upload.
       const wakeLock = await navigator.wakeLock?.request?.("screen").catch(() => null);
       try {
         const {files, folder, encrypt} = this.selection;
-        let link;
-        if (!encrypt) await this.storePlain(files);
-        else if (folder || files.length > 1) link = await this.storeManifest(files, true);
-        else if (files[0].size > LARGE_FILE_BYTES) link = await this.storeManifest(files, false);
-        else link = await this.storeSealed(files[0]);
-        completed = true;
+        let link = this.completedLink;
+        if (!link) {
+          if (!encrypt) await this.storePlain(files);
+          else if (folder || files.length > 1) link = await this.storeManifest(files, true);
+          else if (files[0].size > LARGE_FILE_BYTES) link = await this.storeManifest(files, false);
+          else link = await this.storeSealed(files[0]);
+        }
         if (link) {
+          this.completedLink = link;
+          await this.remember(link, files, folder);
           await this.showLink(link);
         } else {
           this.say("Stored " + files.length + (files.length === 1 ? " file." : " files."));
           await tiny.navigate?.(location.href);
         }
-        return link;
+        completed = true;
+        if (link && this.catalogSaved) await tiny.navigate?.(location.href);
+        return link || undefined;
       } catch (error) {
         const canceled = this.controller.signal.aborted;
         this.say(
@@ -427,24 +473,44 @@
         wakeLock?.release?.().catch?.(() => {});
         this.busy = false;
         this.controls(false, completed);
+        if (completed) this.querySelector("progress").hidden = true;
         if (completed) this.selection = this.chosen = null;
       }
     }
     async storePlain(files) {
       const query = new URL(location.href).searchParams;
       const parent = (!query.get("view") || query.get("view") === "library") ? query.get("path") || "" : "";
+      const total = files.reduce((size, file) => size + file.size, 0);
+      let sent = 0;
       for (const [index, file] of files.entries()) {
         checkAbort(this.controller.signal);
+        if (file.size > MAX_FILE_BYTES) throw Error("Files must be at most 256 MiB in the browser workspace.");
         this.say("Uploading " + file.name + " (" + (index + 1) + " of " + files.length + ")…");
         const bytes = new Uint8Array(await file.arrayBuffer());
         const type = file.type || "application/octet-stream";
         const selectedPath = file.webkitRelativePath || file.name;
         const metadata = {filename: file.name, path: parent ? parent + "/" + selectedPath : selectedPath};
-        if (files.length === 1 && bytes.byteLength >= BACKGROUND_BYTES && backgroundAvailable()) {
+        if (this.selection?.access === "members") metadata.access = "members";
+        if (this.selection?.background && files.length === 1 && bytes.byteLength >= BACKGROUND_BYTES && backgroundAvailable()) {
           await this.storeBackground(bytes, {hash: await tiny.sha256hex(bytes), type, name: file.name, metadata});
           continue;
         }
-        await tiny.signedFetch(this.uploadTarget("/upload", metadata), "PUT", bytes, {contentType: type, signal: this.controller.signal});
+        this.progress(sent, total, "Uploading " + file.name);
+        if (bytes.byteLength >= BACKGROUND_BYTES && upload()?.upload) {
+          this.plainStates ||= new Map();
+          if (!this.plainStates.has(index)) this.plainStates.set(index, new Map());
+          await upload().upload(bytes, {
+            url: new URL(tiny.localPath("/"), location.href).href,
+            type, metadata, retries: 3, state: this.plainStates.get(index), signal: this.controller.signal,
+            authorize: (target, method, body) => tiny.authorization(target, method, body),
+            onProgress: progress => this.progress(sent + progress.sent, total, "Uploading " + file.name),
+            onState: state => { if (state.status === "retrying") this.say("Connection interrupted. Retrying " + file.name + "…"); }
+          });
+        } else {
+          await tiny.signedFetch(this.uploadTarget("/upload", metadata), "PUT", bytes, {contentType: type, signal: this.controller.signal});
+        }
+        sent += file.size;
+        this.progress(sent, total);
       }
     }
     uploadTarget(target, metadata) {
@@ -455,7 +521,7 @@
     async storeSealed(file) {
       if (!this.pending) {
         if (file.size > MAX_FILE_BYTES) throw Error("Encrypted browser uploads are limited to 256 MiB.");
-        this.say("Encrypting…");
+        this.say("Encrypting " + file.name + " (" + fileSize(file.size) + ")…");
         const plaintext = new Uint8Array(await file.arrayBuffer());
         const key = await crypto.subtle.generateKey({name: "AES-GCM", length: 256}, true, ["encrypt", "decrypt"]);
         const iv = crypto.getRandomValues(new Uint8Array(12));
@@ -477,11 +543,13 @@
       checkAbort(this.controller.signal);
       const {ciphertext, fragment, state} = this.pending;
       const hash = await tiny.sha256hex(ciphertext);
+      this.progress(0, file.size);
       let descriptor;
-      if (ciphertext.byteLength >= BACKGROUND_BYTES && backgroundAvailable() && upload()?.plan) {
+      if (this.selection?.background && ciphertext.byteLength >= BACKGROUND_BYTES && backgroundAvailable() && upload()?.plan) {
         descriptor = await this.storeBackground(ciphertext, {
           hash,
           type: "application/octet-stream",
+          metadata: {purpose: "chunk"},
           name: file.name,
           fragment
         });
@@ -490,14 +558,17 @@
           url: new URL(tiny.localPath("/"), location.href).href,
           hash,
           type: "application/octet-stream",
+          metadata: {purpose: "chunk"},
+          retries: 3,
           state,
           signal: this.controller.signal,
           authorize: (target, method, body) => tiny.authorization(target, method, body),
-          onProgress: progress => this.say("Uploading " + Math.round(progress.fraction * 100) + "%…")
+          onProgress: progress => this.progress(Math.min(file.size, progress.sent), file.size),
+          onState: state => { if (state.status === "retrying") this.say("Connection interrupted. Retrying " + file.name + "…"); }
         });
         descriptor = (await task).descriptor;
       } else {
-        const response = await tiny.signedFetch("/upload", "PUT", ciphertext, {
+        const response = await tiny.signedFetch("/upload?purpose=chunk", "PUT", ciphertext, {
           contentType: "application/octet-stream",
           signal: this.controller.signal
         });
@@ -512,36 +583,64 @@
     }
     async storeManifest(files, folder) {
       let sent = 0;
+      const total = files.reduce((size, file) => size + file.size, 0);
       const progress = size => {
         sent += size;
-        this.say("Stored " + sent.toLocaleString() + " bytes. Encrypting the remaining content…");
+        this.progress(sent, total, "Encrypting and uploading");
       };
-      this.say("Encrypting selected content…");
+      this.progress(0, total, "Encrypting and uploading");
+      this.manifestSession ||= {completed: new Map(), states: new Map()};
       let reference, name, type;
       if (folder) {
         const selected = selectionTree(files);
         name = selected.name || "files";
-        reference = await storeDirectory(selected.root, this.controller.signal, progress);
+        reference = await storeDirectory(selected.root, this.controller.signal, progress, this.manifestSession);
       } else {
         const file = files[0];
         name = file.name;
         type = file.type;
-        reference = await storeFile(file, this.controller.signal, progress);
+        reference = await storeFile(file, this.controller.signal, progress, this.manifestSession);
       }
       checkAbort(this.controller.signal);
       return shareURL(reference, name, type);
+    }
+    async remember(link, files, folder) {
+      const url = new URL(link);
+      const params = new URLSearchParams(url.hash.slice(1));
+      const hash = url.searchParams.get("hash");
+      const name = params.get("name") || files[0].name;
+      const type = params.get("type") || files[0].type || "application/octet-stream";
+      const size = files.reduce((sum, file) => sum + file.size, 0);
+      const pubkey = this.getAttribute("pubkey");
+      const isFolder = folder || ["2", "3"].includes(params.get("node"));
+      this.catalogSaved = tiny.files?.catalog?.save({hash, link, name, type, size, folder: isFolder}, pubkey) || false;
+      // Keep the working key visible even if recording the library entry fails.
+      await this.showLink(link);
+      if (tiny.signedFetch) {
+        const label = (isFolder ? "Encrypted folder " : "Encrypted file ") + hash.slice(0, 12);
+        const response = await tiny.signedFetch("/files/metadata", "POST", JSON.stringify({hash, name: label, path: label, purpose: "file", size, type: "application/octet-stream"}), {contentType: "application/json", signal: this.controller?.signal});
+        if (response.ok === false) throw Error("File uploaded; its library entry could not be saved. Retry to finish.");
+      }
+      tiny.files?.catalog?.decorate(pubkey);
     }
     async showLink(link) {
       const share = this.querySelector("[data-share-url]");
       share.value = link;
       this.querySelector("[data-share]").hidden = false;
+      const open = this.querySelector("[data-open]");
+      open.href = link;
+      open.setAttribute("fx-ignore", "");
+      this.say(this.catalogSaved ? "Stored. You can reopen this file from My files in this browser." : "Stored. Keep the secret link to reopen this encrypted file.");
+    }
+    async copyLink() {
+      const share = this.querySelector("[data-share-url]");
       try {
         if (!navigator.clipboard?.writeText) throw Error("Clipboard unavailable");
-        await navigator.clipboard.writeText(link);
-        this.say("Stored. Share link copied; the key is only in its fragment.");
+        await navigator.clipboard.writeText(share.value);
+        this.say("Secret link copied.");
       } catch {
         share.select?.();
-        this.say("Stored. Copy the share link above; the key is only in its fragment.");
+        this.say("Copy the secret link from the field above.");
       }
     }
   }
@@ -638,18 +737,19 @@
       const root = codec().decodeManifest(data);
       if (root.t !== type) throw Error("Manifest type does not match its reference.");
       if (type === 1) {
-        const button = element("button", "Download decrypted file");
+        const media = /^(video\/(mp4|webm|ogg)|audio\/(mpeg|mp4|ogg|wav|webm))$/.test(params.get("type") || "");
+        const button = element("button", media ? "Load media player" : "Prepare download");
         button.type = "button";
-        button.addEventListener("click", () =>
-          this.download({
+        const open = () => this.download({
             ...reference,
             t: 1,
             s: root.l.reduce((sum, link) => sum + link.s, 0),
             n: params.get("name") || "file",
             m: {type: params.get("type")}
-          }).catch(error => this.fail(error.message))
-        );
+          }).catch(error => this.fail(error.message));
+        button.addEventListener("click", open);
         this.append(button);
+        if (media) await open();
         return;
       }
       const entries = await codec().resolveDirectory(root, hash => fetchBlob(hash, this.controller.signal), {
@@ -676,7 +776,7 @@
           open.href = url.href;
           item.append(open);
         } else {
-          const button = element("button", link.n + " (" + link.s.toLocaleString() + " bytes)");
+          const button = element("button", link.n + " (" + fileSize(link.s) + ")");
           button.type = "button";
           button.addEventListener("click", () => this.download(link).catch(error => this.fail(error.message)));
           item.append(button);
@@ -687,11 +787,24 @@
       this.entries = entries;
     }
     async download(link) {
+      if (this.downloading) return;
+      this.downloading = true;
+      const status = this.querySelector("output") || element("output");
+      status.setAttribute("role", "status");
+      if (!status.parentNode) this.append(status);
+      status.textContent = "Loading " + link.n + " (" + fileSize(link.s) + ")…";
+      try {
       let data;
       if (link.t === 0) data = await plaintext(link, this.controller.signal);
       else if (link.t === 1) {
         const manifest = codec().decodeManifest(await plaintext(link, this.controller.signal));
-        data = await codec().readFile(manifest, hash => fetchBlob(hash, this.controller.signal), {
+        let fetched = 0;
+        data = await codec().readFile(manifest, async (hash, part) => {
+          const raw = await fetchBlob(hash, this.controller.signal);
+          if (part.t === 0) fetched += part.s;
+          status.textContent = "Loading " + Math.min(100, Math.round(fetched / link.s * 100)) + "% — " + fileSize(fetched) + " of " + fileSize(link.s);
+          return raw;
+        }, {
           decrypt,
           maxDepth: MAX_DEPTH,
           maxBytes: MAX_FILE_BYTES
@@ -699,7 +812,9 @@
       } else throw Error("Unsupported file link.");
       if (data.length !== link.s) throw Error("File size does not match its directory entry.");
       this.offerDownload(data, link.n, link.m?.type);
+      status.textContent = "Ready. " + fileSize(data.length) + " decrypted in your browser.";
       return data;
+      } finally { this.downloading = false; }
     }
     offerDownload(data, name, type) {
       if (this.downloadURL) URL.revokeObjectURL(this.downloadURL);
@@ -707,8 +822,26 @@
       const link = element("a", "Save " + name);
       link.href = this.downloadURL;
       link.download = name;
-      this.append(link);
-      link.click();
+      this.querySelector("[data-prepared-file]")?.remove();
+      const prepared = element("div");
+      prepared.setAttribute("data-prepared-file", "");
+      let media;
+      if (/^video\/(mp4|webm|ogg)$/.test(type || "")) media = element("video");
+      else if (/^audio\/(mpeg|mp4|ogg|wav|webm)$/.test(type || "")) media = element("audio");
+      else if (/^image\/(png|jpeg|gif|webp|avif)$/.test(type || "")) media = element("img");
+      if (media) {
+        media.src = this.downloadURL;
+        media.controls = true;
+        media.preload = "metadata";
+        if (media.tagName === "IMG") media.alt = name;
+        prepared.append(media);
+      } else if (/^(text\/|application\/(json|javascript|xml|x-(javascript|sh|python|ruby))|image\/svg\+xml$)/.test(type || "")) {
+        const preview = element("pre", new TextDecoder().decode(new Uint8Array(data).subarray(0, 256 * 1024)));
+        prepared.append(preview);
+        if (data.byteLength > 256 * 1024) prepared.append(element("p", "Preview shows the first 256 KiB. Download the file to read it all."));
+      }
+      prepared.append(link);
+      this.append(prepared);
     }
   }
   customElements.define("file-upload", FileUpload);

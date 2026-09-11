@@ -1,34 +1,36 @@
 # Files and private repositories
 
-Use **Files** to browse uploads by name, open folders, preview images and download files. **My files** shows your uploads. **Sites** groups published assets by site, and **Rooms** groups attachments by rooms you can access. Owners and moderators can open **Storage** for the full inventory.
+Use **Files** to browse uploads by name, open folders, preview images and play supported audio and video files. **My files** shows your uploads and files shared with relay members. **Sites** groups published assets by site, and **Rooms** groups attachments by rooms you can access. Owners and moderators can open **Storage** for the full inventory.
 
 ## Uploading
 
-The **Upload** panel on the Files page stores files or a folder. Choose files, choose a folder, or drop either onto the panel, and check **encrypt** to encrypt in the browser before sending. Plain uploads preserve filenames and selected folder paths. Uploading while inside a folder adds the selection there. **Import from URL** stores a copy of a public HTTPS URL or Blossom URI.
+The **Upload** panel on the Files page stores files or a folder. Choose files, choose a folder, or drop either onto the panel. **Who can open** controls access: **Anyone with the link** is public, while **Relay members** requires current membership. Public is the default. Uploading while inside a folder adds the selection there. **Import from URL** stores a copy of a public HTTPS URL or Blossom URI.
 
-Blossom identifies file contents by hash. Tiny keeps plain upload names and paths with your upload record; those labels do not change the file's hash or travel automatically to another Blossom server. Older uploads use names from site manifests or room attachments where available. Otherwise, they show a file type and short hash.
+Use **Advanced** to enable **Encrypt with a secret link** for a public upload. The browser encrypts the contents before sending them, and only someone with the complete secret link can decrypt them. Secret-link encryption is unavailable when **Relay members** is selected because member access is enforced by the relay, which must be able to serve the file after checking membership. Member access is private access control, not end-to-end encryption at rest; the relay stores the uploaded bytes and trusts its membership check.
+
+Blossom identifies file contents by hash. Tiny sends a file's name, path, MIME type and access choice as upload metadata, then keeps those labels with your catalog entry. Metadata does not change the file's hash and does not travel automatically to another Blossom server. The same content hash cannot represent both a public file and a member-only file: uploading identical bytes again with a different access choice does not create a second policy-specific object. Older uploads use names from site manifests or room attachments where available. Otherwise, they appear in **Unorganized uploads** with a file type and short hash.
 
 ## Encrypted files
 
-An encrypted single file gets a fresh AES-256-GCM key and nonce. The resulting share link keeps the key, nonce, original name and file type in its URL fragment. Keep that link: the relay cannot recover the key. Anyone who has the complete link and permission to download the blob can decrypt it.
+An encrypted single file gets a fresh AES-256-GCM key and nonce. The resulting share link keeps the key, nonce, original name and file type in its URL fragment. The browser saves the finished file's key and display metadata in local storage scoped to the current account and tenant, so the file can be recognized after a reload in that browser. Clearing browser storage removes that local copy. Keep the complete link for use on another browser or device; the relay cannot recover the key.
 
 Encrypted files remain subject to the tenant's download policy. Sending an encrypted link does not grant membership in a private tenant. Removing a file or revoking membership cannot recall copies someone has already downloaded.
 
-Open a stored file to copy its Blossom URI or share link. Random-key files can also be sent through [NIP-17 file messages](https://github.com/nostr-protocol/nips/blob/master/17.md). Connect a signer with NIP-44 support and enter the recipient's public key. Both parties need signed kind 10050 inbox relay lists available to this relay. The browser sends encrypted gift wraps to those inbox relays, including a copy for the sender. It refuses delivery when the required lists are missing.
+Open a stored file to copy its Blossom URI or explicitly copy its secret link. The application does not put a secret link on the clipboard automatically. Random-key files can also be sent through [NIP-17 file messages](https://github.com/nostr-protocol/nips/blob/master/17.md). Connect a signer with NIP-44 support and enter the recipient's public key. Both parties need signed kind 10050 inbox relay lists available to this relay. The browser sends encrypted gift wraps to those inbox relays, including a copy for the sender. It refuses delivery when the required lists are missing.
 
 ## Folders and large files
 
 An encrypted folder, or an encrypted file larger than 64 MiB, is stored as encrypted manifests. Files, chunks and all parent manifests use deduplicated keys that follow the [BUD-15 proposal](https://github.com/hzrd149/blossom/pull/104): the key derives from the content, so identical files share storage. This also reveals when files are identical and permits guesses about predictable content. Names, child keys and file metadata appear only inside encrypted manifests. Keep the complete share link to browse the folder or download individual files.
 
-Folders use [draft BUD-16](https://github.com/hzrd149/blossom/pull/105). Large files use [draft BUD-17](https://github.com/hzrd149/blossom/pull/106), with 2 MiB plaintext chunks and up to 174 links per manifest. Larger directories use nested manifests that appear as one directory in the browser. Every retrieved object is checked against its hash before decryption, and file downloads verify their declared sizes.
+Folders use [draft BUD-16](https://github.com/hzrd149/blossom/pull/105). Large files use [draft BUD-17](https://github.com/hzrd149/blossom/pull/106), with 2 MiB plaintext chunks and up to 174 links per manifest. Larger directories use nested manifests that appear as one directory in the browser. Every retrieved object is checked against its hash before decryption, and file downloads verify their declared sizes. Decrypted images display inline, and text files open as readable text. Large text previews show the first 256 KiB; downloads contain the complete file. HTML and SVG display as source text. Decrypted MP4, WebM and Ogg video files play in the browser when the browser supports the format.
 
 The browser accepts up to 256 MiB per file, 1 GiB per folder, 10,000 files and 32 path levels. Browser folder selection includes files and their paths; empty folders are omitted. These browser limits apply in addition to the tenant's storage allowances.
 
-Cancel stops the current upload. Retry reuses the selected files while the page stays open. Completed chunks may remain in the Files inventory after an interrupted folder upload. Removing a root manifest does not remove its child blobs, which may be shared by other folders.
+Progress reports human-readable MiB values and a percentage. Cancel stops the current upload. Retry reuses the selected files while the page stays open. For an encrypted retry, completed chunks and the same sealed key are reused. Refreshing the page loses the retry selection, but finished encrypted file keys remain available in this browser until its storage is cleared. A completed encrypted chunk root is cataloged as one named file; chunk objects are hidden from **My files**. Older or unrecognized uploads appear under **Unorganized uploads** so they can be reviewed without being silently removed. Removing a root manifest does not remove its child blobs, which may be shared by other folders.
 
 ## Resumable uploads
 
-Encrypted file uploads use [draft BUD-14](https://github.com/hzrd149/blossom/pull/102) when the server advertises it. Cancel and retry keep the encrypted bytes and key in memory while the page stays open. Closing or reloading the page loses that local state. The uploader falls back to BUD-13 when multipart support is unavailable.
+Encrypted file uploads use [draft BUD-14](https://github.com/hzrd149/blossom/pull/102) when the server advertises it. The browser retries transient failures automatically with backoff and keeps completed encrypted chunks and the same key for a retry on the current page. **Continue in the background** is an explicit opt-in when the browser supports Background Fetch; otherwise the upload remains in the foreground. The uploader falls back to BUD-13 when multipart support is unavailable.
 
 Other clients can send binary chunks to `PATCH /<sha256>` with `Upload-Type`, `Upload-Length`, `Upload-Offset` and `Content-Length`. Chunks may overlap or arrive out of order. A partial upload stays unavailable for download until its complete hash is verified. Other uploads can proceed during verification. Blossom proofs name the final hash; NIP-98 proofs bind each chunk's request body.
 
@@ -49,7 +51,7 @@ Set byte allowances with an owner-authorized `setpolicy` patch:
 }
 ```
 
-This example limits each stored blob to 100 MiB and allows 1 GiB of claimed storage per uploader. Encrypted chunks and manifests each count toward storage. The per-blob limit applies to each chunk, rather than the reassembled size of a chunked file. Zero means unlimited. Changes apply to subsequent uploads; lowering an allowance does not delete existing files.
+This example limits each stored blob to 100 MiB (104,857,600 bytes) and allows 1 GiB of claimed storage per uploader. The Files page displays sizes in MiB; storage policies use exact byte counts. Encrypted chunks and manifests each count toward storage. The per-blob limit applies to each chunk, rather than the reassembled size of a chunked file. Zero means unlimited. Changes apply to subsequent uploads; lowering an allowance does not delete existing files.
 
 Each uploader pays the full size of every file they claim, even when another uploader already stores identical bytes. Repeated uploads by the same user count once. Removing an uploader's claim releases their allowance; shared content remains while another claim exists. An owner can remove the stored file for everyone.
 

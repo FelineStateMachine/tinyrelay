@@ -138,6 +138,13 @@ file-tools h3,file-upload h3{margin:0 0 4px}file-tools p,file-upload p{margin:6p
 rpc-form label,signed-form label,publish-list label,nostr-compose label,file-tools label,file-upload label,#collaboration-filter label,#file-search label,#wiki-search label{display:inline-block;margin:0 10px 6px 0;vertical-align:top;font:13px var(--sans);color:var(--muted)}
 rpc-form label input,rpc-form label select,signed-form label input,nostr-compose label input,nostr-compose label select,file-tools label input,file-tools label select,file-upload label input,#collaboration-filter label input,#collaboration-filter label select,#file-search label input,#wiki-search label input{display:block;margin-top:2px;font:13px var(--mono);min-width:200px}
 file-upload label[data-share]{display:block}file-upload input[data-share-url]{width:100%}
+file-upload form>label,file-upload [data-share] label{display:block;max-width:100%;margin-right:0}
+file-upload select,file-upload progress{display:block;width:100%;max-width:100%;margin:6px 0 10px}
+file-upload progress{height:8px;accent-color:var(--accent)}
+file-upload input[type=file],file-upload input[data-share-url]{min-width:0;max-width:100%;box-sizing:border-box}
+file-workspace-root video,file-workspace-root img,file-tools video,file-tools img{display:block;width:auto;max-width:100%;max-height:70vh;margin:12px 0}
+file-workspace-root video,file-tools video{width:100%;background:#000}
+file-workspace-root audio,file-tools audio{display:block;max-width:100%;margin:12px 0}
 file-upload label:has([type=checkbox]),#panel file-upload label:has([type=checkbox]){display:inline-block;margin:8px 14px 8px 0}file-upload label:has([type=checkbox]) input,#panel file-upload label:has([type=checkbox]) input{display:inline-block;width:auto;min-width:0;margin:0 4px 0 0;vertical-align:middle}
 #panel file-upload [hidden],file-upload [hidden],file-tools [hidden],#panel push-toggle [hidden]{display:none}
 #panel push-toggle label{display:inline-block;margin:6px 12px 0 0}#panel push-toggle label input{display:inline-block;width:auto;min-width:0;margin:0 4px 0 0;vertical-align:middle}#panel push-toggle form{margin-top:4px}

@@ -69,6 +69,13 @@ func (t *Tenant) initServices(ctx context.Context) error {
 			return t.community.SubmitReportTx(ctx, tx, reporter, target, targetType, reportType, content, t.Policy().ReportThreshold)
 		},
 		CanRead: func(ctx context.Context, hash string, pubkeys []string) bool {
+			access, accessErr := t.blobs.BlobAccess(ctx, hash)
+			if accessErr != nil {
+				return false
+			}
+			if access == blob.AccessMembers && len(pubkeys) == 0 {
+				return false
+			}
 			keys := []string{}
 			for _, pubkey := range pubkeys {
 				if pubkey == "" {
@@ -78,7 +85,16 @@ func (t *Tenant) initServices(ctx context.Context) error {
 				if err != nil || banned {
 					return false
 				}
+				if access == blob.AccessMembers {
+					role, roleErr := t.community.Role(ctx, pubkey)
+					if roleErr != nil || !t.memberBlobReader(ctx, pubkey, role) {
+						return false
+					}
+				}
 				keys = append(keys, pubkey)
+			}
+			if access == blob.AccessMembers && len(keys) == 0 {
+				return false
 			}
 			_, err := t.gate.Read(ctx, []event.Filter{{}}, relay.Session{PubKeys: keys, RelayURL: t.RelayURL()})
 			return err == nil
@@ -94,6 +110,11 @@ func (t *Tenant) initServices(ctx context.Context) error {
 	t.sites, err = sites.New(sites.Config{
 		Store: t.store,
 		GetBlob: func(ctx context.Context, hash string) (sites.Blob, error) {
+			if access, accessErr := t.blobs.BlobAccess(ctx, hash); accessErr != nil {
+				return sites.Blob{}, accessErr
+			} else if access == blob.AccessMembers {
+				return sites.Blob{}, errors.New("restricted: member files cannot be published as sites")
+			}
 			rooms, err := t.roomAttachmentRooms(ctx, hash)
 			if err != nil {
 				return sites.Blob{}, err
@@ -169,6 +190,45 @@ func (t *Tenant) initServices(ctx context.Context) error {
 	go func() { defer t.workWG.Done(); t.runGitLive(t.workCtx) }()
 	t.workWG.Add(1)
 	go func() { defer t.workWG.Done(); t.runGitHistory(t.workCtx) }()
+	return nil
+}
+
+func (t *Tenant) memberBlobReader(ctx context.Context, pubkey, role string) bool {
+	if role == "owner" || role == "moderator" || role == "member" {
+		return true
+	}
+	if role != "agent" {
+		return false
+	}
+	_, err := t.agentUploadGrant(ctx, pubkey)
+	return err == nil
+}
+
+func (t *Tenant) fileReadAccess(ctx context.Context, actor, hash string) error {
+	access, err := t.blobs.BlobAccess(ctx, hash)
+	if err != nil {
+		return err
+	}
+	if access != blob.AccessMembers {
+		return nil
+	}
+	if actor == "" {
+		return errors.New("auth-required: member file requires sign in")
+	}
+	banned, err := t.community.IsBanned(ctx, actor)
+	if err != nil {
+		return fmt.Errorf("check file reader ban: %w", err)
+	}
+	if banned {
+		return errors.New("blocked: file reader is banned")
+	}
+	role, err := t.community.Role(ctx, actor)
+	if err != nil {
+		return fmt.Errorf("check file reader role: %w", err)
+	}
+	if !t.memberBlobReader(ctx, actor, role) {
+		return errors.New("restricted: relay membership required to read this file")
+	}
 	return nil
 }
 
@@ -440,13 +500,20 @@ func (t *Tenant) validateBlobUpload(r *http.Request, hash string) error {
 // signed request can be verified before parsing or fetching any content.
 func blobAuthBody(r *http.Request, action blob.Action) (string, error) {
 	buffer := action == blob.ActionMirror || action == blob.ActionReport ||
-		(action == blob.ActionUpload && r.Method == http.MethodPost && r.URL.Path == "/nip96")
+		(action == blob.ActionUpload && r.Method == http.MethodPost && (r.URL.Path == "/nip96" || r.URL.Path == "/files/metadata"))
 	if !buffer {
 		return "", nil
 	}
-	body, err := io.ReadAll(r.Body)
+	var source io.Reader = r.Body
+	if r.URL.Path == "/files/metadata" {
+		source = io.LimitReader(r.Body, 16*1024+1)
+	}
+	body, err := io.ReadAll(source)
 	if err != nil {
 		return "", fmt.Errorf("read blob authorization body: %w", err)
+	}
+	if r.URL.Path == "/files/metadata" && len(body) > 16*1024 {
+		return "", errors.New("invalid: file metadata exceeds 16 KiB")
 	}
 	r.Body = io.NopCloser(bytes.NewReader(body))
 	return string(body), nil

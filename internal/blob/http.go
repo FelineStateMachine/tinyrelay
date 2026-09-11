@@ -1,11 +1,13 @@
 package blob
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -44,6 +46,10 @@ func (s *Service) serveHTTP(w http.ResponseWriter, r *http.Request) {
 		s.mirror(w, r)
 		return
 	}
+	if r.URL.Path == "/files/metadata" && r.Method == http.MethodPost {
+		s.metadata(w, r)
+		return
+	}
 	if match := blobPathPattern.FindStringSubmatch(r.URL.Path); match != nil && (r.Method == http.MethodPut || r.Method == http.MethodPatch || r.Method == http.MethodOptions) {
 		if r.Method == http.MethodPatch || r.Method == http.MethodOptions {
 			s.multipart(w, r, match[1])
@@ -67,6 +73,43 @@ func (s *Service) serveHTTP(w http.ResponseWriter, r *http.Request) {
 	s.blob(w, r)
 }
 
+func (s *Service) metadata(w http.ResponseWriter, r *http.Request) {
+	uploader, err := s.authorize(r, ActionUpload)
+	if err != nil {
+		s.fail(w, http.StatusUnauthorized, err)
+		return
+	}
+	var input struct {
+		Hash    string `json:"hash"`
+		Name    string `json:"name"`
+		Path    string `json:"path"`
+		Purpose string `json:"purpose"`
+		Size    int64  `json:"size"`
+		Type    string `json:"type"`
+	}
+	body, readErr := io.ReadAll(io.LimitReader(r.Body, 16*1024+1))
+	if readErr != nil || len(body) > 16*1024 {
+		s.fail(w, http.StatusBadRequest, errors.New("invalid: metadata body"))
+		return
+	}
+	decoder := json.NewDecoder(bytes.NewReader(body))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&input); err != nil {
+		s.fail(w, http.StatusBadRequest, errors.New("invalid: metadata body"))
+		return
+	}
+	var extra any
+	if err := decoder.Decode(&extra); err != io.EOF {
+		s.fail(w, http.StatusBadRequest, errors.New("invalid: metadata body"))
+		return
+	}
+	if err := s.SetClaimMetadata(r.Context(), uploader, strings.ToLower(strings.TrimSpace(input.Hash)), input.Name, input.Path, input.Purpose, input.Type, input.Size); err != nil {
+		s.fail(w, statusFor(err), err)
+		return
+	}
+	s.writeJSON(w, http.StatusOK, map[string]any{"ok": true, "hash": strings.ToLower(strings.TrimSpace(input.Hash))})
+}
+
 func (s *Service) upload(w http.ResponseWriter, r *http.Request) {
 	pubkey, err := s.authorize(r, ActionUpload)
 	if err != nil {
@@ -83,7 +126,7 @@ func (s *Service) upload(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, http.StatusBadRequest, err)
 		return
 	}
-	blob, created, err := s.putValidatedWithMetadata(r.Context(), r.Body, contentType(r.Header.Get("content-type")), pubkey, claimed, name, metadataPath, func(actual string) error {
+	blob, created, err := s.putValidatedWithMetadata(r.Context(), r.Body, contentType(r.Header.Get("content-type")), pubkey, claimed, name, metadataPath, r.URL.Query().Get("access"), r.URL.Query().Get("purpose"), func(actual string) error {
 		if s.config.ValidateUpload != nil {
 			return s.config.ValidateUpload(r, actual)
 		}

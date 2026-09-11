@@ -105,6 +105,9 @@ type BlobClaimMetadata struct {
 	Uploader  string `json:"uploader"`
 	Name      string `json:"name"`
 	Path      string `json:"path"`
+	Purpose   string `json:"purpose,omitempty"`
+	Size      int64  `json:"size,omitempty"`
+	Type      string `json:"type,omitempty"`
 	UpdatedAt int64  `json:"updated_at"`
 }
 
@@ -116,6 +119,10 @@ type PutOptions struct {
 	Hash     string
 	Name     string
 	Path     string
+	// Access controls who may retrieve the stored bytes. Empty means public.
+	Access string
+	// Purpose identifies logical encrypted roots or their internal chunks.
+	Purpose string
 	// Commit records ownership metadata in the blob transaction. Its isNew
 	// argument reports whether the blob was newly installed. An error rolls
 	// back all claims.
@@ -149,6 +156,13 @@ var ErrFileTooLarge = errors.New("invalid: blob exceeds the per-file size limit"
 var ErrQuotaExceeded = errors.New("restricted: uploader storage quota exceeded")
 var ErrMultipartConflict = errors.New("conflict: upload metadata differs from existing session")
 var ErrNotEncrypted = errors.New("restricted: agent grant requires encrypted uploads")
+var ErrAccessConflict = errors.New("conflict: the blob already has a different access policy")
+var ErrInvalidAccess = errors.New("invalid: access must be public or members")
+
+const (
+	AccessPublic  = "public"
+	AccessMembers = "members"
+)
 
 var shaPattern = regexp.MustCompile(`^[0-9a-f]{64}$`)
 var blobPathPattern = regexp.MustCompile(`^/([0-9a-f]{64})(?:\.[a-z0-9]{1,8})?$`)
@@ -156,6 +170,7 @@ var blobPathPattern = regexp.MustCompile(`^/([0-9a-f]{64})(?:\.[a-z0-9]{1,8})?$`
 // HandlesPath keeps the daemon mount in sync with every supported file door.
 func HandlesPath(path string) bool {
 	return path == "/upload" || path == "/mirror" || path == "/report" ||
+		path == "/files/metadata" ||
 		path == "/nip96" || path == "/.well-known/nostr/nip96.json" ||
 		strings.HasPrefix(path, "/nip96/") || strings.HasPrefix(path, "/list/") ||
 		blobPathPattern.MatchString(path)
@@ -177,7 +192,7 @@ func New(ctx context.Context, config Config) (*Service, error) {
 	}
 	if _, err := config.Store.DB().ExecContext(ctx, `CREATE TABLE IF NOT EXISTS blobs (
 		sha256 TEXT PRIMARY KEY, size INTEGER NOT NULL, type TEXT NOT NULL,
-		uploader TEXT NOT NULL, uploaded INTEGER NOT NULL
+		uploader TEXT NOT NULL, uploaded INTEGER NOT NULL, access TEXT NOT NULL DEFAULT 'public'
 	); CREATE TABLE IF NOT EXISTS blob_claims (
 		sha256 TEXT NOT NULL, uploader TEXT NOT NULL, claimed_at INTEGER NOT NULL,
 		PRIMARY KEY (sha256, uploader), FOREIGN KEY (sha256) REFERENCES blobs(sha256) ON DELETE CASCADE
@@ -185,6 +200,7 @@ func New(ctx context.Context, config Config) (*Service, error) {
 	CREATE INDEX IF NOT EXISTS blob_claims_uploader ON blob_claims(uploader, claimed_at DESC, sha256 DESC);
 	CREATE TABLE IF NOT EXISTS blob_claim_metadata (
 	 sha256 TEXT NOT NULL, uploader TEXT NOT NULL, name TEXT NOT NULL, path TEXT NOT NULL,
+	 purpose TEXT NOT NULL DEFAULT '', logical_size INTEGER NOT NULL DEFAULT 0, logical_type TEXT NOT NULL DEFAULT '',
 	 updated_at INTEGER NOT NULL, PRIMARY KEY (sha256,uploader,path),
 	 FOREIGN KEY (sha256,uploader) REFERENCES blob_claims(sha256,uploader) ON DELETE CASCADE
 	);
@@ -199,11 +215,19 @@ func New(ctx context.Context, config Config) (*Service, error) {
 		WHEN NEW.uploader != '' BEGIN INSERT OR IGNORE INTO blob_claims(sha256,uploader,claimed_at) VALUES(NEW.sha256,NEW.uploader,NEW.uploaded); END;
 	CREATE TABLE IF NOT EXISTS blob_blocks (sha256 TEXT PRIMARY KEY, reason TEXT NOT NULL DEFAULT '', blocked_at INTEGER NOT NULL DEFAULT 0);
 	CREATE TABLE IF NOT EXISTS blob_tombstones (sha256 TEXT PRIMARY KEY, deleted_at INTEGER NOT NULL);
-	CREATE TABLE IF NOT EXISTS multipart_uploads (id TEXT PRIMARY KEY, sha256 TEXT NOT NULL, uploader TEXT NOT NULL, length INTEGER NOT NULL, type TEXT NOT NULL, created INTEGER NOT NULL, last_seen INTEGER NOT NULL, name TEXT NOT NULL DEFAULT '', path TEXT NOT NULL DEFAULT '');
+	CREATE TABLE IF NOT EXISTS multipart_uploads (id TEXT PRIMARY KEY, sha256 TEXT NOT NULL, uploader TEXT NOT NULL, length INTEGER NOT NULL, type TEXT NOT NULL, created INTEGER NOT NULL, last_seen INTEGER NOT NULL, name TEXT NOT NULL DEFAULT '', path TEXT NOT NULL DEFAULT '', access TEXT NOT NULL DEFAULT 'public', purpose TEXT NOT NULL DEFAULT '');
 	CREATE TABLE IF NOT EXISTS multipart_parts (upload_id TEXT NOT NULL, offset INTEGER NOT NULL, length INTEGER NOT NULL, PRIMARY KEY(upload_id, offset), FOREIGN KEY(upload_id) REFERENCES multipart_uploads(id) ON DELETE CASCADE);
 	INSERT OR IGNORE INTO blob_claims(sha256,uploader,claimed_at)
 		SELECT sha256,uploader,uploaded FROM blobs WHERE uploader != ''`); err != nil {
 		return nil, fmt.Errorf("initialize blob metadata: %w", err)
+	}
+	if _, err := config.Store.DB().ExecContext(ctx, "ALTER TABLE blobs ADD COLUMN access TEXT NOT NULL DEFAULT 'public'"); err != nil && !strings.Contains(err.Error(), "duplicate column") {
+		return nil, fmt.Errorf("add blob access: %w", err)
+	}
+	for _, column := range []string{"purpose TEXT NOT NULL DEFAULT ''", "logical_size INTEGER NOT NULL DEFAULT 0", "logical_type TEXT NOT NULL DEFAULT ''"} {
+		if _, err := config.Store.DB().ExecContext(ctx, "ALTER TABLE blob_claim_metadata ADD COLUMN "+column); err != nil && !strings.Contains(err.Error(), "duplicate column") {
+			return nil, fmt.Errorf("add blob claim metadata field: %w", err)
+		}
 	}
 	// Claims made under an agent grant with a ttl carry an expiry; every
 	// earlier claim keeps 0, which never lapses.
@@ -214,6 +238,12 @@ func New(ctx context.Context, config Config) (*Service, error) {
 		if _, err := config.Store.DB().ExecContext(ctx, "ALTER TABLE multipart_uploads ADD COLUMN "+column); err != nil && !strings.Contains(err.Error(), "duplicate column") {
 			return nil, fmt.Errorf("add multipart metadata: %w", err)
 		}
+	}
+	if _, err := config.Store.DB().ExecContext(ctx, "ALTER TABLE multipart_uploads ADD COLUMN access TEXT NOT NULL DEFAULT 'public'"); err != nil && !strings.Contains(err.Error(), "duplicate column") {
+		return nil, fmt.Errorf("add multipart access: %w", err)
+	}
+	if _, err := config.Store.DB().ExecContext(ctx, "ALTER TABLE multipart_uploads ADD COLUMN purpose TEXT NOT NULL DEFAULT ''"); err != nil && !strings.Contains(err.Error(), "duplicate column") {
+		return nil, fmt.Errorf("add multipart purpose: %w", err)
 	}
 	if _, err := config.Store.DB().ExecContext(ctx, "CREATE INDEX IF NOT EXISTS blob_claims_expires ON blob_claims(expires) WHERE expires>0"); err != nil {
 		return nil, fmt.Errorf("index blob claim expiry: %w", err)

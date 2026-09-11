@@ -141,7 +141,7 @@
   // Feature bundles load on the pages that use them and again after an
   // in-place navigation lands on such a page. Each script loads once.
   tiny.bundles = {
-    files: ["blossom-encryption.js", "blossom-manifests.js", "blossom-upload.js", "file-messages.js", "file-workspace.js"],
+    files: ["file-catalog.js", "blossom-encryption.js", "blossom-manifests.js", "blossom-upload.js", "file-messages.js", "file-workspace.js"],
     private: ["private-services.js"]
   };
   const loaded = new Map();

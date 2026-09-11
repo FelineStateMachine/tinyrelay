@@ -65,6 +65,9 @@ var blossomUploadJS string
 //go:embed file-workspace.js
 var fileWorkspaceJS string
 
+//go:embed file-catalog.js
+var fileCatalogJS string
+
 // Installable app assets. The manifest is a template: NAME and BASE are
 // replaced per request so tenant prefixes and relay names stay correct.
 //
@@ -222,7 +225,7 @@ func repoView(query url.Values) string {
 // scripts are served at /scripts/<name> and cached by the service worker.
 // One version stamp covers them all, so a change to any file refreshes every
 // cached copy together.
-var scripts = map[string]string{"bridge.js": bridgeJS, "tiny.js": tinyJS, "components.js": componentsJS, "rooms.js": roomsJS, "nostr-name.js": nostrNameJS, "blossom-encryption.js": blossomEncryptionJS, "blossom-manifests.js": blossomManifestsJS, "blossom-upload.js": blossomUploadJS, "file-messages.js": fileMessagesJS, "private-services.js": privateServicesJS, "file-workspace.js": fileWorkspaceJS}
+var scripts = map[string]string{"bridge.js": bridgeJS, "tiny.js": tinyJS, "components.js": componentsJS, "rooms.js": roomsJS, "nostr-name.js": nostrNameJS, "blossom-encryption.js": blossomEncryptionJS, "blossom-manifests.js": blossomManifestsJS, "blossom-upload.js": blossomUploadJS, "file-messages.js": fileMessagesJS, "private-services.js": privateServicesJS, "file-workspace.js": fileWorkspaceJS, "file-catalog.js": fileCatalogJS}
 
 var scriptsVersion = func() string {
 	names := make([]string, 0, len(scripts))

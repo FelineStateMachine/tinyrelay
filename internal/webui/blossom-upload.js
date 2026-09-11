@@ -6,6 +6,8 @@
   // executes that plan with retry, progress and cancellation support.
 
   const {sha256, hex} = globalThis.tiny.util;
+  const probeCache = new Map();
+  const DEFAULT_PROBE_CACHE_MS = 5 * 60 * 1000;
   const asBytes = async value => {
     if (value instanceof Uint8Array) return value;
     if (ArrayBuffer.isView(value)) return new Uint8Array(value.buffer, value.byteOffset, value.byteLength);
@@ -29,6 +31,17 @@
     if (!descriptor || typeof descriptor !== "object" || descriptor.sha256 !== hash || descriptor.size !== size)
       throw new Error("invalid Blossom upload descriptor");
     return descriptor;
+  };
+  const withMetadata = (target, metadata) => {
+    if (metadata === undefined) return target;
+    if (!metadata || typeof metadata !== "object" || Array.isArray(metadata)) throw new Error("upload metadata must be a map");
+    const parsed = new URL(target, globalThis.location?.href || "https://blossom.invalid");
+    for (const [key, value] of Object.entries(metadata)) {
+      if (!/^[A-Za-z0-9_-]{1,64}$/.test(key) || value === undefined || typeof value === "object")
+        throw new Error("invalid upload metadata");
+      parsed.searchParams.set(key, String(value));
+    }
+    return parsed.href;
   };
 
   // resolveTarget checks the source and options and returns the blob URL
@@ -58,7 +71,7 @@
     const target = new RegExp("/" + hash + "(?:\\.[a-z0-9]{1,8})?/?$").test(path)
       ? base
       : base.replace(/\/$/, "") + "/" + hash + (extension ? "." + extension : "");
-    return {bytes, hash, type, url: target};
+    return {bytes, hash, type, url: withMetadata(target, options.metadata), probeURL: base.replace(/\/$/, "")};
   };
 
   // plan lists the signed chunk requests for one upload without sending
@@ -89,13 +102,15 @@
   };
 
   const uploadTask = async (source, options = {}, controller) => {
-    const {bytes, hash, type, url} = await resolveTarget(source, options);
+    const {bytes, hash, type, url, probeURL} = await resolveTarget(source, options);
     const fetcher = options.fetch || globalThis.fetch;
     if (typeof fetcher !== "function") throw new Error("fetch is unavailable");
     const chunkSize =
       Number.isSafeInteger(options.chunkSize) && options.chunkSize > 0 ? options.chunkSize : 5 * 1024 * 1024;
     const timeoutMs = Number.isSafeInteger(options.timeoutMs) && options.timeoutMs > 0 ? options.timeoutMs : 30000;
-    const retries = Number.isSafeInteger(options.retries) && options.retries >= 0 ? options.retries : 0;
+    const retries = Number.isSafeInteger(options.retries) && options.retries >= 0 ? options.retries : 2;
+    const retryDelayMs = Number.isFinite(options.retryDelayMs) && options.retryDelayMs >= 0 ? options.retryDelayMs : 250;
+    const retryMaxDelayMs = Number.isFinite(options.retryMaxDelayMs) && options.retryMaxDelayMs >= 0 ? options.retryMaxDelayMs : 5000;
     const state = options.state instanceof Map ? options.state : new Map();
     const notify = (offset, length, status) => options.onState?.({offset, length, status, state});
     const progress = sent =>
@@ -159,6 +174,23 @@
         requestController.abort();
       }
     };
+    const waitForRetry = async attempt => {
+      const delay = Math.min(retryMaxDelayMs, retryDelayMs * 2 ** Math.max(0, attempt - 1));
+      if (!delay) return;
+      await new Promise((resolve, reject) => {
+        let timer;
+        const cancel = () => {
+          clearTimeout(timer);
+          controller.signal.removeEventListener("abort", cancel);
+          reject(abortError());
+        };
+        timer = setTimeout(() => {
+          controller.signal.removeEventListener("abort", cancel);
+          resolve();
+        }, delay);
+        controller.signal.addEventListener("abort", cancel, {once: true});
+      });
+    };
     const retry = async (action, offset, length) => {
       let attempt = 0;
       while (true) {
@@ -167,6 +199,7 @@
           const result = await action();
           if (!result.ok && result.status >= 500 && attempt++ < retries) {
             notify(offset, length, "retrying");
+            await waitForRetry(attempt);
             continue;
           }
           return result;
@@ -174,15 +207,21 @@
           if (controller.signal.aborted) throw abortError();
           if (attempt++ >= retries) throw error;
           notify(offset, length, "retrying");
+          await waitForRetry(attempt);
         }
       }
     };
 
-    let supportsPatch = options.probe === false;
-    if (options.probe !== false) {
+    const cacheMs = options.probeCache === false ? 0 :
+      Number.isFinite(options.probeCacheMs) && options.probeCacheMs >= 0 ? options.probeCacheMs : DEFAULT_PROBE_CACHE_MS;
+    const cachedProbe = cacheMs ? probeCache.get(probeURL) : null;
+    const cacheValid = Boolean(cachedProbe && cachedProbe.expiresAt > Date.now());
+    let supportsPatch = options.probe === false || (cacheValid && cachedProbe.supportsPatch);
+    if (options.probe !== false && !cacheValid) {
       try {
         const response = await request("OPTIONS", null, {});
         supportsPatch = /(?:^|,|\s)PATCH(?:,|\s|$)/i.test(response.headers?.get?.("allow") || "");
+        if (cacheMs) probeCache.set(probeURL, {supportsPatch, expiresAt: Date.now() + cacheMs});
       } catch {
         supportsPatch = false;
       }

@@ -9,6 +9,7 @@ class Node {
   append(...nodes) { nodes.forEach(node => { if (node) { this.children.push(node); node.parentNode = this; } }); }
   replaceChildren(...nodes) { this.children = []; this.append(...nodes); }
   click() {}
+  remove() { if (this.parentNode) this.parentNode.children = this.parentNode.children.filter(child => child !== this); }
   setAttribute(name, value) { this.attributes[name] = String(value); }
   getAttribute(name) { return this.attributes[name] ?? null; }
   hasAttribute(name) { return name in this.attributes; }
@@ -120,7 +121,7 @@ const sealedUpload = async (window, FileUpload, file) => {
   delete window.tiny.blossom.upload;
   window.tiny.localPath = path => path;
   window.tiny.sha256hex = async bytes => Buffer.from(await webcrypto.subtle.digest("SHA-256", bytes)).toString("hex");
-  window.tiny.signedFetch = async (_path, _method, body) => { uploaded = new Uint8Array(body); return {json: async () => ({sha256: await window.tiny.sha256hex(body)})}; };
+  window.tiny.signedFetch = async (_path, _method, body) => { if (_path === "/files/metadata") return {ok: true}; uploaded = new Uint8Array(body); return {json: async () => ({sha256: await window.tiny.sha256hex(body)})}; };
   const upload = new FileUpload(); window.document.append(upload); upload.connectedCallback();
   const form = upload.querySelector("form");
   form.elements.namedItem("file").files = [file];
@@ -191,14 +192,20 @@ test("folder upload rejects unexpected server hashes", async t => {
   await assert.rejects(server.store([folderFile("private", "root/private.txt")]), /descriptor/);
 });
 
-test("encrypted upload keeps ciphertext and link when clipboard fails", async () => {
+test("encrypted upload never touches the clipboard until Copy is pressed", async () => {
   const {window, FileUpload} = load(true);
+  let copies = 0;
+  navigator.clipboard.writeText = async () => { copies++; throw Error("denied"); };
   const {upload, link, uploaded} = await sealedUpload(window, FileUpload, new File(["secret plaintext"], "secret.txt", {type: "text/plain"}));
   assert.notEqual(new TextDecoder().decode(uploaded()), "secret plaintext");
   assert.match(link, /\/file\?hash=[0-9a-f]{64}#key=.*&iv=/);
   assert.equal(upload.querySelector("[data-share-url]").value, link);
   assert.equal(upload.querySelector("[data-share]").hidden, false);
-  assert.match(upload.out.textContent, /Copy the share link above/);
+  assert.equal(copies, 0);
+  assert.equal(upload.querySelector("[data-open]").href, link);
+  await upload.copyLink();
+  assert.equal(copies, 1);
+  assert.match(upload.out.textContent, /Copy the secret link from the field/);
 });
 
 test("plain uploads store every chosen file and refresh the listing", async () => {
@@ -308,6 +315,110 @@ test("retry keeps the original ciphertext and key after interrupted encrypted up
   assert.equal(upload.pending, null);
 });
 
+test("manifest retry keeps completed chunks and reports readable progress", async t => {
+  const server = workspaceServer(t);
+  const transport = globalThis.fetch;
+  let interrupted = true;
+  const attempts = new Map();
+  globalThis.fetch = async (url, init = {}) => {
+    if (init.method === "PATCH") {
+      const hash = new URL(url).pathname.split("/").at(-1);
+      attempts.set(hash, (attempts.get(hash) || 0) + 1);
+      if (interrupted && attempts.size === 2) return new Response(null, {status: 403});
+    }
+    return transport(url, init);
+  };
+  const bytes = new Uint8Array(5 * 1024 * 1024);
+  bytes[0] = 1; bytes[2 * 1024 * 1024] = 2; bytes[4 * 1024 * 1024] = 3;
+  const upload = new server.FileUpload(); upload.connectedCallback();
+  const form = upload.querySelector("form");
+  form.elements.namedItem("file").files = [folderFile(bytes, "video/clip.mp4")];
+  form.elements.namedItem("encrypt").checked = true;
+  await assert.rejects(upload.run(form), /403/);
+  const first = attempts.keys().next().value;
+  assert.equal(upload.manifestSession.completed.size, 1);
+  interrupted = false;
+  const link = await upload.run();
+  assert.equal(attempts.get(first), 1, "accepted first chunk must not be reuploaded");
+  const root = await server.open(link);
+  assert.deepEqual(await root.download(root.entries[0]), bytes);
+  upload.progress(3 * 1024 * 1024, 5 * 1024 * 1024);
+  assert.match(upload.out.textContent, /60%.*3.0 MiB.*5.0 MiB/);
+  assert.equal(upload.querySelector("progress").value, 0.6);
+  for (const request of server.requests.filter(r => r.init.method === "PATCH")) {
+    assert.equal(request.url.searchParams.get("purpose"), "chunk");
+  }
+});
+
+test("members upload keeps the MP4 name and type and never creates a secret link", async () => {
+  const {window, FileUpload} = load(true);
+  const sent = [];
+  window.tiny.signedFetch = async (path, method, bytes, options) => { sent.push({path, method, bytes, options}); };
+  window.tiny.navigate = async () => {};
+  const upload = new FileUpload(); upload.connectedCallback();
+  const form = upload.querySelector("form");
+  form.elements.namedItem("file").files = [new File(["mp4 bytes"], "holiday.mp4", {type: "video/mp4"})];
+  form.elements.namedItem("access").value = "members";
+  form.elements.namedItem("encrypt").checked = true;
+  await upload.run(form);
+  assert.equal(sent.length, 1);
+  const url = new URL(sent[0].path, location.href);
+  assert.equal(url.searchParams.get("access"), "members");
+  assert.equal(url.searchParams.get("filename"), "holiday.mp4");
+  assert.equal(sent[0].options.contentType, "video/mp4");
+  assert.equal(new TextDecoder().decode(sent[0].bytes), "mp4 bytes");
+  assert.equal(upload.querySelector("[data-share]").hidden, true);
+});
+
+test("retry finalizes the same encrypted root without reuploading or exposing its key", async () => {
+  const {window, FileUpload} = load(true);
+  window.tiny.localPath = path => path;
+  window.tiny.sha256hex = async bytes => Buffer.from(await webcrypto.subtle.digest("SHA-256", bytes)).toString("hex");
+  let uploads = 0, records = 0;
+  window.tiny.blossom.upload = {upload: async (bytes, options) => {
+    uploads++;
+    assert.equal(options.metadata.purpose, "chunk");
+    return {descriptor: {sha256: await window.tiny.sha256hex(bytes), size: bytes.length}};
+  }};
+  window.tiny.signedFetch = async (path, method, body) => {
+    assert.equal(path, "/files/metadata");
+    assert.equal(method, "POST");
+    const record = JSON.parse(body);
+    assert.match(record.name, /^Encrypted file [a-f0-9]{12}$/);
+    assert.equal(record.purpose, "file");
+    assert.equal(record.size, 7);
+    assert.equal(body.includes("secret-name.txt"), false);
+    assert.equal("key" in record, false);
+    if (++records === 1) throw Error("server restarting");
+    return {ok: true};
+  };
+  const upload = new FileUpload(); upload.connectedCallback();
+  const form = upload.querySelector("form");
+  form.elements.namedItem("file").files = [new File(["private"], "secret-name.txt")];
+  form.elements.namedItem("encrypt").checked = true;
+  await assert.rejects(upload.run(form), /server restarting/);
+  const saved = upload.querySelector("[data-share-url]").value;
+  assert.match(saved, /#key=/);
+  assert.equal(upload.querySelector("[data-retry]").disabled, false);
+  assert.equal(await upload.run(), saved);
+  assert.equal(uploads, 1);
+  assert.equal(records, 2);
+});
+
+test("a 100 MiB encrypted MP4 opens a media player after reconstruction", async t => {
+  const server = workspaceServer(t);
+  const bytes = new Uint8Array(100 * 1024 * 1024);
+  for (let index = 0; index < 50; index++) bytes[index * 2 * 1024 * 1024] = index;
+  const link = await server.store([new File([bytes], "large.mp4", {type: "video/mp4"})]);
+  const root = await server.open(link);
+  const video = root.querySelector("video");
+  assert.ok(video, "decrypted manifest MP4 must have a player");
+  assert.equal(video.controls, true);
+  const data = await server.originalFetch(video.src).then(response => response.arrayBuffer());
+  assert.deepEqual(new Uint8Array(data), bytes);
+  assert.match(root.querySelector("output").textContent, /100.0 MiB/);
+});
+
 test("large uploads hand signed requests to Background Fetch and read the parked descriptor", async () => {
   const {window, FileUpload} = load(true);
   window.tiny.localPath = path => path;
@@ -334,6 +445,7 @@ test("large uploads hand signed requests to Background Fetch and read the parked
     const upload = new FileUpload(); window.document.append(upload); upload.connectedCallback();
     const form = upload.querySelector("form");
     form.elements.namedItem("file").files = [new File([bytes], "big.bin", {type: "application/octet-stream"})];
+    form.elements.namedItem("background").checked = true;
     const run = upload.run(form);
     await new Promise(resolve => setTimeout(resolve, 50));
     assert.ok(started, "background fetch was not started");

@@ -75,6 +75,7 @@ then feature modules are loaded for the current page. */}}
 <script src="{{scriptURL "tiny.js"}}"></script>
 <script src="{{scriptURL "bridge.js"}}"></script>
 {{if or (eq .Tab "files") (eq .Tab "file")}}<script src="{{scriptURL "blossom-encryption.js"}}"></script>
+<script src="{{scriptURL "file-catalog.js"}}"></script>
 <script src="{{scriptURL "blossom-manifests.js"}}"></script>
 <script src="{{scriptURL "blossom-upload.js"}}"></script>
 <script src="{{scriptURL "file-messages.js"}}"></script>
@@ -129,7 +130,7 @@ then feature modules are loaded for the current page. */}}
 <section><h4>Publish</h4><p><small>Announce with ngit and push with plain git. Every push needs the owner's signed state.</small></p></section>{{end}}
 
 {{define "panel-files"}}<section><h4>Storage</h4><table><tr><th>protocol</th><td>Blossom</td></tr>{{if .Policy.Features.Files}}<tr><th>uploads</th><td>members</td></tr>{{end}}</table></section>
-{{if .Actor}}<section><h4>Upload</h4><file-upload></file-upload><p><small>Encrypt keeps the contents and key in your browser. Keep the complete share link.</small></p><details><summary>Import from URL</summary><file-mirror action="/mirror"></file-mirror></details><noscript><p>Uploads need JavaScript and a connected signer.</p></noscript></section>{{end}}{{end}}
+{{if .Actor}}<section><h4>Upload</h4><file-upload pubkey="{{.Actor}}"></file-upload><p><small>Members-only files require membership to view or download.</small></p><details><summary>Import from URL</summary><file-mirror action="/mirror"></file-mirror></details><noscript><p>Uploads need JavaScript and a connected signer.</p></noscript></section>{{end}}{{end}}
 
 {{define "panel-approvals"}}{{$counts := approvalCounts .Event}}{{$data := asMap .Event}}<section><h4>Waiting</h4><table><tr><th>open</th><td>{{index $counts "open"}}</td></tr><tr><th>oldest</th><td>{{with index $data "oldest_open"}}<time datetime="{{datetime .}}">{{when .}}</time>{{else}}none{{end}}</td></tr><tr><th>answered</th><td>{{index $counts "answered"}}</td></tr><tr><th>expired</th><td>{{index $counts "expired"}}</td></tr></table></section>
 <section><h4>Devices</h4>{{if .Actor}}{{range $index, $device := approvalDevices .Event}}<p><i></i>device {{add $index 1}} | {{$device}}</p>{{else}}<p>No device receives notifications for this key. Enable them under Inbox.</p>{{end}}<p><small>Answers from the phone need the remembered signer.</small></p>{{else}}<p>Sign in to see which devices are notified.</p>{{end}}</section>{{end}}

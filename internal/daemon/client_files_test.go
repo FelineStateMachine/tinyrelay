@@ -33,12 +33,12 @@ func TestFolderItemsKeepsFoldersAndFilesPageable(t *testing.T) {
 		{"sha256": "aaaaaaaa", "type": "text/plain", "uploader": "alice", "uploaded": int64(2), "name": "readme.txt", "path": "docs/readme.txt"},
 		{"sha256": "bbbbbbbb", "type": "image/png", "uploader": "alice", "uploaded": int64(1), "name": "cover.png", "path": "cover.png"},
 	}
-	first := (Tenant{}).folderItems(rows, map[string]bool{}, clientBrowseRequest{BrowseRequest: browseRequestForTest(1)}, "library", true)
+	first := (&Tenant{}).folderItems(rows, map[string]bool{}, clientBrowseRequest{BrowseRequest: browseRequestForTest(1)}, "library", true)
 	items := first["items"].([]map[string]any)
 	if len(items) != 1 || items[0]["kind"] != "folder" || first["next_cursor"] == "" {
 		t.Fatalf("first page = %#v", first)
 	}
-	second := (Tenant{}).folderItems(rows, map[string]bool{}, clientBrowseRequest{BrowseRequest: browseRequestForTest(1), Cursor: first["next_cursor"].(string)}, "library", true)
+	second := (&Tenant{}).folderItems(rows, map[string]bool{}, clientBrowseRequest{BrowseRequest: browseRequestForTest(1), Cursor: first["next_cursor"].(string)}, "library", true)
 	items = second["items"].([]map[string]any)
 	if len(items) != 1 || items[0]["kind"] != "file" || items[0]["name"] != "cover.png" {
 		t.Fatalf("second page = %#v", second)

@@ -131,3 +131,21 @@ func TestOwnerFileSearchUsesLiteralTextBeforePagination(t *testing.T) {
 		t.Fatalf("literal search = %#v", row)
 	}
 }
+
+func TestLibraryRowsGroupsLegacyUnnamedBinaryAndHidesMarkedChunks(t *testing.T) {
+	rows := []map[string]any{
+		{"sha256": strings.Repeat("a", 64), "name": "", "path": "", "type": "application/octet-stream"},
+		{"sha256": strings.Repeat("b", 64), "name": "", "path": "", "type": "application/octet-stream", "purpose": "chunk"},
+		{"sha256": strings.Repeat("c", 64), "name": "notes.txt", "path": "notes.txt", "type": "text/plain"},
+	}
+	got := libraryRows(rows, nil)
+	if len(got) != 2 {
+		t.Fatalf("library rows = %d, want 2", len(got))
+	}
+	if got[0]["path"] != "Unorganized uploads/aaaaaaaaaaaa" || got[0]["name"] != "aaaaaaaaaaaa" {
+		t.Fatalf("legacy row = %#v", got[0])
+	}
+	if got[1]["path"] != "notes.txt" {
+		t.Fatalf("named row changed = %#v", got[1])
+	}
+}

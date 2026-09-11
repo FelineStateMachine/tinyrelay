@@ -298,6 +298,7 @@
   class FileTools extends HTMLElement {
     disconnectedCallback() {
       if (this.downloadURL) URL.revokeObjectURL(this.downloadURL);
+      if (this.previewURL && this.previewURL !== this.downloadURL) URL.revokeObjectURL(this.previewURL);
     }
 
     connectedCallback() {
@@ -359,8 +360,50 @@
         }
         if (params.get("ox") && await tiny.sha256hex(plain) !== params.get("ox")) throw Error("plaintext hash mismatch");
         if (this.downloadURL) URL.revokeObjectURL(this.downloadURL);
-        const link = el("a"); this.downloadURL = URL.createObjectURL(new Blob([plain], {type: params.get("type") || this.type()})); link.href = this.downloadURL; link.download = params.get("name") || "decrypted-file"; link.textContent = "download decrypted file"; this.append(link); this.say("Decrypted locally.");
+        if (this.previewURL && this.previewURL !== this.downloadURL) URL.revokeObjectURL(this.previewURL);
+        const contentType = normalizePreviewType(params.get("type") || this.type());
+        const type = safeMediaPreviewType(contentType);
+        const name = params.get("name") || "decrypted-file";
+        this.previewURL = URL.createObjectURL(new Blob([plain], {type: type || "application/octet-stream"}));
+        this.renderPreview(contentType, name, plain);
+        const link = el("a"); this.downloadURL = this.previewURL; link.href = this.downloadURL; link.download = name; link.textContent = "download decrypted file"; this.append(link); this.say("Decrypted locally.");
       } catch (error) { this.say("Could not decrypt this file: " + error.message, true); }
+    }
+
+    renderPreview(type, name, bytes) {
+      this.querySelector("[data-decrypted-preview]")?.remove();
+      const text = safeTextPreviewType(type);
+      if (!this.previewURL || (!safeMediaPreviewType(type) && !text)) return;
+      const wrapper = el("div");
+      wrapper.setAttribute("data-decrypted-preview", "");
+      const heading = el("p", "Decrypted preview: " + name);
+      heading.setAttribute("data-preview-name", "");
+      let media;
+      if (text) {
+        const pre = el("pre");
+        const limit = 256 * 1024;
+        const truncated = bytes.byteLength > limit;
+        pre.textContent = new TextDecoder().decode(bytes.slice(0, limit)) + (truncated ? "\n\n[Preview truncated. Download the file to see the rest.]" : "");
+        wrapper.append(heading, pre);
+        this.append(wrapper);
+        return;
+      }
+      if (type.startsWith("image/")) {
+        media = el("img");
+        media.alt = name;
+      } else if (type.startsWith("video/")) {
+        media = el("video");
+        media.controls = true;
+        media.preload = "metadata";
+      } else if (type.startsWith("audio/")) {
+        media = el("audio");
+        media.controls = true;
+        media.preload = "metadata";
+      }
+      if (!media) return;
+      media.src = this.previewURL;
+      wrapper.append(heading, media);
+      this.append(wrapper);
     }
 
     async share(form) {
@@ -383,6 +426,22 @@
       } catch (error) { this.say("NIP-17 delivery failed: " + error.message, true); } finally { this.sharing = false; }
     }
   }
+
+  const normalizePreviewType = value => String(value || "").toLowerCase().split(";", 1)[0].trim();
+  const safeMediaPreviewType = value => {
+    const type = normalizePreviewType(value);
+    if (/^image\/(?:avif|gif|jpeg|png|webp)$/.test(type)) return type;
+    if (/^video\/(?:mp4|ogg|webm)$/.test(type)) return type;
+    if (/^audio\/(?:aac|flac|mpeg|mp4|ogg|wav|webm)$/.test(type)) return type;
+    return "";
+  };
+  const safeTextPreviewType = value => {
+    const type = normalizePreviewType(value);
+    if (/^text\/(?:plain|markdown|css|javascript|x-(?:c|csrc|c\+\+src|java-source))$/.test(type)) return type;
+    if (/^application\/(?:json|javascript|xml|x-(?:javascript|yaml))$/.test(type)) return type;
+    if (type === "image/svg+xml" || type === "text/html" || type === "application/xhtml+xml") return type;
+    return "";
+  };
 
   class PublishList extends FormElement {
     async submit(form) {

@@ -169,6 +169,9 @@ func (t *Tenant) mcpReadAttachment(ctx context.Context, call mcp.Call) (mcp.Resu
 	if err := t.browseRead(ctx, call.Actor); err != nil {
 		return mcp.Failure("attachment unavailable: "+err.Error(), nil), nil
 	}
+	if err := t.fileReadAccess(ctx, call.Actor, call.String("sha256")); err != nil {
+		return mcp.Failure("attachment unavailable: "+err.Error(), nil), nil
+	}
 	if err := t.roomAttachmentAccess(ctx, call.Actor, call.String("sha256")); err != nil {
 		return mcp.Failure("attachment unavailable: "+err.Error(), nil), nil
 	}

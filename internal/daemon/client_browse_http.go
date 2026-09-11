@@ -99,6 +99,9 @@ func (t *Tenant) fileDownload(w http.ResponseWriter, r *http.Request, actor stri
 		return os.ErrNotExist
 	}
 	hash := r.URL.Query().Get("hash")
+	if err := t.fileReadAccess(r.Context(), actor, hash); err != nil {
+		return err
+	}
 	if err := t.roomAttachmentAccess(r.Context(), actor, hash); err != nil {
 		return err
 	}

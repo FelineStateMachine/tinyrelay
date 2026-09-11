@@ -59,7 +59,7 @@ func (t *Tenant) browseFiles(ctx context.Context, actor string, q clientBrowseRe
 	return result, nil
 }
 
-func (t Tenant) browseFilesLegacy(ctx context.Context, actor string, q clientBrowseRequest) (any, error) {
+func (t *Tenant) browseFilesLegacy(ctx context.Context, actor string, q clientBrowseRequest) (any, error) {
 	if actor == "" {
 		return nil, errors.New("auth-required: sign in to browse your files")
 	}
@@ -104,7 +104,7 @@ func (t Tenant) browseFilesLegacy(ctx context.Context, actor string, q clientBro
 	return map[string]any{"items": items, "next_cursor": next}, nil
 }
 
-func (t Tenant) browseAllFiles(ctx context.Context, q clientBrowseRequest) ([]blob.Blob, string, error) {
+func (t *Tenant) browseAllFiles(ctx context.Context, q clientBrowseRequest) ([]blob.Blob, string, error) {
 	query := "SELECT sha256,size,type,uploader,uploaded FROM blobs WHERE sha256>?"
 	args := []any{q.Cursor}
 	needle := strings.ToLower(strings.TrimSpace(q.Query))
@@ -141,7 +141,7 @@ func blobMatchesQuery(e blob.Blob, q string) bool {
 	n := strings.ToLower(strings.TrimSpace(q))
 	return n == "" || strings.Contains(strings.ToLower(e.SHA256), n) || strings.Contains(strings.ToLower(e.Type), n) || strings.Contains(strings.ToLower(e.Uploader), n)
 }
-func (t Tenant) browseBlobMetadata(e blob.Blob) map[string]any {
+func (t *Tenant) browseBlobMetadata(e blob.Blob) map[string]any {
 	portable := blob.BlossomURI{Hash: e.SHA256, Extension: "bin", Author: e.Uploader, Size: e.Size}
 	if origin, err := url.Parse(t.publicURL); err == nil && strings.Trim(origin.Path, "/") == "" {
 		portable.Servers = []string{origin.Scheme + "://" + origin.Host}
@@ -149,12 +149,21 @@ func (t Tenant) browseBlobMetadata(e blob.Blob) map[string]any {
 	return map[string]any{"sha256": e.SHA256, "size": e.Size, "type": e.Type, "uploader": e.Uploader, "uploaded": e.Uploaded, "url": strings.TrimRight(t.publicURL, "/") + "/" + e.SHA256, "download_url": strings.TrimRight(t.publicURL, "/") + "/files/raw?hash=" + url.QueryEscape(e.SHA256), "blossom_uri": portable.String()}
 }
 
-func (t Tenant) claimRows(ctx context.Context, actor string, all bool) ([]map[string]any, error) {
-	q := `SELECT b.sha256,b.size,b.type,c.uploader,b.uploaded,COALESCE(m.name,''),COALESCE(m.path,'') FROM blobs b JOIN blob_claims c ON c.sha256=b.sha256 LEFT JOIN blob_claim_metadata m ON m.sha256=b.sha256 AND m.uploader=c.uploader`
+func (t *Tenant) claimRows(ctx context.Context, actor string, all bool) ([]map[string]any, error) {
+	q := `SELECT b.sha256,b.size,b.type,c.uploader,b.uploaded,COALESCE(m.name,''),COALESCE(m.path,''),COALESCE(m.purpose,''),COALESCE(m.logical_size,0),COALESCE(m.logical_type,''),b.access FROM blobs b JOIN blob_claims c ON c.sha256=b.sha256 LEFT JOIN blob_claim_metadata m ON m.sha256=b.sha256 AND m.uploader=c.uploader`
 	args := []any{}
 	if !all {
-		q += " WHERE c.uploader=?"
-		args = append(args, actor)
+		includeMembers := false
+		if role, roleErr := t.community.Role(ctx, actor); roleErr == nil && t.memberBlobReader(ctx, actor, role) {
+			includeMembers = true
+		}
+		if includeMembers {
+			q += " WHERE c.uploader=? OR b.access=?"
+			args = append(args, actor, blob.AccessMembers)
+		} else {
+			q += " WHERE c.uploader=?"
+			args = append(args, actor)
+		}
 	}
 	q += " ORDER BY b.uploaded DESC,b.sha256 DESC"
 	rows, err := t.store.DB().QueryContext(ctx, q, args...)
@@ -165,19 +174,28 @@ func (t Tenant) claimRows(ctx context.Context, actor string, all bool) ([]map[st
 	out := []map[string]any{}
 	for rows.Next() {
 		var e blob.Blob
-		var name, p string
-		if err := rows.Scan(&e.SHA256, &e.Size, &e.Type, &e.Uploader, &e.Uploaded, &name, &p); err != nil {
+		var name, p, purpose, logicalType, access string
+		var logicalSize int64
+		if err := rows.Scan(&e.SHA256, &e.Size, &e.Type, &e.Uploader, &e.Uploaded, &name, &p, &purpose, &logicalSize, &logicalType, &access); err != nil {
 			return nil, err
 		}
 		m := t.browseBlobMetadata(e)
+		m["access"] = access
 		m["name"] = name
 		m["path"] = p
+		m["purpose"] = purpose
+		if purpose == "file" && logicalType != "" {
+			m["logical_size"] = logicalSize
+		}
+		if logicalType != "" {
+			m["logical_type"] = logicalType
+		}
 		out = append(out, m)
 	}
 	return out, rows.Err()
 }
 
-func (t Tenant) browseLibrary(ctx context.Context, actor string, q clientBrowseRequest) (any, error) {
+func (t *Tenant) browseLibrary(ctx context.Context, actor string, q clientBrowseRequest) (any, error) {
 	rows, err := t.claimRows(ctx, actor, false)
 	if err != nil {
 		return nil, err
@@ -193,9 +211,43 @@ func (t Tenant) browseLibrary(ctx context.Context, actor string, q clientBrowseR
 	for h := range rooms {
 		excluded[h] = true
 	}
+	rows = libraryRows(rows, excluded)
 	return t.folderItems(rows, excluded, q, "library", false), nil
 }
-func (t Tenant) folderItems(rows []map[string]any, excluded map[string]bool, q clientBrowseRequest, view string, includeExcluded bool) map[string]any {
+
+// libraryRows keeps implementation objects out of the user's file library.
+// New encrypted uploads mark their chunk claims with purpose=chunk. Older
+// unnamed octet streams cannot be identified safely from size alone, so they
+// remain visible in one unorganized folder instead of being deleted or
+// silently hidden.
+func libraryRows(rows []map[string]any, excluded map[string]bool) []map[string]any {
+	out := make([]map[string]any, 0, len(rows))
+	for _, row := range rows {
+		if row["purpose"] == "chunk" {
+			continue
+		}
+		if row["purpose"] == "file" {
+			if size, ok := row["logical_size"]; ok {
+				row["size"] = size
+			}
+		}
+		if excluded[row["sha256"].(string)] && row["name"] == "" {
+			continue
+		}
+		if row["name"] == "" && row["path"] == "" && row["type"] == "application/octet-stream" {
+			hash := row["sha256"].(string)
+			short := hash
+			if len(short) > 12 {
+				short = short[:12]
+			}
+			row["path"] = "Unorganized uploads/" + short
+			row["name"] = short
+		}
+		out = append(out, row)
+	}
+	return out
+}
+func (t *Tenant) folderItems(rows []map[string]any, excluded map[string]bool, q clientBrowseRequest, view string, includeExcluded bool) map[string]any {
 	prefix := strings.Trim(q.Path, "/")
 	if prefix != "" {
 		prefix += "/"
@@ -290,12 +342,12 @@ func breadcrumbs(view, p string) []map[string]string {
 	return out
 }
 
-func (t Tenant) contextHashes(ctx context.Context, actor string) (map[string][]string, map[string][]string, error) {
+func (t *Tenant) contextHashes(ctx context.Context, actor string) (map[string][]string, map[string][]string, error) {
 	sitesH := map[string][]string{}
 	roomsH := map[string][]string{}
 	var before *storage.EventCursor
 	for {
-		r, err := t.store.Query(ctx, event.Filter{Kinds: []int{sites.KindSite, sites.KindNamedSite, sites.KindSiteSnapshot}}, storage.QueryOptions{Now: time.Now().Unix(), Access: storage.Access{PubKeys: browseSession(&t, actor).PubKeys}, Limit: 100, Before: before})
+		r, err := t.store.Query(ctx, event.Filter{Kinds: []int{sites.KindSite, sites.KindNamedSite, sites.KindSiteSnapshot}}, storage.QueryOptions{Now: time.Now().Unix(), Access: storage.Access{PubKeys: browseSession(t, actor).PubKeys}, Limit: 100, Before: before})
 		if err != nil {
 			return nil, nil, err
 		}
@@ -342,7 +394,7 @@ func (t Tenant) contextHashes(ctx context.Context, actor string) (map[string][]s
 	return sitesH, roomsH, nil
 }
 
-func (t Tenant) browseStorage(ctx context.Context, actor string, q clientBrowseRequest) (any, error) {
+func (t *Tenant) browseStorage(ctx context.Context, actor string, q clientBrowseRequest) (any, error) {
 	query := `SELECT sha256,size,type,uploader,uploaded FROM blobs WHERE 1=1`
 	args := []any{}
 	if q.Cursor != "" {
@@ -393,7 +445,7 @@ func (t Tenant) browseStorage(ctx context.Context, actor string, q clientBrowseR
 	}
 	return map[string]any{"items": items, "view": "storage", "path": "", "breadcrumbs": breadcrumbs("storage", ""), "next_cursor": next}, nil
 }
-func (t Tenant) browseRoomFiles(ctx context.Context, actor string, q clientBrowseRequest) (any, error) {
+func (t *Tenant) browseRoomFiles(ctx context.Context, actor string, q clientBrowseRequest) (any, error) {
 	_, rooms, err := t.contextHashes(ctx, actor)
 	if err != nil {
 		return nil, err
@@ -427,7 +479,7 @@ func (t Tenant) browseRoomFiles(ctx context.Context, actor string, q clientBrows
 	}
 	return result, nil
 }
-func (t Tenant) browseSiteFiles(ctx context.Context, actor string, q clientBrowseRequest) (any, error) {
+func (t *Tenant) browseSiteFiles(ctx context.Context, actor string, q clientBrowseRequest) (any, error) {
 	sitesH, _, err := t.contextHashes(ctx, actor)
 	if err != nil {
 		return nil, err
@@ -447,7 +499,7 @@ func (t Tenant) browseSiteFiles(ctx context.Context, actor string, q clientBrows
 
 // Read only the referenced blobs. Claim labels belong to uploaders and must
 // not become names for files viewed through someone else's site or room.
-func (t Tenant) contextFileRows(ctx context.Context, refs map[string][]string, contextName string) ([]map[string]any, error) {
+func (t *Tenant) contextFileRows(ctx context.Context, refs map[string][]string, contextName string) ([]map[string]any, error) {
 	hashes := make([]string, 0, len(refs))
 	for hash := range refs {
 		hashes = append(hashes, hash)

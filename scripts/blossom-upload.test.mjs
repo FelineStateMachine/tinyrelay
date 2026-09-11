@@ -27,6 +27,7 @@ test("uses BUD-14 PATCH chunks and signs each chunk payload", async () => {
     hash,
     type: "text/plain",
     chunkSize: 4,
+    probeCache: false,
     fetch: async (url, init) => {
       calls.push({url, init});
       return calls.length === 1 ? response(204, {allow: "GET, PUT, PATCH"}) :
@@ -52,6 +53,7 @@ test("falls back to BUD-13 PUT when PATCH is not advertised", async () => {
     url: "https://blossom.example/upload",
     hash,
     type: "text/plain",
+    probeCache: false,
     fetch: async (url, init) => {
       calls.push({url, init});
       return calls.length === 1 ? response(204, {allow: "GET, PUT"}) : response(201, {}, {sha256: hash, size: bytes.length});
@@ -69,7 +71,7 @@ test("retries transient chunks, reports local state, and can be canceled", async
   let attempts = 0;
   const states = [];
   const task = upload(bytes, {
-    url: "https://blossom.example/upload", hash, chunkSize: 2, retries: 1,
+    url: "https://blossom.example/upload", hash, chunkSize: 2, retries: 1, probeCache: false,
     fetch: async (url, init) => {
       if (init.method === "OPTIONS") return response(204, {allow: "PATCH"});
       attempts++;
@@ -108,6 +110,25 @@ test("resumes recent local chunks, rejects stale state, and checks the descripto
   await assert.rejects(upload(bytes, {url: "https://blossom.example", hash, probe: false,
     fetch: async () => response(201, {}, {sha256: "0".repeat(64), size: bytes.length})
   }), /invalid Blossom upload descriptor/);
+});
+
+test("caches endpoint capability and appends upload metadata", async () => {
+  const bytes = new Uint8Array([1, 2]);
+  const hash = await digest(bytes);
+  const calls = [];
+  const fetcher = async (url, init) => {
+    calls.push({url, init});
+    return init.method === "OPTIONS" ? response(204, {allow: "PATCH"}) : response(201, {}, {sha256: hash, size: bytes.length});
+  };
+  await upload(bytes, {url: "https://metadata.example/upload", hash, chunkSize: bytes.length, fetch: fetcher,
+    metadata: {access: "members", purpose: "file", filename: "secret.bin"}});
+  await upload(bytes, {url: "https://metadata.example/upload", hash, chunkSize: bytes.length, fetch: fetcher,
+    metadata: {access: "members", purpose: "chunk", filename: "secret.bin"}});
+  assert.equal(calls.filter(call => call.init.method === "OPTIONS").length, 1);
+  const patch = calls.find(call => call.init.method === "PATCH");
+  assert.match(patch.url, /access=members/);
+  assert.match(patch.url, /purpose=file/);
+  assert.match(patch.url, /filename=secret.bin/);
 });
 
 test("keeps the response body readable after headers arrive", async () => {

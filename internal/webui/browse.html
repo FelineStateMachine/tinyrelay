@@ -12,17 +12,17 @@
 {{end}}</section>
 {{end}}
 
-{{define "files"}}{{$data := asMap .Event}}{{$view := or (str (index $data "view")) (.Query.Get "view") "library"}}<section id="file-library">
+{{define "files"}}{{$data := asMap .Event}}{{$view := or (str (index $data "view")) (.Query.Get "view") "library"}}<section id="file-library" data-pubkey="{{.Actor}}">
 <h1>Files</h1>
 <nav id="file-views" aria-label="File collections"><a href="/files"{{if eq $view "library"}} aria-current="page"{{end}}>My files</a><a href="/files?view=sites"{{if eq $view "sites"}} aria-current="page"{{end}}>Sites</a><a href="/files?view=rooms"{{if eq $view "rooms"}} aria-current="page"{{end}}>Rooms</a>{{if index $data "can_manage"}}<a href="/files?view=storage"{{if eq $view "storage"}} aria-current="page"{{end}}>Storage</a>{{end}}</nav>
-<p id="file-context">{{if eq $view "sites"}}Published assets, organized by site.{{else if eq $view "rooms"}}Attachments from rooms you can access.{{else if eq $view "storage"}}All stored files, newest first.{{else}}Your uploads and folders. Site assets and room attachments have their own collections.{{end}}</p>
+<p id="file-context">{{if eq $view "sites"}}Published assets, organized by site.{{else if eq $view "rooms"}}Attachments from rooms you can access.{{else if eq $view "storage"}}All stored files, newest first.{{else}}Your uploads, folders and files shared with relay members.{{end}}</p>
 <form method="get" action="/files" id="file-search"><input type="hidden" name="view" value="{{$view}}">{{with .Query.Get "path"}}<input type="hidden" name="path" value="{{.}}">{{end}}<label>Search <input name="q" value="{{.Query.Get "q"}}" placeholder="Name, type or hash" autocomplete="off"></label> <button>Search</button>{{if .Query.Get "q"}} <a href="{{browsePageURL "/files" .Query "q" ""}}">Clear</a>{{end}}</form>
 {{with index $data "breadcrumbs"}}<nav id="file-breadcrumbs" aria-label="Folder path">{{range $i, $raw := .}}{{$crumb := asMap $raw}}{{if $i}} / {{end}}<a href="{{str (index $crumb "open")}}">{{str (index $crumb "name")}}</a>{{end}}</nav>{{end}}
 {{if .Error}}{{template "alert" .Error}}
 {{else if .Feed}}<table id="rows">
 <thead><tr><th scope="col">Name</th><th scope="col">Details</th><th scope="col">Added</th></tr></thead>
 <tbody>
-{{range .Feed}}{{$f := asMap .}}{{$kind := str (index $f "kind")}}{{$hash := str (index $f "sha256")}}{{$name := or (str (index $f "name")) (shortID $hash)}}{{$open := or (str (index $f "open")) (printf "/file?hash=%s" (urlquery $hash))}}<tr data-kind="{{$kind}}"><td><a href="{{$open}}">{{if and $hash (hasPrefix (str (index $f "type")) "image/")}}<img loading="lazy" src="/files/raw?hash={{urlquery $hash}}" alt="">{{else}}<span data-file-icon aria-hidden="true">{{if or (eq $kind "folder") (eq $kind "site") (eq $kind "room")}}▱{{else}}▤{{end}}</span>{{end}}<span>{{$name}}</span></a>{{with index $f "context_url"}}<small><a href="{{.}}">{{str (index $f "context")}}</a></small>{{end}}</td><td>{{if eq $kind "folder"}}Folder{{else if eq $kind "site"}}Site{{else if eq $kind "room"}}Room{{else}}{{fileSize (index $f "size")}}<small>{{str (index $f "type")}}</small>{{end}}</td><td>{{with index $f "uploaded"}}<time datetime="{{datetime .}}">{{when .}}</time>{{end}}</td></tr>
+{{range .Feed}}{{$f := asMap .}}{{$kind := str (index $f "kind")}}{{$hash := str (index $f "sha256")}}{{$name := or (str (index $f "name")) (shortID $hash)}}{{$open := or (str (index $f "open")) (printf "/file?hash=%s" (urlquery $hash))}}<tr data-kind="{{$kind}}" data-hash="{{$hash}}"><td><a href="{{$open}}">{{if and $hash (hasPrefix (str (index $f "type")) "image/")}}<img loading="lazy" src="/files/raw?hash={{urlquery $hash}}" alt="">{{else}}<span data-file-icon aria-hidden="true">{{if or (eq $kind "folder") (eq $kind "site") (eq $kind "room")}}▱{{else}}▤{{end}}</span>{{end}}<span>{{$name}}</span></a>{{with index $f "context_url"}}<small><a href="{{.}}">{{str (index $f "context")}}</a></small>{{end}}</td><td>{{if eq $kind "folder"}}Folder{{else if eq $kind "site"}}Site{{else if eq $kind "room"}}Room{{else}}{{fileSize (index $f "size")}}<small>{{str (index $f "type")}}</small>{{if eq (str (index $f "access")) "members"}}<small>Relay members</small>{{else if eq (str (index $f "purpose")) "file"}}<small>Secret link</small>{{end}}{{end}}</td><td>{{with index $f "uploaded"}}<time datetime="{{datetime .}}">{{when .}}</time>{{end}}</td></tr>
 {{end}}</tbody>
 </table>
 {{else}}<p id="file-empty">{{if .Query.Get "q"}}No files match this search.{{else if eq $view "sites"}}No site files here yet.{{else if eq $view "rooms"}}No room attachments here yet.{{else if .Query.Get "path"}}This folder is empty.{{else}}No files here yet. Use Upload to add files or a folder.{{end}}</p>
@@ -31,18 +31,12 @@
 {{end}}
 
 {{define "file"}}{{if .Error}}<section><h1>File</h1>{{template "alert" .Error}}</section>
-{{else}}{{$file := asMap .Event}}{{$hash := or (.Query.Get "hash") (.Query.Get "sha")}}<section id="file-view">
-<h1>{{or (str (index $file "name")) "File"}}</h1>
-<table id="facts">
-<tr><th>sha256</th><td><code>{{str (index $file "sha256")}}</code></td></tr>
-<tr><th>type</th><td>{{str (index $file "type")}}</td></tr>
-<tr><th>size</th><td>{{str (index $file "size")}} bytes</td></tr>
-{{with index $file "blossom_uri"}}<tr><th>blossom</th><td><code>{{.}}</code></td></tr>{{end}}
-<tr><th>download</th><td><a fx-ignore href="/files/raw?hash={{urlquery (str (index $file "sha256"))}}">raw</a></td></tr>
-</table>
+{{else}}{{$file := asMap .Event}}{{$hash := or (.Query.Get "hash") (.Query.Get "sha")}}<section id="file-view" data-pubkey="{{.Actor}}">
+<h1>{{or (str (index $file "name")) "File"}}</h1>{{if eq (str (index $file "access")) "members"}}<p>Relay members can view and download this file.</p>{{end}}
+
 <file-workspace-root hash="{{str (index $file "sha256")}}" type="{{str (index $file "type")}}" hidden></file-workspace-root>
 <noscript><p>Enable JavaScript to decrypt files and browse folder manifests locally. Raw downloads remain available above.</p></noscript>
-<file-tools hash="{{str (index $file "sha256")}}" type="{{str (index $file "type")}}" size="{{str (index $file "size")}}" name="{{or (str (index $file "name")) (shortID (index $file "sha256"))}}"></file-tools>
+
 {{$type := str (index $file "type")}}{{$raw := printf "/files/raw?hash=%s" (urlquery (str (index $file "sha256")))}}{{if hasPrefix $type "image/"}}<div id="media"><img src="{{$raw}}" alt=""></div>
 {{else if hasPrefix $type "video/"}}<div id="media"><video controls src="{{$raw}}"></video></div>
 {{else if hasPrefix $type "audio/"}}<div id="media"><audio controls src="{{$raw}}"></audio></div>
@@ -50,7 +44,13 @@
 {{else if index $file "binary"}}<p id="media">This is a binary file. Download it to view its contents.</p>
 {{else if index $file "content"}}{{sourceHTML .Event}}
 {{else}}<p id="media">This file is empty.</p>
-{{end}}{{if .Actor}}<details id="manage-file"><summary>Manage file</summary><rpc-form method="deleteblob"><input type="hidden" name="param" value="{{$hash}}"><button>Delete file</button></rpc-form></details>{{end}}</section>
+{{end}}<file-tools hash="{{str (index $file "sha256")}}" type="{{str (index $file "type")}}" size="{{str (index $file "size")}}" name="{{or (str (index $file "name")) (shortID (index $file "sha256"))}}"></file-tools><details id="file-facts"><summary>File details</summary><table id="facts">
+<tr><th>sha256</th><td><code>{{str (index $file "sha256")}}</code></td></tr>
+<tr><th>type</th><td>{{str (index $file "type")}}</td></tr>
+<tr><th>size</th><td>{{fileSize (index $file "size")}}</td></tr>
+{{with index $file "blossom_uri"}}<tr><th>blossom</th><td><code>{{.}}</code></td></tr>{{end}}
+<tr><th>download</th><td><a fx-ignore href="/files/raw?hash={{urlquery (str (index $file "sha256"))}}">raw</a></td></tr>
+</table></details>{{if .Actor}}<details id="manage-file"><summary>Manage file</summary><rpc-form method="deleteblob"><input type="hidden" name="param" value="{{$hash}}"><button>Delete file</button></rpc-form></details>{{end}}</section>
 {{end}}{{end}}
 
 {{define "approvals"}}<section>
