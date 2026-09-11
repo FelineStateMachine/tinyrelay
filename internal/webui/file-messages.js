@@ -90,7 +90,7 @@
     return response.json();
   }
 
-  function publishEvent(event, relays, options) {
+  function publishEvent(event, relays, options = {}) {
     const signer = options.signer || activeSigner();
     const WebSocketImpl = options.WebSocket || globalThis.WebSocket;
     if (typeof WebSocketImpl !== "function") throw Error("WebSocket support is unavailable");
@@ -321,6 +321,7 @@
   const apiObject = Object.freeze({
     build,
     share,
+    normalizePubkey,
     relayList,
     queryRelayList,
     publishEvent

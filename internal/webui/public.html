@@ -29,7 +29,7 @@
 <h1>{{if .Actor}}Your account{{else}}Sign in{{end}}</h1>
 {{if .Notice}}<p role="status">{{.Notice}}</p>{{end}}
 {{if .Actor}}<p>Signed in as {{template "nostrKey" .Actor}}.</p>
-<p><a href="/manage/people">Manage relay</a> | <a href="/tools">Browser tools</a> | <a href="/inbox">Inbox</a></p>
+<p><a href="/manage/people">Manage relay</a> | <a href="/tools">Browser tools</a> | <a href="/chat">Chat</a></p>
 <p>Use the sign out control in the footer to end this session.</p>
 <details id="relay-setup"><summary>Your relay lists (optional)</summary>
 <p>Choose where other Nostr clients find your notes, messages and files. Add this relay to any lists you want to use. Existing entries stay.</p>
@@ -135,12 +135,6 @@
 {{define "private"}}<section>
 <h1>Private messages</h1>
 <p>Sign in with a Nostr client to view addressed private events.</p>
-</section>
-{{end}}
-
-{{define "chat"}}<section>
-<h1>Chat</h1>
-<p>Group and direct conversations are available through NIP-17 and NIP-29 clients.</p>
 </section>
 {{end}}
 

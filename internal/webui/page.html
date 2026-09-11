@@ -37,6 +37,7 @@ then feature modules are loaded for the current page. */}}
 {{else if eq .Tab "social-thread"}}{{template "social-thread" .}}
 {{else if eq .Tab "private"}}{{template "private" .}}
 {{else if eq .Tab "chat"}}{{template "chat" .}}
+{{else if eq .Tab "direct"}}{{template "direct" .}}
 {{else if eq .Tab "media"}}{{template "media" .}}
 {{else if eq .Tab "sites"}}{{template "sites" .}}
 {{else if eq .Tab "marmot"}}{{template "marmot" .}}
@@ -79,11 +80,14 @@ then feature modules are loaded for the current page. */}}
 <script src="{{scriptURL "file-catalog.js"}}"></script>
 <script src="{{scriptURL "blossom-manifests.js"}}"></script>
 <script src="{{scriptURL "blossom-upload.js"}}"></script>
-<script src="{{scriptURL "file-messages.js"}}"></script>
 <script src="{{scriptURL "file-workspace.js"}}"></script>
 {{end}}<script src="{{scriptURL "nostr-name.js"}}"></script>
 <script src="{{scriptURL "components.js"}}"></script>
 <script src="{{scriptURL "rooms.js"}}"></script>
+<script src="{{scriptURL "file-messages.js"}}"></script>
+<script src="{{scriptURL "direct-messages.js"}}"></script>
+<script src="{{scriptURL "chat-files.js"}}"></script>
+<script src="{{scriptURL "chat.js"}}"></script>
 {{if eq .Tab "connect"}}<script src="{{scriptURL "private-services.js"}}"></script>
 {{end}}</body>
 </html>
@@ -97,10 +101,13 @@ then feature modules are loaded for the current page. */}}
 <nav>{{$v := repoView .Query}}<a href="{{repoURL .Query "home" ""}}"{{if eq $v "home"}} aria-current="page"{{end}}>/home</a><a href="{{repoURL .Query "tree" ""}}"{{if or (eq $v "tree") (eq $v "file")}} aria-current="page"{{end}}>/code</a><a href="{{repoURL .Query "history" ""}}"{{if or (eq $v "history") (eq $v "commit")}} aria-current="page"{{end}}>/history</a><a href="{{repoURL .Query "issues" ""}}"{{if or (eq $v "issues") (eq $v "issue")}} aria-current="page"{{end}}>/issues</a><a href="{{repoURL .Query "prs" ""}}"{{if or (eq $v "prs") (eq $v "pr")}} aria-current="page"{{end}}>/prs</a><a href="{{repoURL .Query "activity" ""}}"{{if eq $v "activity"}} aria-current="page"{{end}}>/activity</a></nav>
 {{else if eq $kind "manage"}}<header><span><a href="/">{{.Slug}}</a>/<b>manage</b></span></header>
 {{range $group := navGroups manageItems}}<nav>{{range $item := $group}}<a href="{{$item.Href}}"{{if eq $item.Tab $.Tab}} aria-current="page"{{end}}>{{$item.Label}}</a>{{end}}</nav>{{end}}
-{{else if eq $kind "rooms"}}<header><span><a href="/">{{.Slug}}</a>/<a href="/rooms"><b>rooms</b></a></span></header>
+{{else if eq $kind "rooms"}}<header><span><a href="/">{{.Slug}}</a>/<a href="/chat"><b>chat</b></a></span></header>
+<nav aria-label="Chat"><a href="/chat"{{if eq .Tab "chat"}} aria-current="page"{{end}}>All conversations</a></nav>
+{{if .Actor}}<h4>Direct chats</h4><direct-chats actor="{{.Actor}}" relay="{{wsURL .URL}}" compact><p>Connect your signer to see direct chats.</p></direct-chats>
+<p><a href="/chat#new-chat">+ new chat</a></p>{{end}}
 <h4>Rooms</h4>
-<nav id="room-list">{{range .Rooms}}{{$r := asMap .}}<a href="/rooms/{{str (index $r "id")}}"{{if eq (str (index $r "id")) $.View}} aria-current="page"{{end}}>{{or (str (index $r "name")) (str (index $r "id"))}}{{with age (index $r "last_message_at")}} <small>{{.}}</small>{{end}}</a>{{else}}<a href="/rooms"{{if eq $.Tab "rooms"}} aria-current="page"{{end}}>/rooms</a>{{end}}</nav>
-<p><a href="/rooms#new-room">+ new room</a></p>
+<nav id="room-list">{{range .Rooms}}{{$r := asMap .}}<a href="/rooms/{{str (index $r "id")}}"{{if eq (str (index $r "id")) $.View}} aria-current="page"{{end}}>{{or (str (index $r "name")) (str (index $r "id"))}}{{with age (index $r "last_message_at")}} <small>{{.}}</small>{{end}}</a>{{else}}<a href="/chat">Browse rooms</a>{{end}}</nav>
+<p><a href="/chat#new-room">+ new room</a></p>
 {{else}}<header><span><a id="mark" href="/" title="{{.Slug}}"><i>t</i><i>i</i><i>n</i><i>y</i></a></span></header>
 {{range $group := navGroups relayItems}}<nav>{{range $item := $group}}<a href="{{$item.Href}}"{{if eq $item.Tab $.Tab}} aria-current="page"{{end}}>{{$item.Label}}</a>{{end}}</nav>{{end}}
 {{end}}<p id="rail-tools">{{if eq $kind "repo"}}<a href="/repos">&larr; all repositories</a>{{else if or (eq $kind "manage") (eq $kind "rooms")}}<a href="/">&larr; relay</a>{{end}}<button id="theme" type="button" aria-label="Switch theme">theme</button></p>{{end}}
@@ -110,6 +117,7 @@ then feature modules are loaded for the current page. */}}
 {{else if eq .Tab "repo"}}{{template "panel-repo" .}}
 {{else if eq .Tab "agents"}}{{template "panel-agents" .}}
 {{else if eq $kind "manage"}}{{template "panel-manage" .}}
+{{else if or (eq .Tab "chat") (eq .Tab "direct")}}{{template "panel-chat" .}}
 {{else if eq $kind "rooms"}}{{template "panel-rooms" .}}
 {{else if or (eq .Tab "social") (eq .Tab "social-thread")}}{{template "panel-social" .}}
 {{else if or (eq .Tab "inbox") (eq .Tab "outbox") (eq .Tab "search") (eq .Tab "articles")}}{{template "panel-feed" .}}
@@ -126,7 +134,7 @@ then feature modules are loaded for the current page. */}}
 <section><h4>Relay</h4><table><tr><th>url</th><td><code>{{.URL}}</code></td></tr></table></section>{{end}}
 
 {{define "panel-signin"}}<section><h4>Session</h4><table><tr><th>status</th><td>{{if .Actor}}signed in{{else}}guest{{end}}</td></tr><tr><th>method</th><td>NIP-98</td></tr></table></section>
-<section><h4>After sign in</h4><ul><li>read your inbox</li><li>manage members and policy</li><li>upload files</li><li>push repositories</li></ul></section>{{end}}
+<section><h4>After sign in</h4><ul><li>join chats</li><li>manage members and policy</li><li>upload files</li><li>push repositories</li></ul></section>{{end}}
 
 {{define "panel-repos"}}<section><h4>Hosting</h4><table><tr><th>server</th><td><code>{{.URL}}</code></td></tr><tr><th>protocol</th><td>GRASP-01</td></tr></table></section>
 <section><h4>Publish</h4><p><small>Announce with ngit and push with plain git. Every push needs the owner's signed state.</small></p></section>{{end}}
@@ -135,7 +143,7 @@ then feature modules are loaded for the current page. */}}
 {{if .Actor}}<section><h4>Upload</h4><file-upload pubkey="{{.Actor}}"></file-upload><p><small>Members-only files require membership to view or download.</small></p><details><summary>Import from URL</summary><file-mirror action="/mirror"></file-mirror></details><noscript><p>Uploads need JavaScript and a connected signer.</p></noscript></section>{{end}}{{end}}
 
 {{define "panel-approvals"}}{{$counts := approvalCounts .Event}}{{$data := asMap .Event}}<section><h4>Waiting</h4><table><tr><th>open</th><td>{{index $counts "open"}}</td></tr><tr><th>oldest</th><td>{{with index $data "oldest_open"}}<time datetime="{{datetime .}}">{{when .}}</time>{{else}}none{{end}}</td></tr><tr><th>answered</th><td>{{index $counts "answered"}}</td></tr><tr><th>expired</th><td>{{index $counts "expired"}}</td></tr></table></section>
-<section><h4>Devices</h4>{{if .Actor}}{{range $index, $device := approvalDevices .Event}}<p><i></i>device {{add $index 1}} | {{$device}}</p>{{else}}<p>No device receives notifications for this key. Enable them under Inbox.</p>{{end}}<p><small>Answers from the phone need the remembered signer.</small></p>{{else}}<p>Sign in to see which devices are notified.</p>{{end}}</section>{{end}}
+<section><h4>Devices</h4>{{if .Actor}}{{range $index, $device := approvalDevices .Event}}<p><i></i>device {{add $index 1}} | {{$device}}</p>{{else}}<p>No device receives notifications for this key. Enable them in Chat.</p>{{end}}<p><small>Answers from the phone need the remembered signer.</small></p>{{else}}<p>Sign in to see which devices are notified.</p>{{end}}</section>{{end}}
 
 {{define "panel-feed"}}<section><h4>Filters</h4><form method="get" action="/{{.Tab}}"><label for="filter-kinds">kinds</label><select id="filter-kinds" name="kinds"><option value="">notes and articles</option><option value="1"{{if eq (.Query.Get "kinds") "1"}} selected{{end}}>1 notes</option><option value="30023"{{if eq (.Query.Get "kinds") "30023"}} selected{{end}}>30023 articles</option><option value="7"{{if eq (.Query.Get "kinds") "7"}} selected{{end}}>7 reactions</option><option value="all"{{if eq (.Query.Get "kinds") "all"}} selected{{end}}>everything</option></select><label for="filter-author">author</label><input id="filter-author" name="author" placeholder="64 hex pubkey" value="{{.Query.Get "author"}}"><label for="filter-since">since</label><input id="filter-since" name="since" type="date" value="{{.Query.Get "since"}}">{{if eq .Tab "search"}}<label for="filter-q">search</label><input id="filter-q" name="q" value="{{.Query.Get "q"}}">{{end}}<button>apply</button></form></section>
 {{if .Actor}}<section><h4>You</h4><table><tr><th>key</th><td>{{template "nostrKey" .Actor}}</td></tr></table></section>{{end}}
@@ -156,7 +164,7 @@ then feature modules are loaded for the current page. */}}
 <section><h4>Kill switch</h4><rpc-form method="pauseallagents" refresh><button>Pause all agents</button></rpc-form><rpc-form method="resumeallagents" refresh><button>Resume all agents</button></rpc-form><p><small>Pausing keeps grants and rejects writes until resumed.</small></p></section>
 <section><h4>Session</h4><table><tr><th>you</th><td>{{if .Actor}}{{template "nostrKey" .Actor}}{{else}}guest{{end}}</td></tr><tr><th>role</th><td>{{if .Owner}}owner{{else if .Actor}}member{{else}}none{{end}}</td></tr></table></section>{{end}}
 {{define "panel-rooms"}}{{if eq .Tab "rooms"}}<section><h4>Rooms</h4><table><tr><th>rooms</th><td>{{len .Rooms}}</td></tr><tr><th>protocol</th><td>NIP-29</td></tr></table></section>
-<section><h4>Actions</h4><ul>{{if .Actor}}<li><a href="/rooms#new-room">new room</a></li>{{else}}<li><a href="{{signinURL .Base .Path .Query}}">sign in</a></li>{{end}}</ul></section>
+<section><h4>Actions</h4><ul>{{if .Actor}}<li><a href="/chat#new-room">new room</a></li>{{else}}<li><a href="{{signinURL .Base .Path .Query}}">sign in</a></li>{{end}}</ul></section>
 {{else if .Error}}<section><h4>Room</h4><table><tr><th>id</th><td><code>{{.View}}</code></td></tr></table></section>
 {{else}}{{$data := asMap .Event}}{{$room := asMap (index $data "room")}}{{$id := str (index $room "id")}}{{$role := str (index $room "role")}}<section><h4>Room</h4><table><tr><th>id</th><td><code>{{$id}}</code></td></tr><tr><th>access</th><td>{{if eq (str (index $room "access")) "members"}}members only{{else}}open{{end}}</td></tr><tr><th>created</th><td>{{short (index $room "created_at")}}</td></tr>{{if $role}}<tr><th>you</th><td>{{$role}}</td></tr>{{end}}</table></section>
 {{if eq .Tab "thread"}}<section><h4>Actions</h4><ul><li><a href="/rooms/{{$id}}">open room</a></li></ul></section>

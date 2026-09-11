@@ -16,7 +16,7 @@ import (
 // templateFS holds every page template. page.html owns the shell and the
 // shared partials; the other files each define one group of tabs.
 //
-//go:embed page.html public.html manage.html browse.html repo.html collaboration.html wiki.html rooms.html social.html
+//go:embed page.html public.html manage.html browse.html repo.html collaboration.html wiki.html rooms.html social.html chat.html
 var templateFS embed.FS
 
 // styleCSS is inlined into every page so the UI needs no extra request and
@@ -40,6 +40,15 @@ var componentsJS string
 
 //go:embed rooms.js
 var roomsJS string
+
+//go:embed chat.js
+var chatJS string
+
+//go:embed chat-files.js
+var chatFilesJS string
+
+//go:embed direct-messages.js
+var directMessagesJS string
 
 // nostr-name.js is the vendored <nostr-name> element with the relay-local
 // profile loader; rebuild it with npm run build:nostr-name.
@@ -104,20 +113,27 @@ var iconSVG []byte
 //go:embed icon-mono.svg
 var iconMonoSVG []byte
 
-// navItem is one rail entry. Tab matches PageData.Tab for the active state.
-// navItem is one rail entry. Group orders entries by what they are for; the
-// rail leaves a small gap between groups.
+// navItem is one rail entry. Tab matches PageData.Tab for the active state;
+// Group separates related destinations with a small gap.
 type navItem struct {
 	Label, Href, Tab string
 	Group            int
 }
 
-// relayNav: entry points, then conversation, then collaborative artifacts,
-// then what the relay publishes and stores, then what is yours.
-var relayNav = []navItem{{"/home", "/", "home", 0}, {"/search", "/search", "search", 0}, {"/rooms", "/rooms", "rooms", 1}, {"/inbox", "/inbox", "inbox", 1}, {"/approvals", "/approvals", "approvals", 1}, {"/repos", "/repos", "repos", 2}, {"/wiki", "/wiki", "wiki", 2}, {"/files", "/files", "files", 3}, {"/social", "/social", "social", 3}, {"/sites", "/sites", "sites", 3}, {"/outbox", "/outbox", "outbox", 4}, {"/manage", "/manage/people", "manage", 4}}
+// relayNav groups discovery, conversations, shared work and administration.
+var relayNav = []navItem{
+	{"/home", "/", "home", 0},
+	{"/search", "/search", "search", 0},
+	{"/social", "/social", "social", 1},
+	{"/chat", "/chat", "chat", 1},
+	{"/repos", "/repos", "repos", 2},
+	{"/wiki", "/wiki", "wiki", 2},
+	{"/files", "/files", "files", 2},
+	{"/sites", "/sites", "sites", 2},
+	{"/approvals", "/approvals", "approvals", 3},
+	{"/manage", "/manage/people", "manage", 3},
+}
 
-// manageNav: who is here, what they may do, what the relay is, what it does
-// over time, and how it is doing.
 var manageNav = []navItem{{"/people", "/manage/people", "people", 0}, {"/agents", "/manage/agents", "agents", 0}, {"/moderation", "/manage/moderation", "moderation", 1}, {"/rules", "/manage/rules", "rules", 1}, {"/identity", "/manage/identity", "identity", 2}, {"/connect", "/manage/connect", "connect", 2}, {"/owner", "/manage/owner", "owner", 2}, {"/sync", "/manage/sync", "sync", 3}, {"/data", "/manage/data", "data", 3}, {"/views", "/manage/views", "views", 3}, {"/health", "/manage/health", "health", 4}}
 
 // navGroups splits a rail list into its groups, in order.
@@ -138,7 +154,7 @@ func railKind(tab string) string {
 	if tab == "repo" {
 		return "repo"
 	}
-	if tab == "rooms" || tab == "room" || tab == "thread" {
+	if tab == "chat" || tab == "direct" || tab == "rooms" || tab == "room" || tab == "thread" {
 		return "rooms"
 	}
 	for _, item := range manageNav {
@@ -225,7 +241,7 @@ func repoView(query url.Values) string {
 // scripts are served at /scripts/<name> and cached by the service worker.
 // One version stamp covers them all, so a change to any file refreshes every
 // cached copy together.
-var scripts = map[string]string{"bridge.js": bridgeJS, "tiny.js": tinyJS, "components.js": componentsJS, "rooms.js": roomsJS, "nostr-name.js": nostrNameJS, "blossom-encryption.js": blossomEncryptionJS, "blossom-manifests.js": blossomManifestsJS, "blossom-upload.js": blossomUploadJS, "file-messages.js": fileMessagesJS, "private-services.js": privateServicesJS, "file-workspace.js": fileWorkspaceJS, "file-catalog.js": fileCatalogJS}
+var scripts = map[string]string{"bridge.js": bridgeJS, "tiny.js": tinyJS, "components.js": componentsJS, "rooms.js": roomsJS, "chat.js": chatJS, "chat-files.js": chatFilesJS, "direct-messages.js": directMessagesJS, "nostr-name.js": nostrNameJS, "blossom-encryption.js": blossomEncryptionJS, "blossom-manifests.js": blossomManifestsJS, "blossom-upload.js": blossomUploadJS, "file-messages.js": fileMessagesJS, "private-services.js": privateServicesJS, "file-workspace.js": fileWorkspaceJS, "file-catalog.js": fileCatalogJS}
 
 var scriptsVersion = func() string {
 	names := make([]string, 0, len(scripts))

@@ -35,6 +35,7 @@
  // roomID derives a room id from a name: lowercase letters, digits, hyphen and underscore.
  const roomID = name => String(name || "").toLowerCase().replace(/[^a-z0-9_-]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 64);
  const tagValue = (event, name) => (event.tags || []).find(tag => tag[0] === name)?.[1] || "";
+ const quoteID = event => { const id = tagValue(event, "q"); return isHex64(id) ? id : ""; };
  const clock = seconds => {
    const stamp = new Date(seconds * 1000).toISOString();
    if (stamp.slice(0, 10) === new Date().toISOString().slice(0, 10)) return stamp.slice(11, 16);
@@ -356,7 +357,10 @@
    header.append(member?.role ? " | " + member.role : "", small);
    const attachments = notice ? [] : roomAttachments(event);
    const body = notice ? el("p", notice) : chatMarkdown(el("div"), attachmentContent(event.content || "", attachments));
-   node.append(avatar, header, body);
+   node.append(avatar, header);
+   const quote = notice ? "" : quoteID(event);
+   if (quote) { const block = el("blockquote"), link = el("a", "quoted event " + quote.slice(0, 12)); block.dataset.quote = ""; link.href = tiny.localPath("/open?target=" + encodeURIComponent("nostr:" + quote)); block.title = quote; block.append(link); node.append(block); }
+   node.append(body);
    const media = attachmentNodes(attachments); if (media) node.append(media);
    const footer = el("footer");
    const mentions = notice ? [] : (event.tags || []).filter(tag => tag[0] === "p" && isHex64(tag[1]) && tag[1] !== pubkey).map(tag => tag[1]);
@@ -576,6 +580,20 @@
        if (!isHex64(root)) throw Error("The thread root is missing.");
        tags.push(["e", root]);
        if (isHex64(author) && author !== this.getAttribute("pubkey")) tags.push(["p", author]);
+     }
+     const quote = this.getAttribute("quote");
+     if (quote) {
+       if (!isHex64(quote)) throw Error("The quoted event is invalid.");
+       const relay = this.getAttribute("quote-relay");
+       const author = this.getAttribute("quote-pubkey");
+       // NIP-10 keeps relay and author positional. Preserve the empty relay
+       // slot when only the quoted author's key is known.
+       const tag = ["q", quote, relay || ""];
+       if (isHex64(author)) {
+         tag.push(author);
+         if (author !== this.getAttribute("pubkey") && !tags.some(item => item[0] === "p" && item[1] === author)) tags.push(["p", author]);
+       }
+       tags.push(tag);
      }
      roomMentions(content).forEach(key => { if (!tags.some(tag => tag[0] === "p" && tag[1] === key)) tags.push(["p", key]); });
      const lines = [];

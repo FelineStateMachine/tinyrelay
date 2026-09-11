@@ -242,6 +242,7 @@
         const response = await fetch(localPath("/session/logout"), {method: "POST", credentials: "same-origin"});
         if (!response.ok) throw Error(await response.text());
         forgetRemote();
+        if (typeof CustomEvent === "function") document.dispatchEvent?.(new CustomEvent("tiny:logout"));
         say("Signed out.");
         location.reload();
       } catch (err) {

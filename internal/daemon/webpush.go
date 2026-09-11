@@ -382,7 +382,7 @@ func (t *Tenant) pushMessage(ctx context.Context, payload pushPayload) pushMessa
 	}
 	url := payload.URL
 	if url == "" {
-		url = strings.TrimRight(t.publicURL, "/") + "/inbox"
+		url = strings.TrimRight(t.publicURL, "/") + "/chat"
 	}
 	return pushMessage{Title: title, Body: body, URL: url, Tag: "tiny-" + payload.Kind, Badge: t.inboxUnread(ctx, payload.Recipient), Actions: payload.Actions}
 }

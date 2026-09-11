@@ -156,6 +156,16 @@ test("room-compose replies in a thread with the root and its author, and refuses
   await assert.rejects(new refused.RoomCompose().submit(refused.form({content: "x"})), /members only/);
 });
 
+test("room-compose emits the standard q tag for a quoted event", () => {
+  const id = "4".repeat(64), author = "5".repeat(64);
+  const s = setup({attributes: {room: "build", quote: id, "quote-relay": "wss://relay.example", "quote-pubkey": author}});
+  same(new s.RoomCompose().event("see this").tags, [["h", "build"], ["p", author], ["q", id, "wss://relay.example", author]]);
+  const withoutRelay = setup({attributes: {room: "build", quote: id, "quote-pubkey": author, pubkey: "6".repeat(64)}});
+  same(new withoutRelay.RoomCompose().event("see this").tags, [["h", "build"], ["p", author], ["q", id, "", author]]);
+  const invalid = setup({attributes: {room: "build", quote: "not-an-event"}});
+  assert.throws(() => new invalid.RoomCompose().event("x"), /quoted event/);
+});
+
 const selectedFile = (name = "chart.png", type = "image/png", text = "image bytes") => ({name, type, size: Buffer.byteLength(text), arrayBuffer: async () => Uint8Array.from(Buffer.from(text)).buffer});
 const descriptorFor = (file, bytes) => {
   const sha256 = createHash("sha256").update(bytes).digest("hex");

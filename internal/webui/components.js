@@ -1598,9 +1598,9 @@
   // page whose definition has not arrived, such as after an in-place
   // navigation to the Files or Connect pages.
   const bundlesFor = {"file-upload": "files", "file-workspace-root": "files", "private-services": "private"};
-  // Opening the inbox records the visit for the badge and clears it.
+  // Opening Chat records the visit for the notification badge.
   const markInboxSeen = () => {
-    if (!/\/inbox$/.test(location.pathname) || !document.getElementById("session-logout")) return;
+    if (!/\/(?:inbox|chat(?:\/dm\/[0-9a-f]{64})?)$/.test(location.pathname) || !document.getElementById("session-logout")) return;
     navigator.clearAppBadge?.().catch?.(() => {});
     fetch(tiny.localPath("/inbox/seen"), {method: "POST", credentials: "same-origin"}).catch(() => {});
   };
@@ -1667,7 +1667,7 @@
       if (root && !(url.pathname === root || url.pathname.startsWith(root + "/"))) return null;
       return root ? url.pathname.slice(root.length) || "/" : url.pathname;
     };
-    const allowedRoute = path => /^(?:\/(?:inbox|approvals|profile|outbox|search|social|articles|private|chat|media|sites|marmot|grasp|terms|signin|connect|tools|repo|repos|file|files|wiki|rooms)?\/?|\/manage(?:\/(?:people|agents|moderation|rules|identity|connect|data|sync|views|health|owner|status))?\/?|\/(?:invite|e|a|wiki|social)\/.+|\/rooms\/[a-z0-9_-]{1,64}(?:\/thread\/[0-9a-f]{64})?\/?)$/.test(path || "");
+    const allowedRoute = path => /^(?:\/(?:inbox|approvals|profile|outbox|search|social|articles|private|chat|media|sites|marmot|grasp|terms|signin|connect|tools|repo|repos|file|files|wiki|rooms)?\/?|\/manage(?:\/(?:people|agents|moderation|rules|identity|connect|data|sync|views|health|owner|status))?\/?|\/(?:invite|e|a|wiki|social)\/.+|\/chat\/dm\/[0-9a-f]{64}|\/rooms\/[a-z0-9_-]{1,64}(?:\/thread\/[0-9a-f]{64})?\/?)$/.test(path || "");
     let navigationSerial = 0, activeAbort;
     const streams = new Set();
     const closeStreams = () => {

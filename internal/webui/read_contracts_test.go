@@ -35,7 +35,7 @@ func TestTypedRoomsReaderAvoidsLegacyQuery(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, path := range []string{"/rooms", "/rooms/build"} {
+	for _, path := range []string{"/rooms/build"} {
 		response := httptest.NewRecorder()
 		app.ServeHTTP(response, httptest.NewRequest(http.MethodGet, path, nil))
 		if response.Code != http.StatusOK {

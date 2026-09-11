@@ -87,7 +87,7 @@ func TestApprovalsPageRendersRequestsForTheOwner(t *testing.T) {
 		t.Fatal("page carries class attributes")
 	}
 	rail := body[strings.Index(body, `id="railbox"`):strings.Index(body, `id="rail-tools"`)]
-	if strings.Index(rail, "/inbox") > strings.Index(rail, "/approvals") || strings.Index(rail, "/approvals") > strings.Index(rail, "/repos") {
+	if strings.Contains(rail, "/inbox") || strings.Contains(rail, "/outbox") || strings.Index(rail, "/approvals") < strings.Index(rail, "/repos") {
 		t.Fatalf("rail order:\n%s", rail)
 	}
 

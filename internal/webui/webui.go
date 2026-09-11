@@ -176,7 +176,7 @@ func (a *App) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
 	if a.denyPrivateEndpoint(writer, request) {
 		return
 	}
-	if a.handleControlRoute(writer, request) || a.handleWebMCPRoute(writer, request) || a.handleBrowseRoute(writer, request) {
+	if a.handleChatRoute(writer, request) || a.handleControlRoute(writer, request) || a.handleWebMCPRoute(writer, request) || a.handleBrowseRoute(writer, request) {
 		return
 	}
 	if a.handleSocialRoute(writer, request) {

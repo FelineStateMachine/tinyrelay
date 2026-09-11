@@ -1,6 +1,6 @@
 # Files and private repositories
 
-Use **Files** to browse uploads by name, open folders, preview images and play supported audio and video files. **My files** shows your uploads and files shared with relay members. **Sites** groups published assets by site, and **Rooms** groups attachments by rooms you can access. Owners and moderators can open **Storage** for the full inventory.
+Use **Files** to browse uploads by name, open folders, preview images and play supported audio and video files. **My files** shows your uploads and files shared with relay members. **Sites** groups published assets by site, and **Chat** groups attachments by rooms you can access. Owners and moderators can open **Storage** for the full inventory.
 
 ## Uploading
 

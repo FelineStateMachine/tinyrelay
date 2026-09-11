@@ -1,0 +1,41 @@
+{
+  "purpose": "Small signed event vectors for NIP-17 and NIP-29 client parity checks.",
+  "sources": {
+    "nip17": "https://github.com/nostr-protocol/nips/blob/master/17.md",
+    "nip29": "https://github.com/nostr-protocol/nips/blob/master/29.md",
+    "zero_x_chat_commit": "76675e7b832212c96c7a3061778bf9ac8971da9b",
+    "flotilla_commit": "19f549102471f0c79d33ce4a729deb0ceb205c33"
+  },
+  "identities": {
+    "alice": "1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f",
+    "bob": "4d4b6cd1361032ca9bd2aeb9d900aa4d45d9ead80ac9423374c451a7254d0766"
+  },
+  "events": [
+    {
+      "kind": 7,
+      "created_at": 1700000001,
+      "tags": [
+        ["e", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "wss://relay.example", "root", "1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f"],
+        ["p", "4d4b6cd1361032ca9bd2aeb9d900aa4d45d9ead80ac9423374c451a7254d0766"],
+        ["k", "14"]
+      ],
+      "content": "+",
+      "pubkey": "1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f",
+      "id": "bdba9e9029393e1d82f96c8ad4ee6dc669429cecc769fdb64ecf91acb800f31c",
+      "sig": "a901c80a30549b689672842a734c025eeca91382ce7e67b0f09d5ec60b37fdc16262274f6b9177a56757ee4c7d3aa949404d4573eceafebe69e16a1a26f5967f"
+    },
+    {
+      "kind": 9,
+      "created_at": 1700000002,
+      "tags": [
+        ["h", "general"],
+        ["q", "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "wss://relay.example", "4d4b6cd1361032ca9bd2aeb9d900aa4d45d9ead80ac9423374c451a7254d0766"],
+        ["p", "4d4b6cd1361032ca9bd2aeb9d900aa4d45d9ead80ac9423374c451a7254d0766"]
+      ],
+      "content": "A quoted room reply",
+      "pubkey": "1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f",
+      "id": "ad2d909d883d2e6eeecebe6a75cbd243cd40f3fc14b3872068e0fcf3980b162f",
+      "sig": "f5c73a690b68541cbfc4acab94fb3f6b52364c243a315ac819b85612b1819a414b931fa73e58447f5ba72ecac6c26655ac14a30de0e1ee8fac6ad14368601db7"
+    }
+  ]
+}

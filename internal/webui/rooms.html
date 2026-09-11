@@ -3,6 +3,8 @@ thread. room-live receives the room stream after the server-rendered page
 establishes the initial state. */}}
 {{define "rooms"}}<section id="rooms">
 <h1>Rooms</h1>
+{{template "roomList" .}}</section>{{end}}
+{{define "roomList"}}
 {{if .Error}}{{template "alert" .Error}}
 {{else if .Feed}}<table id="rows">
 <thead><tr><th>room</th><th>access</th><th>members</th><th>last message</th></tr></thead>
@@ -11,12 +13,12 @@ establishes the initial state. */}}
 {{end}}</tbody>
 </table>
 {{else}}<p>No rooms yet.</p>
-{{end}}{{with (asMap .Event).next_cursor}}<p id="pages"><a href="{{browsePageURL "/rooms" $.Query "cursor" .}}">next page</a></p>
+{{end}}{{with (asMap .Event).next_cursor}}<p id="pages"><a href="{{browsePageURL "/chat" $.Query "cursor" .}}">next page</a></p>
 {{end}}{{if .Actor}}<h2 id="new-room">New room</h2>
 <room-create><label>Name <input name="name" required maxlength="200" placeholder="build"></label><label>Id <input name="id" maxlength="64" pattern="[a-z0-9_-]{1,64}" placeholder="from the name"></label><label>Access <select name="access"><option value="open">open</option><option value="members">members only</option></select></label><label>About <textarea name="about" maxlength="2000"></textarea></label><button>Create room</button></room-create>
 <noscript><p>Creating a room needs JavaScript and a connected signer.</p></noscript>
 {{else}}<p><a href="{{signinURL .Base .Path .Query}}">Sign in</a> to create a room.</p>
-{{end}}</section>
+{{end}}
 {{end}}
 
 {{define "room"}}{{if .Error}}<section id="room">
@@ -64,6 +66,6 @@ establishes the initial state. */}}
 {{/* One message. room-live builds the same markup for messages that arrive on the stream. */}}
 {{define "roomMessage"}}<room-message id="msg-{{.ID}}" data-id="{{.ID}}" data-kind="{{.Kind}}" data-updated-at="{{.UpdatedAt}}" data-pubkey="{{.PubKey}}"{{if .Own}} data-own{{end}}{{if .Agent}} data-agent{{end}}{{if .Notice}} data-notice{{end}}{{if .Edited}} data-edited{{end}}><nostr-avatar pubkey="{{.PubKey}}" aria-hidden="true">{{.Avatar}}</nostr-avatar>
 <header><b>{{template "nostrName" .PubKey}}</b>{{if .Own}}<span data-own-label>you</span>{{end}}{{if .Role}} | {{.Role}}{{end}}<small><time datetime="{{datetime .CreatedAt}}" title="{{when .CreatedAt}}">{{clock .CreatedAt}}</time></small></header>
-{{if .Notice}}<p>{{.Notice}}</p>{{else}}<div>{{chatMarkdown (roomAttachmentContent .Content .Attachments)}}</div>{{roomAttachmentMarkup .Attachments}}{{end}}
+{{if .Notice}}<p>{{.Notice}}</p>{{else}}{{if .Quote}}<blockquote data-quote><a href="/open?target={{urlquery (printf "nostr:%s" .Quote)}}">quoted event {{shortID .Quote}}</a></blockquote>{{end}}<div>{{chatMarkdown (roomAttachmentContent .Content .Attachments)}}</div>{{roomAttachmentMarkup .Attachments}}{{end}}
 {{if or .Mentions (and (not .InThread) (or (eq .Kind "11") .Root)) .Reactions .Edited}}<footer>{{if .Mentions}}<span>to {{range .Mentions}}{{template "nostrName" .}} {{end}}</span>{{end}}{{if not .InThread}}{{if eq .Kind "11"}}<a href="/rooms/{{.Room}}/thread/{{.ID}}">thread{{if .Replies}} | {{.Replies}} {{if eq .Replies 1}}reply{{else}}replies{{end}}{{end}}</a>{{else if .Root}}<a href="/rooms/{{.Room}}/thread/{{.Root}}">in thread</a>{{end}}{{end}}{{range .Reactions}}<span data-reaction="{{.Content}}">{{.Content}} {{.Count}}</span>{{end}}{{if .Edited}}<span data-edited>edited</span>{{end}}</footer>{{end}}
 </room-message>{{end}}

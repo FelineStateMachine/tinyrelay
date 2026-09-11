@@ -1,0 +1,24 @@
+{{define "chat"}}<section id="chat">
+<h1>Chat</h1>
+<p>Direct conversations and group rooms.</p>
+<h2 id="new-chat">Direct chats</h2>
+{{if .Actor}}<direct-start><label>Start a conversation <input name="peer" required placeholder="npub or public key" autocomplete="off" spellcheck="false"></label><button>New chat</button></direct-start>
+<direct-chats actor="{{.Actor}}" relay="{{wsURL .URL}}"><p>Connect your signer to open your encrypted conversations.</p></direct-chats>
+<noscript><p>Direct chats need JavaScript and a signer that supports NIP-44 encryption. Group rooms are available below.</p></noscript>
+{{else}}<p><a href="{{signinURL .Base .Path .Query}}">Sign in</a> to open your direct chats.</p>{{end}}
+<h2>Rooms</h2>
+{{template "roomList" .}}
+</section>{{end}}
+
+{{define "direct"}}<section id="direct-chat">
+<header><h1>{{template "nostrName" .View}}</h1><p>Private conversation. Only you and this person can read these messages.</p></header>
+{{if .Actor}}<direct-thread actor="{{.Actor}}" peer="{{.View}}" relay="{{wsURL .URL}}"><p>Connect your signer to decrypt this conversation.</p></direct-thread>
+<direct-compose actor="{{.Actor}}" peer="{{.View}}" relay="{{wsURL .URL}}"><label for="direct-content">Message</label><textarea id="direct-content" name="content" rows="2" required title="Enter to send; Shift+Enter for a new line" placeholder="Write a private message…"></textarea><button type="submit">Send</button></direct-compose>
+<noscript><p>Reading and sending direct messages needs JavaScript and a signer that supports NIP-44 encryption.</p></noscript>
+{{else}}<p><a href="{{signinURL .Base .Path .Query}}">Sign in</a> to open this private conversation.</p>{{end}}
+</section>{{end}}
+
+{{define "panel-chat"}}<section><h4>Direct messages</h4><p>Encrypted for you and the recipient. Your signer opens messages delivered to this relay.</p>
+{{if .Actor}}<direct-settings actor="{{.Actor}}" relay="{{wsURL .URL}}"></direct-settings><p><small>Add this relay to your message relay list so other Nostr clients know where to reach you.</small></p>{{end}}</section>
+{{if .Actor}}<section><h4>Notifications</h4><push-toggle></push-toggle><p><small>Chat and approval notices on this device.</small></p><noscript><p>Enabling notifications needs JavaScript.</p></noscript></section>{{end}}
+<section><h4>Group rooms</h4><p>Open rooms are visible to everyone. Members-only rooms are visible to their members and relay moderators.</p><a href="/chat#new-room">Create a room</a></section>{{end}}

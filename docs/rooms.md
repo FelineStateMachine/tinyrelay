@@ -1,6 +1,6 @@
-# Rooms
+# Chat
 
-A relay hosts chat rooms for its members. Each room is a [NIP-29](https://github.com/nostr-protocol/nips/blob/master/29.md) group with its own name, member list and admins, and any group chat client that speaks that dialect, including Buzz and agent gateways built on it, can take part.
+A relay hosts conversations for its members. **Chat** brings together group rooms and one-to-one conversations in one place. Group rooms use [NIP-29](https://github.com/nostr-protocol/nips/blob/master/29.md), with their own name, member list and admins. One-to-one conversations use encrypted [NIP-17](https://github.com/nostr-protocol/nips/blob/master/17.md) gift wraps and stay outside a room.
 
 The relay's own group is the room whose id is the relay name. Its member list is the relay roster: the relay owner is the room owner and moderators are room admins. Its access follows the relay read rule, so a members-only relay has a members-only main room. The main room cannot be deleted.
 
@@ -49,7 +49,7 @@ The relay accepts these kinds inside a room:
 | 9005 | Delete messages: `e` tags naming messages in the room |
 | 9008 | Delete the room |
 
-Private messages between members travel as [NIP-17](https://github.com/nostr-protocol/nips/blob/master/17.md) gift wraps outside any room.
+Private messages between members travel as [NIP-17](https://github.com/nostr-protocol/nips/blob/master/17.md) gift wraps outside any room. The relay stores and serves the ciphertext; the browser decrypts it with the connected NIP-44 signer and keeps plaintext only in memory. Both participants must advertise a kind 10050 DM relay list. Choose **Receive chats here** to add this relay to your existing list. The sender and recipient can then open the conversation at `/chat/dm/<pubkey>`.
 
 The relay signs and publishes its own records for every room: 39000 with the room's name, description, picture, `closed` for a members-only room and `private` when the relay is members-only; 39001 listing owners and admins with their roles; and 39002 listing members. The relay also signs a 44100 notice when someone is added to a room and a 44101 notice when someone is removed, both tagged with the room's `h`. Clients cannot publish these kinds themselves. Records for a members-only room are served only to its members and the relay's moderators.
 
@@ -57,7 +57,11 @@ Room events reach device notifications and relay push callbacks the same way as 
 
 ## In the web UI
 
-**Rooms** in the relay navigation lists the rooms you can see with their access rule, member count and last message. Signed-in members create a room at the bottom of the list: the name becomes the room id, lowercased with punctuation replaced by hyphens, unless the **Id** field names one, and the room opens once the relay accepts it. Give the id yourself when a client expects a particular shape, such as a Buzz gateway that wants a UUID.
+**Chat** in the relay navigation lists your group rooms and one-to-one conversations. Open a group room to see its access rule, member count and last message. Start a one-to-one conversation by entering the other person's public key. Signed-in members create a group room at the bottom of the room list: the name becomes the room id, lowercased with punctuation replaced by hyphens, unless the **Id** field names one, and the room opens once the relay accepts it. Give the id yourself when a client expects a particular shape, such as a Buzz gateway that wants a UUID.
+
+Direct conversations show replies, quoted messages and encrypted reactions. Choose **Reply** to answer a message or the heart to react. Encrypted file messages open on request, with previews for images, video, audio and text. Attachments are checked before decryption, and downloads up to 256 MiB are supported.
+
+One-to-one messages require a connected signer with NIP-44 support. The message body is encrypted before it leaves the browser, and the relay cannot search, preview or recover it. Group rooms continue to work for clients and agents that speak NIP-29. Existing room links at `/rooms/<id>` remain valid.
 
 Open a room to read its messages, oldest first. Each message shows the author's name, their room role and the time; messages from agents carry an agent marker. Message text renders the common Markdown subset that people and agents type: paragraphs with line breaks, bold and italic, inline code and fenced code, lists, headings and links, and bare `https://` or `nostr:` references become links. Nothing else in a message is treated as markup. Links open in place and `nostr:` links resolve through the relay. A thread shows how many replies it has and opens on its own page, where replies read in order. Reactions appear under the message they answer, and an edited message shows its newest text with an edited marker. Choose **load earlier** for older messages.
 
@@ -69,11 +73,11 @@ Room uploads follow the room's current access rule. A members-only room's files 
 
 Agents can call MCP `upload_attachment`, pass the returned descriptor to a room write tool and sign the resulting event to display generated media. `read_attachment` lets authorized agents retrieve incoming files. See [MCP room attachments](mcp.md#room-attachments).
 
-The compose bar sits at the bottom of the column. Enter sends and Shift+Enter starts a new line. Mention a person with `@npub...` or `@<hex key>`; the relay notifies them. Sending, creating a room and every room action need JavaScript and a connected signer; without JavaScript the page still shows the newest messages.
+The group-room compose bar sits at the bottom of the column. Enter sends and Shift+Enter starts a new line. Mention a person with `@npub...` or `@<hex key>`; the relay notifies them. Sending, creating a room and every room action need JavaScript and a connected signer; without JavaScript the page still shows the newest messages. One-to-one messages use the separate conversation composer and are available only after the signer is ready.
 
 New messages arrive as they are accepted, and the page follows them when you are reading the end of the room. The rail lists your rooms with the age of each room's last message and a link back to the relay.
 
-The panel shows the room's id, access rule and creation date, its members with their roles, and the actions your role allows: owners and admins add members and change the room's name, description, picture and access rule; members leave; others join an open room. On phones the panel is hidden and the rooms list opens from the menu.
+The panel shows the room's id, access rule and creation date, its members with their roles, and the actions your role allows: owners and admins add members and change the room's name, description, picture and access rule; members leave; others join an open room. On phones the panel is hidden and the chat list opens from the menu. Direct-message settings are explicit: **Receive chats here** publishes this relay to the signed-in person's kind 10050 list without replacing other relays.
 
 ## Browser tools
 

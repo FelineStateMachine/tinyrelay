@@ -78,7 +78,7 @@ func (b *roomsBackend) Query(_ context.Context, method string, params []json.Raw
 		roomEvent(roomLike, roomOwner, 7, 1757203600, "+", []string{"h", id}, []string{"e", roomChat}),
 		reply,
 		root,
-		roomEvent(roomChat, roomOwner, 9, 1757202000, "@agent take a look <script>alert(1)</script>", []string{"h", id}, []string{"p", roomAgent}),
+		roomEvent(roomChat, roomOwner, 9, 1757202000, "@agent take a look <script>alert(1)</script>", []string{"h", id}, []string{"p", roomAgent}, []string{"q", roomThread, "", roomAgent}),
 		roomEvent(roomHello, roomAgent, 9, 1757201000, "hello, see https://example.com/docs. and nostr:npub1ttrypewl3au52wqux86r22yt506c077k3maj02a0jste97wrvd5sjfutc2", []string{"h", id}),
 	}
 	return map[string]any{"room": roomRecord(id, strings.ToUpper(id[:1])+id[1:], map[string]string{"general": "open", "build": "members"}[id], role), "members": members, "messages": messages, "next_cursor": "cursor-1"}, nil
@@ -114,8 +114,8 @@ func roomsPage(t *testing.T, app *App, path string) string {
 
 func TestRoomsListRendersRoomsRailAndCreateForm(t *testing.T) {
 	app, backend := roomsApp(t, roomOwner)
-	body := roomsPage(t, app, "/rooms")
-	for _, want := range []string{`<table id="rows">`, `<a href="/rooms/general">General</a>`, `<a href="/rooms/build">Build</a>`, `members only <small>Where Build happens.</small>`, `<room-create>`, `<a href="/rooms"><b>rooms</b></a>`, `<nav id="room-list"><a href="/rooms/general">General`, `<a href="/rooms#new-room">+ new room</a>`, `<p id="rail-tools"><a href="/">&larr; relay</a>`, `<h4>Rooms</h4>`, `<td>2</td>`} {
+	body := roomsPage(t, app, "/chat")
+	for _, want := range []string{`<table id="rows">`, `<a href="/rooms/general">General</a>`, `<a href="/rooms/build">Build</a>`, `members only <small>Where Build happens.</small>`, `<room-create>`, `<a href="/chat"><b>chat</b></a>`, `<nav id="room-list"><a href="/rooms/general">General`, `<a href="/chat#new-room">+ new room</a>`, `<p id="rail-tools"><a href="/">&larr; relay</a>`, `<h4>Rooms</h4>`, `<td>2</td>`} {
 		if !strings.Contains(body, want) {
 			t.Errorf("rooms list missing %q", want)
 		}
@@ -124,15 +124,16 @@ func TestRoomsListRendersRoomsRailAndCreateForm(t *testing.T) {
 		t.Fatalf("calls = %v", backend.calls)
 	}
 	guestApp, _ := roomsApp(t, "")
-	body = roomsPage(t, guestApp, "/rooms")
-	if strings.Contains(body, "<room-create>") || !strings.Contains(body, `<a href="/signin?next=%2Frooms">Sign in</a> to create a room.`) || strings.Contains(body, `href="/rooms/build"`) {
+	body = roomsPage(t, guestApp, "/chat")
+	if strings.Contains(body, "<room-create>") || !strings.Contains(body, `<a href="/signin?next=%2Fchat">Sign in</a> to create a room.`) || strings.Contains(body, `href="/rooms/build"`) {
 		t.Fatalf("guest rooms list: %s", body[strings.Index(body, `id="content"`):])
 	}
-	// The relay rail lists rooms first in the conversation group.
+	// The relay rail lists chat in the conversation group and leaves the
+	// reliability event views out of the primary navigation.
 	home := roomsPage(t, app, "/")
-	rooms, inbox, search := strings.Index(home, `href="/rooms"`), strings.Index(home, `href="/inbox"`), strings.Index(home, `href="/search"`)
-	if rooms < 0 || inbox < 0 || !(search < rooms && rooms < inbox) {
-		t.Fatalf("relay rail order: search=%d rooms=%d inbox=%d", search, rooms, inbox)
+	chat, search := strings.Index(home, `href="/chat"`), strings.Index(home, `href="/search"`)
+	if chat < 0 || search < 0 || search > chat || strings.Contains(home, `href="/inbox"`) || strings.Contains(home, `href="/outbox"`) {
+		t.Fatalf("relay rail order or hidden reliability views: search=%d chat=%d", search, chat)
 	}
 }
 
@@ -149,6 +150,7 @@ func TestRoomPageRendersMessagesOldestFirstWithMarkers(t *testing.T) {
 		`<section id="room" data-viewer="` + roomOwner + `">`,
 		`<a href="https://example.com/docs" rel="noopener">https://example.com/docs</a>.`,
 		`<a href="/open?target=nostr%3Anpub1ttrypewl3au52wqux86r22yt506c077k3maj02a0jste97wrvd5sjfutc2">nostr:npub1`,
+		`<blockquote data-quote><a href="/open?target=nostr%3A` + roomThread + `">quoted event ` + shortID(roomThread) + `</a></blockquote>`,
 		`&lt;script&gt;alert(1)&lt;/script&gt;`,
 		`<span>to <nostr-name pubkey="` + roomAgent + `"`,
 		`<span data-reaction="&#43;1">&#43;1 1</span>`,

@@ -10,7 +10,7 @@ flowchart LR
   api --> tenant
   subgraph tenant [one tenant]
     policy[owner and policy] --> store[(durable store)]
-    store --> rooms[rooms]
+    store --> rooms[chat rooms]
     store --> wiki[wiki]
     store --> repos[repositories]
     store --> files[files and sites]
@@ -59,7 +59,7 @@ Run `tiny templates` to see available templates. Templates that read from an ups
 
 ## Configure and operate
 
-The web interface uses plain HTML pages and forms. Connect a Nostr signer with NIP-07 or Nostr Connect to sign in and authorize management actions. Use the management pages to configure policy, members, relay connections, inbox and outbox jobs, backups, hosted sites, and stored files.
+The web interface uses plain HTML pages and forms. Connect a Nostr signer with NIP-07 or Nostr Connect to sign in and authorize management actions. **Chat** combines group rooms with one-to-one conversations. Use the management pages to configure policy, members, relay connections, delivery jobs, backups, hosted sites, and stored files. Delivery and retry status lives under **Manage > Sync**.
 
 The browsing pages provide repository lists, source files, branches, history, diffs, file previews, raw downloads, synchronization status, and storage status. Access follows the tenant's current permissions.
 
@@ -69,7 +69,7 @@ See [Git collaboration](docs/git-collaboration.md) for issues, pull requests, co
 
 See [Membership](docs/membership.md) for invites, joining with NIP-43 and reviewing access requests.
 
-See [Rooms](docs/rooms.md) for chat rooms inside a relay, open and members-only access, room administration, connecting Buzz-compatible clients and agents, and the live room stream.
+See [Chat](docs/rooms.md) for group rooms and one-to-one conversations, open and members-only access, room administration, NIP-17 direct messages, connecting Buzz-compatible clients and agents, and the live room stream.
 
 See [Social](docs/social.md) for notes, long-form articles, NIP-10 and NIP-22 conversations, reactions, Markdown, media and mixed feeds.
 

@@ -289,13 +289,13 @@ func clock(value any) string {
 // roomItem is one message as the page shows it: the event's fields, the
 // author's markers, the thread state and the reactions it has received.
 type roomItem struct {
-	ID, PubKey, Avatar, Kind, Content, Room, Root, Role, Notice string
-	CreatedAt, UpdatedAt                                        int64
-	Agent, InThread, Edited, Own                                bool
-	Mentions                                                    []string
-	Replies                                                     int
-	Reactions                                                   []reaction
-	Attachments                                                 []roomAttachment
+	ID, PubKey, Avatar, Kind, Content, Room, Root, Quote, Role, Notice string
+	CreatedAt, UpdatedAt                                               int64
+	Agent, InThread, Edited, Own                                       bool
+	Mentions                                                           []string
+	Replies                                                            int
+	Reactions                                                          []reaction
+	Attachments                                                        []roomAttachment
 }
 
 // roomItems turns a browse result's messages or replies into view items,
@@ -356,6 +356,11 @@ func newRoomItem(row any, room string, members map[string]map[string]any) (roomI
 	item := roomItem{ID: plainString(e["id"]), PubKey: plainString(e["pubkey"]), Kind: plainString(e["kind"]), Content: plainString(e["content"]), Room: room, CreatedAt: unixSeconds(e["created_at"])}
 	item.UpdatedAt = item.CreatedAt
 	item.Attachments = roomAttachments(row)
+	// Flotilla and other NIP-29 clients use q tags for quoted events. Keep
+	// only a valid event id so malformed references never become links.
+	if quotes := tagValues(row, "q"); len(quotes) > 0 && eventIDPattern.MatchString(quotes[0]) {
+		item.Quote = quotes[0]
+	}
 	switch item.Kind {
 	case "7", "40003":
 		return roomItem{}, false
