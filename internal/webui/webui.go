@@ -860,7 +860,7 @@ func (a *App) page(writer http.ResponseWriter, request *http.Request) {
 		actor = ""
 	}
 	data := PageData{Tab: tab, Query: request.URL.Query()}
-	if tab == "inbox" || tab == "outbox" || tab == "search" || tab == "articles" || tab == "home" || tab == "sites" {
+	if tab == "inbox" || tab == "outbox" || tab == "search" || tab == "articles" || tab == "sites" {
 		feed, feedErr := a.publicFeed(request.Context(), tab, actor, request.URL.Query())
 		if feedErr != nil {
 			data.Error = feedErr.Error()

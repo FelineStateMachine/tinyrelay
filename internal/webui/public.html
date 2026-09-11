@@ -20,8 +20,7 @@
 {{end}}<p>{{range index $c "links"}}{{$l := asMap .}}{{if str (index $l "href")}}<a href="{{str (index $l "href")}}">{{str (index $l "label")}}</a> {{else}}<button type="button" data-copy="{{str (index $l "copy")}}">{{str (index $l "label")}}</button> {{end}}{{end}}{{if index $c "hidden"}}<small>sign in for {{str (index $c "hidden")}} more</small>{{end}}<output role="status"></output></p>
 {{with str (index $c "qr")}}<details><summary>QR code</summary><img src="/qr.svg?text={{urlquery .}}" alt="QR code" width="200" height="200"></details>{{end}}
 </connect-card>
-{{end}}{{end}}<h2>Recent activity</h2>
-{{if .Error}}{{template "alert" .Error}}{{else}}{{template "eventList" .}}{{end}}
+{{end}}{{end}}
 </section>
 {{end}}
 

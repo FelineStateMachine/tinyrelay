@@ -33,8 +33,6 @@ func (a *App) publicFeed(ctx context.Context, tab, actor string, values url.Valu
 		filter = map[string]any{"authors": []string{actor}, "limit": 50}
 	case "articles":
 		filter = map[string]any{"kinds": []int{30023}, "limit": 50}
-	case "home":
-		filter = map[string]any{"kinds": []int{1, 30023}, "limit": 12}
 	case "sites":
 		filter = map[string]any{"kinds": []int{sites.KindSite, sites.KindNamedSite}, "limit": 100}
 	default:

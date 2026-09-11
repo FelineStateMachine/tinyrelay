@@ -11,13 +11,40 @@ import (
 	"github.com/FelineStateMachine/tinyrelay/internal/policy"
 )
 
-type publicBackend struct{ fakeBackend }
+type publicBackend struct {
+	fakeBackend
+	eventQueries int
+}
 
 func (b *publicBackend) Query(_ context.Context, method string, _ []json.RawMessage, actor string) (any, error) {
 	if method != "queryevents" {
 		return b.fakeBackend.Query(context.Background(), method, nil, actor)
 	}
+	b.eventQueries++
 	return []map[string]any{{"id": "event-1", "pubkey": actor, "content": "visible result"}}, nil
+}
+
+func TestHomeShowsRelayInformationWithoutQueryingSocialEvents(t *testing.T) {
+	owner := strings.Repeat("a", 64)
+	for _, actor := range []string{"", owner} {
+		backend := &publicBackend{fakeBackend: fakeBackend{policy: policy.Defaults(owner)}}
+		backend.policy.Description = "A place to connect."
+		app, err := New(backend, Options{Actor: func(*http.Request) (string, error) { return actor, nil }})
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, path := range []string{"/", "/?kinds=all"} {
+			recorder := httptest.NewRecorder()
+			app.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, path, nil))
+			body := recorder.Body.String()
+			if recorder.Code != http.StatusOK || !strings.Contains(body, "A place to connect.") || !strings.Contains(body, `href="/social"`) {
+				t.Fatalf("home lost relay information or Social navigation: status=%d", recorder.Code)
+			}
+			if backend.eventQueries != 0 || strings.Contains(body, "Recent activity") || strings.Contains(body, "visible result") {
+				t.Fatalf("home still loads the duplicate feed: queries=%d", backend.eventQueries)
+			}
+		}
+	}
 }
 
 type articleBackend struct{ fakeBackend }
