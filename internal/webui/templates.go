@@ -303,6 +303,7 @@ func parseTemplates(a *App) (*template.Template, error) {
 		"socialMediaURL":      socialMediaURL,
 		"avatarURL":           avatarURL,
 		"roomAvatarURL":       roomAvatarURL,
+		"mobileHeader":        mobileHeader,
 		"markdown":            a.markdown,
 		"chatMarkdown":        a.chatMarkdown,
 		"hasPrefix":           strings.HasPrefix,

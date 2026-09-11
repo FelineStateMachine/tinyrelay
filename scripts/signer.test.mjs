@@ -7,7 +7,7 @@ import vm from "node:vm";
 const bridge = await readFile(new URL("../internal/webui/bridge.js", import.meta.url), "utf8");
 const shared = await readFile(new URL("../internal/webui/tiny.js", import.meta.url), "utf8");
 
-async function page({signedIn = false, bunkerResult = null, href = "https://tiny.example/r/work/signin", referrer = ""} = {}) {
+async function page({signedIn = false, bunkerResult = null, href = "https://tiny.example/r/work/signin", referrer = "", connect = async () => {}} = {}) {
   const elements = new Map();
   for (const id of ["session-login", "nostrconnect", "nostrconnect-open", "signer-qr", "signer-status", "bunker", "bunker-url", ...(signedIn ? ["session-logout"] : [])]) {
     elements.set(id, {hidden: true, value: "", addEventListener(event, handler) { this[event] = handler; }, setAttribute() {}, removeAttribute() {}});
@@ -15,11 +15,11 @@ async function page({signedIn = false, bunkerResult = null, href = "https://tiny
   const saved = new Map();
   const documentEvents = new Map();
   const requests = [];
-  const signer = {bp: {pubkey: "a".repeat(64), relays: ["wss://tiny.example/r/work"]}, connect: async () => {}, getPublicKey: async () => "a".repeat(64), signEvent: async event => ({...event, pubkey: "a".repeat(64), sig: "test"})};
+  const signer = {bp: {pubkey: "a".repeat(64), relays: ["wss://tiny.example/r/work"]}, connect, getPublicKey: async () => "a".repeat(64), signEvent: async event => ({...event, pubkey: "a".repeat(64), sig: "test"})};
   const sandbox = {
     tiny: {},
     document: {getElementById: id => elements.get(id), querySelector: () => null, referrer, addEventListener(name, handler) {documentEvents.set(name, handler);}, dispatchEvent() {}, documentElement: {dataset: {}}},
-    crypto: webcrypto, TextEncoder, URL, URLSearchParams, Uint8Array, ArrayBuffer,
+    crypto: webcrypto, TextEncoder, URL, URLSearchParams, Uint8Array, ArrayBuffer, setTimeout, clearTimeout,
     btoa: value => Buffer.from(value).toString("base64"),
     location: {pathname: new URL(href).pathname, href, origin: new URL(href).origin, assign(url) { sandbox.opened = url; }, replace(url) { sandbox.opened = url; sandbox.replaced = true; }, reload() { sandbox.reloaded = true; }},
     navigator: {clipboard: {writeText: async () => {} }},
@@ -61,11 +61,13 @@ test("invalid bunker input reports a useful error without connecting", async () 
 
 test("NIP-07 signer can sign in directly", async () => {
   const {elements, requests, sandbox} = await page();
+  assert.equal(sandbox.tiny.signerState(), "disconnected");
   sandbox.nostr = {signEvent: async event => ({...event, pubkey: "c".repeat(64), sig: "extension"})};
   await elements.get("session-login").click({currentTarget: elements.get("session-login")});
   assert.equal(requests.length, 1);
   assert.equal(requests[0].url, "/r/work/session");
   assert.match(elements.get("signer-status").textContent, /Signing in|Signed in/);
+  assert.equal(sandbox.tiny.signerState(), "ready");
   assert.equal(sandbox.opened, "/r/work/");
 });
 
@@ -124,4 +126,26 @@ test("sign-in links carry private fragments only in the browser fragment", async
   assert.equal(login.search.includes("private-key"), false);
   assert.equal(new URLSearchParams(login.hash.slice(1)).get("return"), target);
   assert.equal(attrs.get("fx-action"), link.href);
+});
+
+test("a suspended remembered signer can reconnect without revoking the web session", async () => {
+  const {saved, sandbox} = await page();
+  saved.set("tiny.bunker/r/work.uri", "bunker://remembered");
+  saved.set("tiny.bunker/r/work.sk", "test-key");
+  saved.set("tiny.bunker/r/work.identity", "a".repeat(64));
+  saved.set("tiny.bunker/r/work.remote", JSON.stringify({pubkey: "a".repeat(64), relays: ["wss://tiny.example/r/work"]}));
+  await sandbox.tiny.reconnectSigner({force: true});
+  assert.equal(sandbox.tiny.signerState(), "ready");
+  assert.equal(saved.get("tiny.bunker/r/work.identity"), "a".repeat(64));
+});
+
+test("failed signer recovery reports loss and preserves reconnect credentials", async () => {
+  const {saved, sandbox} = await page({connect: async () => { throw Error("suspended"); }});
+  saved.set("tiny.bunker/r/work.uri", "bunker://remembered");
+  saved.set("tiny.bunker/r/work.sk", "test-key");
+  saved.set("tiny.bunker/r/work.identity", "a".repeat(64));
+  saved.set("tiny.bunker/r/work.remote", JSON.stringify({pubkey: "a".repeat(64), relays: ["wss://tiny.example/r/work"]}));
+  await assert.rejects(sandbox.tiny.reconnectSigner({force: true}), /suspended/);
+  assert.equal(sandbox.tiny.signerState(), "lost");
+  assert.equal(saved.get("tiny.bunker/r/work.sk"), "test-key");
 });

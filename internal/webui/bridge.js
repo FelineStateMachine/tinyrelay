@@ -94,10 +94,17 @@
     const menu = document.getElementById("nav-menu");
     if (menu) menu.open = open;
   };
+  const setContext = open => {
+    const menu = document.getElementById("context-menu");
+    if (menu) menu.open = open;
+  };
   const shellBindings = new WeakSet();
+  let shellDocumentBound = false;
   const bindShell = () => {
     const rail = document.getElementById("rail");
     const themeButton = document.getElementById("theme");
+    const navMenu = document.getElementById("nav-menu");
+    const contextMenu = document.getElementById("context-menu");
     if (rail && !shellBindings.has(rail)) {
       shellBindings.add(rail);
       rail.addEventListener("click", event => { if (event.target.closest("a")) setMenu(false); });
@@ -125,12 +132,38 @@
         paintChrome();
       });
     }
+    if (navMenu && !shellBindings.has(navMenu)) {
+      shellBindings.add(navMenu);
+      navMenu.addEventListener("toggle", () => { if (navMenu.open) setContext(false); });
+    }
+    if (contextMenu && !shellBindings.has(contextMenu)) {
+      shellBindings.add(contextMenu);
+      contextMenu.addEventListener("toggle", () => { if (contextMenu.open) setMenu(false); });
+    }
+    if (!shellDocumentBound) {
+      shellDocumentBound = true;
+      document.addEventListener("click", event => {
+        const nav = document.getElementById("nav-menu");
+        const context = document.getElementById("context-menu");
+        if ((!nav?.open && !context?.open) || event.target?.closest?.("#rail, #aside, #topbar, #footer")) return;
+        setMenu(false);
+        setContext(false);
+      });
+    }
   };
   bindShell();
   document.addEventListener("keydown", event => {
-    if (event.key !== "Escape" || !document.getElementById("nav-menu")?.open) return;
-    setMenu(false);
-    document.getElementById("menu")?.focus();
+    if (event.key !== "Escape") return;
+    const nav = document.getElementById("nav-menu");
+    const context = document.getElementById("context-menu");
+    if (nav?.open) {
+      setMenu(false);
+      setContext(false);
+      document.getElementById("menu")?.focus();
+    } else if (context?.open) {
+      setContext(false);
+      document.getElementById("context-toggle")?.focus();
+    }
   });
   if ("serviceWorker" in navigator) navigator.serviceWorker.register(localPath("/sw.js")).catch(() => {});
   // An installed app asks to keep its cached shell and parked shares. Browsers
@@ -182,7 +215,9 @@
   const signIn = async () => {
     const destination = signInDestination();
     say("Signing in…");
+    if (sessionActor() && window.tiny.signer()?.getPublicKey) verifySignerIdentity(await window.tiny.signer().getPublicKey());
     await signedSession("/session");
+    announceSigner("ready");
     say("Signed in.");
     location.replace(destination);
   };
@@ -204,14 +239,208 @@
     store.setItem(storage.remote, JSON.stringify(signer.bp));
   };
 
-  const setSigner = signer => {
-    window.tinySigner = signer;
-    window.nostr = {signEvent: event => window.tinySigner.signEvent(event)};
-    if (typeof CustomEvent === "function") document.dispatchEvent?.(new CustomEvent("tiny:signer"));
-    if (document.getElementById("signer-status")) {
-      say(document.getElementById("session-logout") ? "Signer connected." : "Signer connected. Choose Sign in with connected signer to continue.");
-    }
+  let activeSigner, activeRemote, remoteFacade, nativeSigner = window.nostr;
+  let signerStatus = "disconnected", signerMessage = "Signer unavailable.";
+  let reconnecting, lastCheck = 0, signerGeneration = 0;
+  const pendingCalls = new Map();
+  const signerStatusText = {
+    disconnected: "Signer unavailable.", checking: "Checking signer…",
+    reconnecting: "Reconnecting signer…", lost: "Signer connection lost.", ready: "Signer connected."
   };
+  const sessionActor = () => document.querySelector?.("signer-connection")?.getAttribute("actor") || "";
+  const nativeProvider = () => {
+    if (window.nostr && window.nostr !== remoteFacade) nativeSigner = window.nostr;
+    return nativeSigner;
+  };
+  const withTimeout = (promise, ms, message = "Signer connection timed out.") => {
+    let timer;
+    return Promise.race([promise, new Promise((_, reject) => {
+      timer = setTimeout(() => reject(Error(message)), ms);
+    })]).finally(() => clearTimeout(timer));
+  };
+  const closeRemote = signer => {
+    if (!signer) return;
+    for (const reject of pendingCalls.get(signer) || []) reject(Error("Signer connection changed. Retry when connected."));
+    pendingCalls.delete(signer);
+    try { Promise.resolve(signer.close?.()).catch(() => {}); } catch {}
+    try { signer.pool?.destroy?.(); } catch {}
+  };
+  const connectionURL = () => {
+    const current = new URL(location.href);
+    const url = new URL(localPath("/signin"), location.href);
+    url.searchParams.set("connect", "1");
+    url.searchParams.set("next", current.pathname + current.search);
+    if (current.hash) url.hash = "return=" + encodeURIComponent(current.pathname + current.search + current.hash);
+    return url.href;
+  };
+  const hasRememberedSigner = () => !!(sessionStorage.getItem(storage.key) || localStorage.getItem(storage.key));
+  const updateSignerConnection = () => {
+    const host = document.querySelector?.("signer-connection");
+    if (!host || !document.createElement) return;
+    host.hidden = signerStatus === "ready";
+    host.setAttribute("data-state", signerStatus);
+    host.setAttribute("role", "status");
+    host.replaceChildren();
+    if (host.hidden) return;
+    const message = document.createElement("span");
+    message.textContent = signerMessage;
+    host.append(message);
+    if (signerStatus === "checking" || signerStatus === "reconnecting") return;
+    const button = document.createElement("button");
+    button.type = "button";
+    button.textContent = hasRememberedSigner() || nativeProvider() ? "Reconnect" : "Connect signer";
+    button.addEventListener("click", () => {
+      if (!hasRememberedSigner() && !nativeProvider()) { location.assign(connectionURL()); return; }
+      reconnectSigner({force: true}).catch(() => {});
+    });
+    host.append(button);
+  };
+  const announceSigner = (status, message = signerStatusText[status]) => {
+    signerStatus = status;
+    signerMessage = message;
+    updateSignerConnection();
+    const statusNode = document.getElementById("session-status");
+    if (statusNode) statusNode.textContent = status === "lost" ? message : "";
+    if (typeof CustomEvent === "function") document.dispatchEvent?.(new CustomEvent("tiny:signer-status", {
+      detail: {status, text: message, canReconnect: status === "lost" || status === "disconnected"}
+    }));
+  };
+  const loseRemote = (remote, message) => {
+    if (remote !== activeRemote) return;
+    activeRemote = activeSigner = undefined;
+    window.tinySigner = undefined;
+    if (window.nostr === remoteFacade) window.nostr = nativeSigner;
+    closeRemote(remote);
+    announceSigner("lost", message || signerStatusText.lost);
+  };
+  const guardSigner = signer => {
+    const methods = new Map();
+    return new Proxy(signer, {get(target, property) {
+      const value = Reflect.get(target, property, target);
+      if (typeof value !== "function") return value;
+      if (!/^(?:signEvent|getPublicKey|nip(?:04|44)(?:Encrypt|Decrypt))$/.test(String(property))) return value.bind(target);
+      if (!methods.has(property)) methods.set(property, async (...args) => {
+        if (target !== activeRemote) throw Error("Signer connection changed. Retry when connected.");
+        let cancel;
+        const pending = pendingCalls.get(target) || new Set();
+        pendingCalls.set(target, pending);
+        const canceled = new Promise((_, reject) => { cancel = reject; pending.add(reject); });
+        try {
+          const result = await withTimeout(Promise.race([Promise.resolve().then(() => value.apply(target, args)), canceled]), property === "signEvent" ? 120000 : 30000);
+          if (target !== activeRemote) throw Error("Signer connection changed. Retry when connected.");
+          return result;
+        } catch (err) {
+          if (!/reject|denied|cancel|declin|unsupported|invalid|permission/i.test(errorText(err))) loseRemote(target);
+          throw err;
+        } finally { pending.delete(cancel); }
+      });
+      return methods.get(property);
+    }});
+  };
+  const setSigner = signer => {
+    const previous = activeRemote;
+    signerGeneration++;
+    activeRemote = signer;
+    activeSigner = guardSigner(signer);
+    window.tinySigner = activeSigner;
+    nativeProvider();
+    remoteFacade = {signEvent: event => activeSigner ? activeSigner.signEvent(event) : Promise.reject(Error("Reconnect your signer first."))};
+    window.nostr = remoteFacade;
+    if (previous !== signer) closeRemote(previous);
+    announceSigner("ready");
+    if (typeof CustomEvent === "function") document.dispatchEvent?.(new CustomEvent("tiny:signer"));
+  };
+  const storedRemote = async () => {
+    const store = sessionStorage.getItem(storage.key) ? sessionStorage : localStorage;
+    const uri = store.getItem(storage.uri), keyHex = store.getItem(storage.key);
+    if (!uri || !keyHex) return null;
+    const remote = store.getItem(storage.remote);
+    const pointer = remote ? JSON.parse(remote) : await withTimeout(window.NostrSigner.parseBunkerInput(uri), 5000);
+    if (!validBunker(pointer)) throw Error("Saved signer connection is invalid. Connect your signer again.");
+    return {key: window.NostrSigner.hexToBytes(keyHex), pointer, expected: store.getItem(storage.pubkey)};
+  };
+  const verifySignerIdentity = (pubkey, expected) => {
+    if (!/^[0-9a-f]{64}$/i.test(pubkey || "") || (expected && pubkey.toLowerCase() !== expected.toLowerCase()) || (sessionActor() && pubkey.toLowerCase() !== sessionActor().toLowerCase()))
+      throw Error("Choose the signer for your signed-in account.");
+  };
+  const reconnectSigner = ({force = false} = {}) => {
+    if (reconnecting) return reconnecting;
+    if (!force && Date.now() - lastCheck < 15000) return Promise.resolve(activeSigner);
+    lastCheck = Date.now();
+    const generation = signerGeneration;
+    // Deferring keeps even an immediately failed attempt in the single-flight slot.
+    const task = Promise.resolve().then(async () => {
+      if (!hasRememberedSigner()) {
+        const native = nativeProvider();
+        if (!native?.getPublicKey) { announceSigner("disconnected"); return; }
+        announceSigner("checking");
+        try {
+          verifySignerIdentity(await withTimeout(native.getPublicKey(), 5000));
+          if (generation !== signerGeneration) return activeSigner;
+          announceSigner("ready");
+          if (typeof CustomEvent === "function") document.dispatchEvent?.(new CustomEvent("tiny:signer"));
+          return native;
+        } catch (err) {
+          if (generation === signerGeneration) announceSigner("lost", /signed-in account/.test(errorText(err)) ? errorText(err) : "Unlock or reconnect your signer.");
+          throw err;
+        }
+      }
+      if (!force && activeRemote?.ping) {
+        const previous = activeRemote;
+        announceSigner("checking");
+        try {
+          await withTimeout(previous.ping(), 5000);
+          if (generation !== signerGeneration) return activeSigner;
+          announceSigner("ready");
+          return activeSigner;
+        } catch { if (generation !== signerGeneration) return activeSigner; }
+      }
+      announceSigner("reconnecting");
+      let candidate;
+      try {
+        const stored = await storedRemote();
+        if (!stored) { announceSigner("disconnected"); return; }
+        candidate = window.NostrSigner.BunkerSigner.fromBunker(stored.key, stored.pointer);
+        await withTimeout(candidate.connect(), 8000);
+        verifySignerIdentity(await withTimeout(candidate.getPublicKey(), 5000), stored.expected);
+        if (generation !== signerGeneration) { closeRemote(candidate); return activeSigner; }
+        setSigner(candidate);
+        return activeSigner;
+      } catch (err) {
+        closeRemote(candidate);
+        if (generation === signerGeneration) {
+          const previous = activeRemote;
+          activeRemote = activeSigner = undefined;
+          window.tinySigner = undefined;
+          if (window.nostr === remoteFacade) window.nostr = nativeSigner;
+          closeRemote(previous);
+          announceSigner("lost", /signed-in account/.test(errorText(err)) ? errorText(err) : signerStatusText.lost);
+        }
+        throw err;
+      }
+    });
+    reconnecting = task;
+    task.finally(() => { if (reconnecting === task) reconnecting = undefined; }).catch(() => {});
+    return task;
+  };
+  Object.assign(window.tiny, {signerState: () => signerStatus, reconnectSigner});
+  document.addEventListener("tiny:navigation", updateSignerConnection);
+  const resumeSigner = () => {
+    if (document.visibilityState && document.visibilityState !== "visible") return;
+    if (hasRememberedSigner() || nativeProvider()) reconnectSigner().catch(() => {});
+    else updateSignerConnection();
+  };
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "hidden") { lastCheck = -Infinity; return; }
+    resumeSigner();
+  });
+  window.addEventListener("pageshow", event => { if (event.persisted) lastCheck = -Infinity; resumeSigner(); });
+  document.addEventListener("resume", () => { lastCheck = -Infinity; resumeSigner(); });
+  window.addEventListener("nostr:ready", () => { lastCheck = -Infinity; resumeSigner(); });
+  window.addEventListener("focus", resumeSigner);
+  window.addEventListener("online", () => { lastCheck = -Infinity; resumeSigner(); });
+  window.addEventListener("offline", () => { if (activeRemote) loseRemote(activeRemote, "Offline. Reconnect when online."); });
+  updateSignerConnection();
 
   // Fixi can morph the content column without reloading this script. Bind
   // controls by element identity so navigation can safely discover new ones.
@@ -241,6 +470,10 @@
         say("Signing out…");
         const response = await fetch(localPath("/session/logout"), {method: "POST", credentials: "same-origin"});
         if (!response.ok) throw Error(await response.text());
+        signerGeneration++;
+        closeRemote(activeRemote);
+        activeRemote = activeSigner = undefined;
+        window.tinySigner = undefined;
         forgetRemote();
         if (typeof CustomEvent === "function") document.dispatchEvent?.(new CustomEvent("tiny:logout"));
         say("Signed out.");
@@ -307,23 +540,8 @@
 
   // Resume a remote signer stored for this tab so page loads keep working.
   (async () => {
-    const store = sessionStorage.getItem(storage.key) ? sessionStorage : localStorage;
-    const uri = store.getItem(storage.uri);
-    const keyHex = store.getItem(storage.key);
-    const expected = store.getItem(storage.pubkey);
-    const remote = store.getItem(storage.remote);
-    if (!uri || !keyHex) return;
     try {
-      const key = window.NostrSigner.hexToBytes(keyHex);
-      const pointer = remote ? JSON.parse(remote) : await window.NostrSigner.parseBunkerInput(uri);
-      const signer = window.NostrSigner.BunkerSigner.fromBunker(key, pointer);
-      await signer.connect();
-      const pubkey = await signer.getPublicKey();
-      if (expected && pubkey !== expected) throw Error("Remote signer identity changed");
-      setSigner(signer);
-    } catch (err) {
-      forgetRemote();
-      say("Remote signer resume error: " + errorText(err));
-    }
+      if (hasRememberedSigner() || nativeProvider()) await reconnectSigner({force: true});
+    } catch {}
   })();
 })();

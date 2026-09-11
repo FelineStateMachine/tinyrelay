@@ -2,6 +2,10 @@
 
 The relay installs as an app from the browser menu on Android, iOS and desktop. The installed app follows the site theme, opens in its own window and keeps the last pages available when the network fails.
 
+## Mobile navigation
+
+The mobile header shows the current page or conversation. Chats show the room picture and name; replies show **Thread** above the room name. Use the back arrow to return to the parent page or conversation. Tap the title to open page details, including room members and settings. Tap **Menu** for navigation, your account and sign-out controls.
+
 ## Sharing to the relay
 
 Share a photo, file or link from another app and choose the relay. Shared files wait in the Upload panel on the Files page until you press **Upload**, so nothing is stored without your signature. A shared link opens the **Import from URL** control with the address filled in.
@@ -24,6 +28,12 @@ A request for a decision arrives with **Approve**, **Deny** and **Reply** button
 
 An agent's access request offers **Review access** instead. It opens the proposed grant changes in Approvals. Only the current grant operator can approve them by signing the replacement grant; the notification itself cannot authorize more access.
 
+## Reconnecting a signer
+
+Your sign-in session and signer connection are separate. After the app resumes, it checks the signer connection. If the signer is unavailable, the mobile header offers **Reconnect**. Your session stays signed in, and a draft stays in place. After reconnecting, retry the action that failed.
+
+If this browser has no saved signer connection, choose **Connect signer** to pair it again. Use the signer for the account already signed in. You do not need to sign out first.
+
 ## Names
 
 People show by name wherever the relay knows one: room authors and members, mentions, approvals, agent owners, wiki authors and the signed-in line. Names come from the person's profile (kind 0) as held by this relay, so looking up a name does not contact a public indexer. Names are cached in the browser for six hours. Without JavaScript, or before a profile arrives, the short key shows instead.
@@ -36,10 +46,10 @@ A profile picture is used when it is a safe, usable URL. Otherwise the relay sho
 
 ## Account
 
-The **Account** page is the home for settings that belong to the signed-in key. It links to your profile, shows your current relay lists and lets you choose whether this account shares presence and typing in Chat. That preference is stored for the account on this relay and applies across browsers; it is not a room setting. Select your name in the footer to return to Account.
+The **Account** page is the home for settings that belong to the signed-in key. It links to your profile, shows your current relay lists and lets you choose whether this account shares presence and typing in Chat. That preference is stored for the account on this relay and applies across browsers; it is not a room setting. Open **Menu** on a phone and select **Account**, or select your name in the desktop footer.
 
 When a protected page sends you to **Sign in**, the sign-in link carries that page's tenant path and query. After the signer connects, the browser returns to the page you opened, including repository, file, wiki and approval context. Fragments are kept by the browser when client-side navigation supplies them.
 
 ## Copying a page address
 
-The crumb that names the current page, next to the relay name at the top on phones and in the footer on larger screens, copies the page's address when tapped and says "copied" for a moment. The address is the relay's public URL with the page's canonical path, so a link copied while browsing over a tailnet or LAN address still opens for anyone: wiki names are normalized the way the relay resolves them, and repositories and files keep the query that names them.
+On a phone, open **Menu** and choose **Copy page link**. On larger screens, tap the page name in the footer. The control says "copied" for a moment. The address is the relay's public URL with the page's canonical path, so a link copied while browsing over a tailnet or LAN address still opens for anyone: wiki names are normalized the way the relay resolves them, and repositories and files keep the query that names them.

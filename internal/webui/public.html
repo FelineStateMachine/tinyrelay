@@ -25,11 +25,12 @@
 {{end}}
 
 {{define "signin"}}<section id="signin">
-<h1>{{if .Actor}}Your account{{else}}Sign in{{end}}</h1>
+<h1>{{if and .Actor (.Query.Get "connect")}}Connect your signer{{else if .Actor}}Your account{{else}}Sign in{{end}}</h1>
 {{if .Notice}}<p role="status">{{.Notice}}</p>{{end}}
 {{if .Actor}}<p>Signed in as {{template "nostrKey" .Actor}}.</p>
 <p><a href="/account">Open your account</a> | <a href="/chat">Chat</a></p>
-<p>Use the sign out control in the footer to end this session.</p>
+{{if not (.Query.Get "connect")}}<p><a href="/signin?connect=1{{with .Query.Get "next"}}&amp;next={{urlquery .}}{{end}}">Connect a signer</a> to restore signing without signing out.</p>{{end}}
+{{if .Query.Get "connect"}}<p>Connect the signer for this account. Your sign-in session stays active.</p>{{template "signerControls" .}}{{else}}<p>Open Menu on a phone, or use the desktop footer, to sign out.</p>{{end}}
 {{else}}<p>Use a browser extension, or connect Amber on your phone. The relay never sees a private key.</p>
 {{template "signerControls" .}}
 {{end}}</section>
@@ -52,7 +53,7 @@
 </tbody></table><output role="status"></output></relay-lists>
 </section>{{end}}
 
-{{define "signerControls"}}<p><button id="session-login" type="button">Sign in with connected signer</button></p>
+{{define "signerControls"}}<p><button id="session-login" type="button">{{if .Actor}}Use connected signer{{else}}Sign in with connected signer{{end}}</button></p>
 <h2>Phone signer</h2>
 <p>Scan the QR code with Amber and approve the connection and sign-in request. You will return to the page you opened.</p>
 <p><label><input type="checkbox" id="remember-signer"> Remember this device</label> <small>Keeps the phone signer connected after the app closes. Sign out to forget it.</small></p>

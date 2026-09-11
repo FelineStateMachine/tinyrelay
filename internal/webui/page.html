@@ -24,7 +24,15 @@ then feature modules are loaded for the current page. */}}
 <script src="/webmcp.js"></script>
 </head>
 <body>
-<header id="topbar"><details id="nav-menu"><summary id="menu" aria-controls="rail">menu</summary></details> <span><b>{{.Slug}}</b> &raquo; <page-link url="{{pageAddress .URL .Path .Query}}" title="Copy the page address">{{prompt .Path .Query}}</page-link></span></header>
+{{$mobile := mobileHeader .}}<header id="topbar">
+{{if $mobile.BackURL}}<a id="mobile-back" href="{{$mobile.BackURL}}" aria-label="{{$mobile.BackLabel}}" title="{{$mobile.BackLabel}}"><svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m14 6-6 6 6 6"/></svg></a>{{end}}
+<details id="context-menu" name="mobile-chrome"><summary id="context-toggle" aria-controls="aside" title="Page details">
+{{if $mobile.RoomID}}<room-avatar picture="{{$mobile.Picture}}" fallback="{{roomAvatarURL .URL $mobile.RoomID}}" aria-hidden="true"><img src="{{if $mobile.Picture}}{{$mobile.Picture}}{{else}}{{roomAvatarURL .URL $mobile.RoomID}}{{end}}" alt="" width="36" height="36" loading="lazy"></room-avatar>{{else if $mobile.PubKey}}<nostr-avatar pubkey="{{$mobile.PubKey}}" aria-hidden="true"><img src="{{avatarURL $mobile.PubKey}}" alt="" width="36" height="36" loading="lazy"></nostr-avatar>{{end}}
+<span id="mobile-heading"><strong id="mobile-title" role="heading" aria-level="1">{{if $mobile.PubKey}}{{template "nostrName" $mobile.PubKey}}{{else}}{{$mobile.Title}}{{end}}</strong><small id="mobile-context">{{$mobile.Subtitle}}</small></span><svg data-chevron viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m8 10 4 4 4-4"/></svg>
+</summary></details>
+<details id="nav-menu" name="mobile-chrome"><summary id="menu" aria-controls="rail" aria-label="Menu" title="Menu"><svg data-menu-icon viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16"/></svg><svg data-close-icon viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="m6 6 12 12M6 18 18 6"/></svg></summary></details>
+{{if and .Actor (not .Private)}}<signer-connection actor="{{.Actor}}" hidden></signer-connection>{{end}}
+</header>
 <table id="layout" aria-label="{{.Slug}}"><tbody><tr>
 <td id="rail"><div id="railbox">{{template "rail" .}}</div></td>
 <td id="main"><div id="content" tabindex="-1">
@@ -114,7 +122,7 @@ then feature modules are loaded for the current page. */}}
 <p><a href="/chat#new-room">+ new room</a></p>
 {{else}}<header><span><a id="mark" href="/" title="{{.Slug}}"><i>t</i><i>i</i><i>n</i><i>y</i></a></span></header>
 {{range $group := navGroups relayItems}}<nav>{{range $item := $group}}<a href="{{$item.Href}}"{{if eq $item.Tab $.Tab}} aria-current="page"{{end}}>{{$item.Label}}</a>{{end}}</nav>{{end}}{{if .Actor}}<p id="personal-nav"><a href="/account"{{if eq .Tab "account"}} aria-current="page"{{end}}>account</a></p>{{end}}
-{{end}}<p id="rail-tools">{{if eq $kind "repo"}}<a href="/repos">&larr; all repositories</a>{{else if or (eq $kind "manage") (eq $kind "rooms")}}<a href="/">&larr; relay</a>{{end}}<button id="theme" type="button" aria-label="Switch theme">theme</button></p>{{end}}
+{{end}}<div id="mobile-actions">{{if .Actor}}<a href="/account">Account</a>{{end}}<page-link url="{{pageAddress .URL .Path .Query}}" title="Copy the page address"><button type="button">Copy page link</button></page-link></div><p id="rail-tools">{{if eq $kind "repo"}}<a href="/repos">&larr; all repositories</a>{{else if or (eq $kind "manage") (eq $kind "rooms")}}<a href="/">&larr; relay</a>{{end}}<button id="theme" type="button" aria-label="Switch theme">theme</button></p>{{end}}
 
 {{/* The panel holds facts and filters for the current page. */}}
 {{define "panel"}}{{$kind := railKind .Tab}}{{if .Private}}{{template "panel-signin" .}}

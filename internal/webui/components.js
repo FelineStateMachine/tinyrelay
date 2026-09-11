@@ -1734,6 +1734,7 @@
     };
     const allowedRoute = path => /^(?:\/(?:inbox|approvals|profile|account|outbox|search|social|articles|private|chat|media|sites|marmot|grasp|terms|signin|connect|tools|repo|repos|file|files|wiki|rooms)?\/?|\/manage(?:\/(?:people|agents|moderation|rules|identity|connect|data|sync|views|health|owner|status))?\/?|\/(?:invite|e|a|wiki|social)\/.+|\/chat\/dm\/[0-9a-f]{64}|\/rooms\/[a-z0-9_-]{1,64}(?:\/thread\/[0-9a-f]{64})?\/?)$/.test(path || "");
     let navigationSerial = 0, activeAbort;
+    let renderedURL = location.href;
     const streams = new Set();
     const closeStreams = () => {
       streams.forEach(cfg => cfg.sse.close());
@@ -1762,6 +1763,7 @@
     };
     const swapShell = (text, url, push) => {
       if (url.__tinyNavigationSerial && url.__tinyNavigationSerial !== navigationSerial) return false;
+      const routeChanged = renderedURL !== url.href;
       const parsed = new DOMParser().parseFromString(text, "text/html");
       const incoming = new Map(navTargets.map(selector => [selector, parsed.querySelector(selector)]));
       if ([...incoming.values()].some(node => !node)) return false;
@@ -1771,9 +1773,19 @@
       repairComponents();
       document.title = parsed.title || document.title;
       if (push) history.pushState({}, "", url.href);
-      const focus = focusID && document.getElementById(focusID);
-      if (focus && typeof focus.focus === "function") focus.focus({preventScroll: true});
-      else document.querySelector("#content")?.focus({preventScroll: true});
+      renderedURL = url.href;
+      if (routeChanged) {
+        document.getElementById("nav-menu")?.removeAttribute("open");
+        document.getElementById("context-menu")?.removeAttribute("open");
+        const content = document.querySelector("#content");
+        if (content) content.scrollTop = 0;
+        if (typeof window.scrollTo === "function") window.scrollTo(0, 0);
+        content?.focus({preventScroll: true});
+      } else {
+        const focus = focusID && document.getElementById(focusID);
+        if (focus && typeof focus.focus === "function") focus.focus({preventScroll: true});
+        else document.querySelector("#content")?.focus({preventScroll: true});
+      }
       document.dispatchEvent(new CustomEvent("tiny:navigation", {detail: {url: url.href}}));
       ensureModules();
       decorate();
