@@ -9,9 +9,11 @@ const source = fs.readFileSync("internal/webui/components.js", "utf8");
 const start = source.indexOf("    const swapShell = (text, url, push) => {");
 const end = source.indexOf("    const load = async (url, push) => {", start);
 const swapSource = source.slice(start, end);
+const releaseSource = source.slice(source.indexOf("    const releaseNavigation = () => {"), start);
 
 function setup({url = "https://relay.test/rooms/general", active = "content", contentScroll = 0, pageScroll = 0} = {}) {
   const calls = {scroll: [], history: [], focus: []};
+  const links = [];
   const elements = {
     "#topbar": {outerHTML: "<header id=topbar></header>"},
     "#railbox": {outerHTML: "<aside id=railbox></aside>"},
@@ -26,6 +28,7 @@ function setup({url = "https://relay.test/rooms/general", active = "content", co
     activeElement: active === "draft" ? draft : elements["#content"],
     title: "old",
     querySelector(selector) { return elements[selector] || null; },
+    querySelectorAll(selector) { return selector === "[data-fixi-nav]" ? links : []; },
     getElementById(id) { return id === "nav-menu" ? nav : id === "context-menu" ? context : id === "content" ? elements["#content"] : id === "draft" ? draft : null; },
     dispatchEvent() {}
   };
@@ -48,10 +51,10 @@ function setup({url = "https://relay.test/rooms/general", active = "content", co
   };
   // Keep the production closure intact, while supplying only its DOM shell
   // dependencies. The returned function is the implementation under test.
-  const swap = vm.runInNewContext(`(() => { let renderedURL = ${JSON.stringify(url)}; const navTargets = ${JSON.stringify(sandbox.navTargets)}; let navigationSerial = 0; const closeStreams = () => {}; const repairComponents = () => {}; const ensureModules = () => {}; const decorate = () => {}; const decorateForms = () => {}; ${swapSource.replace("    const swapShell", "const swapShell")} return swapShell; })()`, sandbox);
+  const swap = vm.runInNewContext(`(() => { let renderedURL = ${JSON.stringify(url)}; const navTargets = ${JSON.stringify(sandbox.navTargets)}; let navigationSerial = 0; const closeStreams = () => {}; const repairComponents = () => {}; const ensureModules = () => {}; const decorate = () => {}; const decorateForms = () => {}; ${releaseSource} ${swapSource.replace("    const swapShell", "const swapShell")} return swapShell; })()`, sandbox);
   nav.open = true;
   context.open = true;
-  return {swap, nav, context, content: elements["#content"], document, calls};
+  return {swap, nav, context, content: elements["#content"], document, calls, links};
 }
 
 test("a changed route resets both menu drawers and scroll", () => {
@@ -87,4 +90,24 @@ test("a browser-back route change resets position without pushing history", () =
   assert.equal(s.content.scrollTop, 0);
   assert.deepEqual(s.calls.scroll, [[0, 0]]);
   assert.deepEqual(s.calls.history, []);
+});
+
+test("a retained back link does not keep its old Fixi handler after a shell swap", () => {
+  const s = setup();
+  const link = new EventTarget();
+  let intercepted = 0, normalClicks = 0;
+  link.__fixi = () => { intercepted++; };
+  link.__fixi.evt = "click";
+  link.addEventListener("click", link.__fixi);
+  link.addEventListener("click", () => { normalClicks++; });
+  s.links.push(link);
+  link.dispatchEvent(new Event("click"));
+  assert.equal(intercepted, 1);
+  s.swap("<html></html>", new URL("https://relay.test/rooms/general/thread/" + "a".repeat(64)), true);
+  // The node survives morphing, but its next href may contain a fragment and
+  // no longer opt in to Fixi. Only the browser's normal link action should run.
+  link.dispatchEvent(new Event("click"));
+  assert.equal(intercepted, 1);
+  assert.equal(normalClicks, 2);
+  assert.equal(link.__fixi, undefined);
 });

@@ -1761,6 +1761,16 @@
         node.connectedCallback();
       });
     };
+    const releaseNavigation = () => {
+      // Morphing preserves listeners even when the new link has no Fixi
+      // attributes, as with a thread's back link to a message fragment.
+      document.querySelectorAll("[data-fixi-nav]").forEach(node => {
+        const handler = node.__fixi;
+        if (!handler) return;
+        node.removeEventListener(handler.evt, handler);
+        delete node.__fixi;
+      });
+    };
     const swapShell = (text, url, push) => {
       if (url.__tinyNavigationSerial && url.__tinyNavigationSerial !== navigationSerial) return false;
       const routeChanged = renderedURL !== url.href;
@@ -1769,6 +1779,7 @@
       if ([...incoming.values()].some(node => !node)) return false;
       const focusID = document.activeElement?.id;
       closeStreams();
+      releaseNavigation();
       navTargets.forEach(selector => morph(document.querySelector(selector), incoming.get(selector).outerHTML));
       repairComponents();
       document.title = parsed.title || document.title;
