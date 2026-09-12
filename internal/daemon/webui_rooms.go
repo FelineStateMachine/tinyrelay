@@ -3,9 +3,11 @@ package daemon
 import (
 	"context"
 	"errors"
+	"strings"
 
 	"github.com/FelineStateMachine/tinyrelay/internal/community"
 	"github.com/FelineStateMachine/tinyrelay/internal/event"
+	"github.com/FelineStateMachine/tinyrelay/internal/storage"
 	"github.com/FelineStateMachine/tinyrelay/internal/webui"
 )
 
@@ -72,10 +74,10 @@ func (t *Tenant) ReadRoom(ctx context.Context, actor, roomID, cursor string, lim
 		return webui.RoomPage{}, err
 	}
 	defer done()
-	return t.readRoomCore(ctx, actor, roomID, cursor, limit)
+	return t.readRoomCore(ctx, actor, roomID, cursor, limit, true)
 }
 
-func (t *Tenant) readRoomCore(ctx context.Context, actor, roomID, cursor string, limit int) (webui.RoomPage, error) {
+func (t *Tenant) readRoomCore(ctx context.Context, actor, roomID, cursor string, limit int, foldReplies bool) (webui.RoomPage, error) {
 	if err := t.browseRead(ctx, actor); err != nil {
 		return webui.RoomPage{}, err
 	}
@@ -95,7 +97,12 @@ func (t *Tenant) readRoomCore(ctx context.Context, actor, roomID, cursor string,
 	if err != nil {
 		return webui.RoomPage{}, err
 	}
-	messages, next, err := t.roomMessages(ctx, actor, event.Filter{Kinds: roomMessageKinds, Tags: map[string][]string{"h": {room.ID}}}, position, normalizeRoomLimit(limit))
+	readMessages := t.roomMessages
+	if foldReplies {
+		readMessages = t.roomTimelineMessages
+	}
+	messageFilter := event.Filter{Kinds: roomMessageKinds, Tags: map[string][]string{"h": {room.ID}}}
+	messages, next, err := readMessages(ctx, actor, messageFilter, position, normalizeRoomLimit(limit))
 	if err != nil {
 		return webui.RoomPage{}, err
 	}
@@ -103,7 +110,123 @@ func (t *Tenant) readRoomCore(ctx context.Context, actor, roomID, cursor string,
 	if err != nil {
 		return webui.RoomPage{}, err
 	}
-	return webui.RoomPage{Room: webuiRoomSummary(summary), Members: members, Messages: messages, Edits: edits, NextCursor: next}, nil
+	page := webui.RoomPage{Room: webuiRoomSummary(summary), Members: members, Messages: messages, Edits: edits, NextCursor: next}
+	if foldReplies {
+		page.ReplyCounts, page.ReactionCounts, err = t.roomInteractionSummaries(ctx, actor, room.ID, messages)
+		if err != nil {
+			return webui.RoomPage{}, err
+		}
+	}
+	return page, nil
+}
+
+// roomTimelineMessages pages by visible top-level messages rather than raw
+// events. Folded replies and reactions are summarized separately so a burst
+// of replies cannot make the page empty or consume unbounded response memory.
+func (t *Tenant) roomTimelineMessages(ctx context.Context, actor string, filter event.Filter, cursor *storage.EventCursor, limit int) ([]event.Event, string, error) {
+	if limit <= 0 {
+		limit = 100
+	}
+	position := cursor
+	rows := make([]event.Event, 0, limit)
+	for {
+		page, next, err := t.roomMessages(ctx, actor, filter, position, 100)
+		if err != nil {
+			return nil, "", err
+		}
+		for i, row := range page {
+			if roomTimelineTopLevel(row) || (row.Kind == event.KIND_ROOM_MEMBER_ADDED || row.Kind == event.KIND_ROOM_MEMBER_REMOVED) && event.Tag(row, "p") != "" {
+				rows = append(rows, row)
+			}
+			if len(rows) < limit {
+				continue
+			}
+			if next == "" && i == len(page)-1 {
+				return rows, "", nil
+			}
+			return rows, collaborationCursor(collaborationItemFrom(row)), nil
+		}
+		if next == "" {
+			return rows, "", nil
+		}
+		position, err = parseCollaborationCursor(next)
+		if err != nil {
+			return nil, "", err
+		}
+	}
+}
+
+func (t *Tenant) roomInteractionSummaries(ctx context.Context, actor, roomID string, roots []event.Event) (map[string]int, map[string]map[string]int, error) {
+	counts := make(map[string]int)
+	reactions := make(map[string]map[string]int)
+	for _, root := range roots {
+		if !roomTimelineTopLevel(root) {
+			continue
+		}
+		replies, err := t.roomThreadReplies(ctx, actor, roomID, root.ID)
+		if errors.Is(err, errRoomThreadSizeLimit) || errors.Is(err, errRoomThreadDepthLimit) {
+			// A bounded thread view must not prevent reading the rest of the
+			// room. Omit its count instead of presenting a partial total.
+			continue
+		}
+		if err != nil {
+			return nil, nil, err
+		}
+		counts[root.ID] = len(replies)
+	}
+	ids := make([]string, 0, len(roots))
+	selected := make(map[string]bool, len(roots))
+	for _, root := range roots {
+		if roomTimelineTopLevel(root) {
+			ids = append(ids, root.ID)
+			selected[root.ID] = true
+		}
+	}
+	if len(ids) == 0 {
+		return counts, reactions, nil
+	}
+	filter := event.Filter{Kinds: []int{7}, Tags: map[string][]string{"h": {roomID}, "e": ids}}
+	var cursor *storage.EventCursor
+	for {
+		rows, next, err := t.roomMessages(ctx, actor, filter, cursor, 100)
+		if err != nil {
+			return nil, nil, err
+		}
+		for _, row := range rows {
+			targets := event.TagValues(row, "e")
+			if len(targets) == 0 {
+				continue
+			}
+			target := targets[len(targets)-1]
+			if !selected[target] {
+				continue
+			}
+			content := strings.TrimSpace(row.Content)
+			if content == "" || content == "+" {
+				content = "+1"
+			}
+			if reactions[target] == nil {
+				reactions[target] = make(map[string]int)
+			}
+			reactions[target][content]++
+		}
+		if next == "" {
+			return counts, reactions, nil
+		}
+		cursor, err = parseCollaborationCursor(next)
+		if err != nil {
+			return nil, nil, err
+		}
+	}
+}
+
+func roomTimelineTopLevel(row event.Event) bool {
+	switch row.Kind {
+	case event.KIND_CHAT, event.KIND_THREAD, event.KIND_RICH_CONTENT:
+		return event.RoomReplyRoot(row) == ""
+	default:
+		return false
+	}
 }
 
 func (t *Tenant) ReadThread(ctx context.Context, actor, roomID, rootID, cursor string, limit int) (webui.RoomPage, error) {
@@ -148,7 +271,7 @@ func (t *Tenant) readThreadCore(ctx context.Context, actor, roomID, rootID, curs
 	if err != nil {
 		return webui.RoomPage{}, err
 	}
-	return webui.RoomPage{Room: webuiRoomSummaryFromRoom(room), Members: members, Root: &root, Replies: replies, Edits: edits, NextCursor: next}, nil
+	return webui.RoomPage{Room: webuiRoomSummaryFromRoom(room), Members: members, Root: &root, Replies: replies, ReplyCounts: map[string]int{root.ID: len(all)}, Edits: edits, NextCursor: next}, nil
 }
 
 func (t *Tenant) webuiRoomMembers(ctx context.Context, roomID, role string) ([]webui.RoomMember, error) {

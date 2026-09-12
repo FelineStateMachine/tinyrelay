@@ -72,8 +72,12 @@ func roomHeader(data PageData, route roomPath, thread bool) mobileHeaderData {
 		if result.Subtitle == "" {
 			result.Subtitle = "Group chat"
 		}
-		if eventIDPattern.MatchString(route.event) {
-			result.BackURL = "/rooms/" + route.id + "#msg-" + route.event
+		root := plainString(valueMap(valueMap(data.Event)["root"])["id"])
+		if !eventIDPattern.MatchString(root) {
+			root = route.event
+		}
+		if eventIDPattern.MatchString(root) {
+			result.BackURL = "/rooms/" + route.id + "#msg-" + root
 		}
 		result.BackLabel = "Back to room"
 		return result

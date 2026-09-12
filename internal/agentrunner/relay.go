@@ -25,6 +25,12 @@ type RelayClient struct {
 	conn                *websocket.Conn
 	connection          context.Context
 	pending             map[string]chan error
+	queries             map[string]chan queryResult
+}
+
+type queryResult struct {
+	event event.Event
+	err   error
 }
 
 func (c *RelayClient) Run(ctx context.Context) error {
@@ -69,6 +75,7 @@ func (c *RelayClient) connect(ctx context.Context) error {
 	c.conn = conn
 	c.connection = scope
 	c.pending = map[string]chan error{}
+	c.queries = make(map[string]chan queryResult)
 	c.mu.Unlock()
 	defer func() {
 		c.mu.Lock()
@@ -144,7 +151,21 @@ func (c *RelayClient) connect(ctx context.Context) error {
 				}
 			}
 		case "EOSE":
-			if c.OnReady != nil {
+			var subscription string
+			if len(frame) > 1 {
+				_ = json.Unmarshal(frame[1], &subscription)
+				c.mu.Lock()
+				query := c.queries[subscription]
+				c.mu.Unlock()
+				if query != nil {
+					select {
+					case query <- queryResult{err: errors.New("thread parent not found")}:
+					default:
+					}
+					continue
+				}
+			}
+			if subscription == "tiny-agent" && c.OnReady != nil {
 				c.OnReady()
 			}
 		case "EVENT":
@@ -155,10 +176,41 @@ func (c *RelayClient) connect(ctx context.Context) error {
 			if err != nil {
 				continue
 			}
-			if c.OnEvent != nil {
+			c.mu.Lock()
+			var subscription string
+			_ = json.Unmarshal(frame[1], &subscription)
+			query := c.queries[subscription]
+			c.mu.Unlock()
+			if query != nil {
+				select {
+				case query <- queryResult{event: e}:
+				default:
+				}
+				continue
+			}
+			if subscription == "tiny-agent" && c.OnEvent != nil {
 				c.OnEvent(e)
 			}
 		case "CLOSED":
+			var subscription string
+			_ = json.Unmarshal(frame[1], &subscription)
+			c.mu.Lock()
+			query := c.queries[subscription]
+			c.mu.Unlock()
+			if query != nil {
+				reason := "agent query closed"
+				if len(frame) > 2 {
+					_ = json.Unmarshal(frame[2], &reason)
+				}
+				select {
+				case query <- queryResult{err: errors.New(reason)}:
+				default:
+				}
+				continue
+			}
+			if subscription != "tiny-agent" {
+				continue
+			}
 			if len(frame) > 2 {
 				var reason string
 				json.Unmarshal(frame[2], &reason)
@@ -167,6 +219,77 @@ func (c *RelayClient) connect(ctx context.Context) error {
 				}
 			}
 		}
+	}
+}
+
+func (c *RelayClient) ResolveRoot(ctx context.Context, room, id string) (string, error) {
+	ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	defer cancel()
+	seen := map[string]bool{}
+	for len(seen) < 64 && !seen[id] {
+		seen[id] = true
+		e, err := c.queryEvent(ctx, room, id)
+		if err != nil {
+			return "", err
+		}
+		parent := event.RoomReplyRoot(e)
+		if parent == "" {
+			return e.ID, nil
+		}
+		id = parent
+	}
+	return "", errors.New("thread nesting limit exceeded")
+}
+
+func (c *RelayClient) queryEvent(ctx context.Context, room, id string) (event.Event, error) {
+	c.mu.Lock()
+	conn := c.conn
+	scope := c.connection
+	if conn == nil {
+		c.mu.Unlock()
+		return event.Event{}, errors.New("agent relay is disconnected")
+	}
+	sub := fmt.Sprintf("root-%d", time.Now().UnixNano())
+	wait := make(chan queryResult, 1)
+	c.queries[sub] = wait
+	c.mu.Unlock()
+	defer func() {
+		c.mu.Lock()
+		delete(c.queries, sub)
+		active := c.conn == conn && c.connection == scope
+		c.mu.Unlock()
+		if active {
+			closeCtx, cancel := context.WithTimeout(context.Background(), time.Second)
+			defer cancel()
+			_ = writeRelay(closeCtx, conn, []any{"CLOSE", sub})
+		}
+	}()
+	if err := writeRelay(ctx, conn, []any{"REQ", sub, map[string]any{"ids": []string{id}, "#h": []string{room}, "limit": 1}}); err != nil {
+		return event.Event{}, err
+	}
+	select {
+	case result, ok := <-wait:
+		if !ok {
+			return event.Event{}, errors.New("thread parent not found")
+		}
+		if result.err != nil {
+			return event.Event{}, result.err
+		}
+		e := result.event
+		if e.ID != id {
+			return event.Event{}, errors.New("thread parent ID mismatch")
+		}
+		if event.Tag(e, "h") != room {
+			return event.Event{}, errors.New("thread parent is in another room")
+		}
+		if e.Kind != 9 && e.Kind != 11 && e.Kind != 12 && e.Kind != 40002 {
+			return event.Event{}, errors.New("thread parent has an invalid kind")
+		}
+		return e, nil
+	case <-ctx.Done():
+		return event.Event{}, ctx.Err()
+	case <-scope.Done():
+		return event.Event{}, errors.New("agent relay disconnected")
 	}
 }
 func (c *RelayClient) subscribe(ctx context.Context, conn *websocket.Conn) error {

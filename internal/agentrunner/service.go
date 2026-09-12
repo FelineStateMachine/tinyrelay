@@ -83,6 +83,14 @@ func (s *service) handle(parent context.Context, batch []Mention) error {
 	ctx, cancel := context.WithTimeout(parent, s.options.Timeout)
 	defer cancel()
 	first := batch[0]
+	root, err := s.relay.ResolveRoot(ctx, first.Room, first.Root)
+	if err != nil {
+		return err
+	}
+	first.Root = root
+	// Keep the canonical root on the batch so permission requests emitted
+	// while this task runs stay attached to the same top-level conversation.
+	batch[0].Root = root
 	tags := [][]string{{"h", first.Room}, {"e", first.Root}, {"p", s.relay.PubKey}, {"output", "text/plain"}, {"subject", shortText(first.Prompt, 100)}, {"expiration", strconv.FormatInt(time.Now().Add(s.options.Timeout).Unix(), 10)}}
 	var prompt strings.Builder
 	prompt.WriteString("These are messages addressed to you in a Nostr chat. Reply to the users' request. Room: " + first.Room + "\n\n")

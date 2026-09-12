@@ -8,6 +8,11 @@ import (
 	"github.com/FelineStateMachine/tinyrelay/internal/storage"
 )
 
+var (
+	errRoomThreadSizeLimit  = errors.New("restricted: thread exceeds the browser limit")
+	errRoomThreadDepthLimit = errors.New("restricted: thread exceeds the nesting limit")
+)
+
 func (t *Tenant) roomThreadRoot(ctx context.Context, actor, room, id string) (event.Event, error) {
 	seen := map[string]bool{}
 	for len(seen) < 64 && !seen[id] {
@@ -57,7 +62,7 @@ func (t *Tenant) roomThreadReplies(ctx context.Context, actor, room, root string
 					replies = append(replies, row)
 					nextLevel = append(nextLevel, row.ID)
 					if len(replies) > 5000 {
-						return nil, errors.New("restricted: thread exceeds the browser limit")
+						return nil, errRoomThreadSizeLimit
 					}
 				}
 				if next == "" {
@@ -72,7 +77,7 @@ func (t *Tenant) roomThreadReplies(ctx context.Context, actor, room, root string
 		frontier = nextLevel
 	}
 	if len(frontier) > 0 {
-		return nil, errors.New("restricted: thread exceeds the nesting limit")
+		return nil, errRoomThreadDepthLimit
 	}
 	sortEventsNewestFirst(replies)
 	return replies, nil

@@ -123,7 +123,9 @@ func wireRoomPage(page webui.RoomPage, thread bool) map[string]any {
 }
 
 func (t *Tenant) browseRoom(ctx context.Context, actor string, q roomBrowseRequest) (any, error) {
-	page, err := t.readRoomCore(ctx, actor, q.ID, q.Cursor, q.Limit)
+	// The MCP browser contract exposes raw room events for agents. The typed
+	// web reader folds replies into top-level pages for the UI.
+	page, err := t.readRoomCore(ctx, actor, q.ID, q.Cursor, q.Limit, false)
 	if err != nil {
 		return nil, err
 	}

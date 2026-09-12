@@ -407,6 +407,49 @@ test("room-live on a thread page keeps only replies to its root", () => {
   assert.equal(source.closed, true);
 });
 
+test("room-live resolves an out-of-order nested reply to the canonical root", async () => {
+  const root = "a".repeat(64), parent = "b".repeat(64);
+  const s = setup({attributes: {room: "build", root}});
+  const queries = [];
+  s.sandbox.fetch = async (url) => {
+    queries.push(url);
+    return {ok: true, async json() { return {root: {id: root, kind: 11, tags: [["h", "build"]]}}; }};
+  };
+  const live = new s.RoomLive();
+  live.connectedCallback();
+  const source = s.sandbox.sources[0];
+  const secret = generateSecretKey();
+  const nested = finalizeEvent({kind: 12, created_at: 3, tags: [["h", "build"], ["e", parent]], content: "nested"}, secret);
+  source.emit("message", {data: JSON.stringify(nested)});
+  await new Promise(resolve => setTimeout(resolve, 0));
+  assert.equal(s.list.children.length, 1);
+  assert.equal(s.list.children[0].id, "msg-" + nested.id);
+  assert.equal(queries.length, 1);
+  assert.match(queries[0], /method=browsethread/);
+  assert.match(decodeURIComponent(queries[0]), /"event":"bbbb/);
+  const followup = finalizeEvent({kind: 12, created_at: 4, tags: [["h", "build"], ["e", nested.id]], content: "followup"}, secret);
+  source.emit("message", {data: JSON.stringify(followup)});
+  await new Promise(resolve => setTimeout(resolve, 0));
+  assert.equal(s.list.children.length, 2);
+  assert.equal(queries.length, 1);
+});
+
+test("room-live drops a root lookup that finishes after the stream closes", async () => {
+  const root = "a".repeat(64), parent = "b".repeat(64);
+  const s = setup({attributes: {room: "build", root}});
+  let finish;
+  s.sandbox.fetch = async () => new Promise(resolve => { finish = resolve; });
+  const live = new s.RoomLive();
+  live.connectedCallback();
+  const source = s.sandbox.sources[0], secret = generateSecretKey();
+  const nested = finalizeEvent({kind: 12, created_at: 3, tags: [["h", "build"], ["e", parent]], content: "nested"}, secret);
+  source.emit("message", {data: JSON.stringify(nested)});
+  live.close();
+  finish({ok: true, async json() { return {root: {id: root, kind: 11, tags: [["h", "build"]]}}; }});
+  await new Promise(resolve => setTimeout(resolve, 0));
+  assert.equal(s.list.children.length, 0);
+});
+
 test("chat markdown renders the shared subset without ever parsing markup", () => {
   const s = setup();
   const body = s.rooms.chatMarkdown(new FakeNode("div"), "It works: **[the page](https://012.run/wiki/agents)**.\nsee https://example.com/x, plus <b>not markup</b>\n\n- `code https://not.a.link`\n- [x](javascript:alert(1))\n\n```\nhttps://in.code\n```");

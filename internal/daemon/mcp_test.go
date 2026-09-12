@@ -454,6 +454,18 @@ func TestMCPRoomWikiAndAgentTools(t *testing.T) {
 	if isError || len(replies) != 1 || structured(result)["root"].(map[string]any)["id"] != messageID {
 		t.Fatalf("read_thread: %s", text(result))
 	}
+	nestedReply := mcpSigned(t, testOwnerSecret, 12, [][]string{{"h", "general"}, {"e", messageID}, {"p", member}}, "follow-up")
+	nestedResult, nestedError := call("reply_in_thread", map[string]any{"event": nestedReply}, testOwnerSecret)
+	nestedID, _ := structured(nestedResult)["event_id"].(string)
+	if nestedError || nestedID == "" {
+		t.Fatalf("nested reply publish: %s", text(nestedResult))
+	}
+	result, isError = call("reply_in_thread", map[string]any{"room": "general", "root": nestedID, "root_pubkey": member, "content": "canonical follow-up"}, "")
+	unsigned, _ = structured(result)["unsigned"].(map[string]any)
+	tags, _ = json.Marshal(unsigned["tags"])
+	if isError || !strings.Contains(string(tags), `"e","`+messageID+`"`) || strings.Contains(string(tags), nestedID) {
+		t.Fatalf("reply_in_thread did not flatten nested root: %s", text(result))
+	}
 
 	// react: content is +, - or one emoji, whether templated or signed.
 	result, isError = call("react", map[string]any{"target": messageID, "target_pubkey": member, "content": "great", "room": "general"}, "")
@@ -559,6 +571,12 @@ func TestMCPRoomWikiAndAgentTools(t *testing.T) {
 	tags, _ = json.Marshal(unsigned["tags"])
 	if isError || unsigned["kind"] != float64(9) || string(tags) != `[["h","general"],["request","approve"],["p","`+member+`"],["expiration","`+strconv.FormatInt(now+3600, 10)+`"],["subject","Release"]]` {
 		t.Fatalf("request_decision room template: %s", text(result))
+	}
+	result, isError = call("request_decision", map[string]any{"pubkey": member, "request": "approve", "content": "Approve this thread?", "room": "general", "root": messageID}, "")
+	unsigned, _ = structured(result)["unsigned"].(map[string]any)
+	tags, _ = json.Marshal(unsigned["tags"])
+	if isError || unsigned["kind"] != float64(9) || !strings.Contains(string(tags), `"e","`+messageID+`","","root"`) {
+		t.Fatalf("request_decision room thread template: %s", text(result))
 	}
 	result, isError = call("request_decision", map[string]any{"pubkey": member, "request": "question", "content": "Which name?", "root": pageID, "root_kind": 30818, "root_pubkey": owner}, "")
 	unsigned, _ = structured(result)["unsigned"].(map[string]any)

@@ -64,17 +64,30 @@
       if (!/^[a-z0-9_-]{1,64}$/.test(this.room || "")) return;
       this.values = new Map(); this.entries = new Map(); this.last = {}; this.pending = new Set(); this.generation = 0;
       this.status = this.querySelector("output"); this.controller = new AbortController();
-      this.enabled = false;
+      this.enabled = false; this.signerReadyVersion = 0; this.preferenceReload = false;
       this.onEvent = event => { if (event.detail?.room === this.room) this.receive(event.detail.event); };
       this.onInput = event => { if (event.target.matches('room-compose textarea')) { this.inputAt = seconds(); this.publish(TYPING, event.target.value ? "typing" : "stopped"); } };
       this.onVisibility = () => { this.generation++; this.values.clear(); this.paint(); if (document.hidden) { this.publish(TYPING,"stopped",true); this.publish(PRESENCE,"offline",true); } else { this.loadPreference(); this.tick(); } };
       this.onIdentity = () => { this.enabled = false; this.generation++; this.values.clear(); this.paint(); };
-      this.onSigner = () => { this.onIdentity(); this.failed = false; this.loadPreference(); };
+      this.clearFailure = () => {
+        this.failed = false;
+        if (this.status?.textContent.includes("Presence could not be shared")) {
+          this.status.textContent = "";
+          this.paint();
+        }
+      };
+      this.onSigner = () => { this.onIdentity(); this.signerReadyVersion++; this.clearFailure(); this.loadPreference(); };
+      this.onSignerStatus = event => {
+        if (event.detail?.status !== "ready") return;
+        this.signerReadyVersion++; this.clearFailure();
+        this.loadPreference();
+      };
       this.onPreference = event => { if (event.detail?.actor === this.actor) this.applyPreference(event.detail.share_presence === true); };
       document.addEventListener("tiny:room-event", this.onEvent);
       document.addEventListener("input", this.onInput);
       document.addEventListener("visibilitychange", this.onVisibility);
       document.addEventListener("tiny:signer", this.onSigner);
+      document.addEventListener("tiny:signer-status", this.onSignerStatus);
       document.addEventListener("tiny:logout", this.onIdentity);
       document.addEventListener("tiny:chat-preferences",this.onPreference);
       this.loadPreference();
@@ -84,7 +97,7 @@
       this.publish(TYPING,"stopped",true); this.publish(PRESENCE,"offline",true);
       this.enabled = false; this.generation++; this.controller?.abort(); clearInterval(this.timer);
       document.removeEventListener("tiny:room-event",this.onEvent); document.removeEventListener("input",this.onInput);
-      document.removeEventListener("visibilitychange",this.onVisibility); document.removeEventListener("tiny:signer",this.onSigner); document.removeEventListener("tiny:logout",this.onIdentity);
+      document.removeEventListener("visibilitychange",this.onVisibility); document.removeEventListener("tiny:signer",this.onSigner); document.removeEventListener("tiny:signer-status",this.onSignerStatus); document.removeEventListener("tiny:logout",this.onIdentity);
       document.removeEventListener("tiny:chat-preferences",this.onPreference); this.values?.clear();
     }
     applyPreference(enabled) {
@@ -94,13 +107,20 @@
       else { this.publish(TYPING,"stopped",true); this.publish(PRESENCE,"offline",true); }
     }
     async loadPreference() {
-      if (!hex(this.actor) || this.loadingPreference || this.failed || this.controller.signal.aborted) return;
+      if (!hex(this.actor) || this.failed || this.controller.signal.aborted) return;
+      if (this.loadingPreference) { this.preferenceReload = true; return; }
       this.loadingPreference = true; const generation = this.generation;
       try {
         const enabled = await readPreference(this.controller.signal);
         if (this.isConnected && !this.controller.signal.aborted && generation === this.generation) this.applyPreference(enabled);
       } catch { this.applyPreference(false); }
-      finally { this.loadingPreference = false; this.preferenceCheckedAt = seconds(); }
+      finally {
+        this.loadingPreference = false; this.preferenceCheckedAt = seconds();
+        if (this.preferenceReload && this.isConnected && !this.controller.signal.aborted) {
+          this.preferenceReload = false;
+          this.loadPreference();
+        }
+      }
     }
     receive(event) {
       const value = parse(event,this.room); if (!value || value.pubkey === this.actor) return;
@@ -121,7 +141,7 @@
       const at = seconds(), interval = kind === PRESENCE ? 60 : 3;
       if (!leaving && at-(this.last[kind] || 0) < interval) return;
       const signer = tiny.signer?.(); if (!signer?.signEvent) return;
-      const generation = this.generation;
+      const generation = this.generation, readyVersion = this.signerReadyVersion;
       this.pending.add(kind);
       try {
         if (await signer.getPublicKey() !== this.actor || tiny.signer() !== signer) return;
@@ -129,6 +149,8 @@
         await tiny.signing.publish({kind, created_at:at, tags:[["h",this.room]], content});
         this.last[kind] = at;
       } catch {
+        const stale = generation !== this.generation || readyVersion !== this.signerReadyVersion || signer !== tiny.signer?.();
+        if (stale || leaving || !this.isConnected) return;
         this.enabled = false; this.failed = true;
         if (this.status) this.status.textContent = "Presence could not be shared. Reconnect your signer to try again.";
       } finally { this.pending.delete(kind); }

@@ -68,13 +68,17 @@ type RoomMessage = event.Event
 // Members and Messages; a thread read fills Root and Replies. Edits contains
 // the newest visible edit for the returned targets.
 type RoomPage struct {
-	Room       RoomSummary   `json:"room"`
-	Members    []RoomMember  `json:"members,omitempty"`
-	Messages   []RoomMessage `json:"messages,omitempty"`
-	Replies    []RoomMessage `json:"replies,omitempty"`
-	Edits      []RoomMessage `json:"edits,omitempty"`
-	Root       *RoomMessage  `json:"root,omitempty"`
-	NextCursor string        `json:"next_cursor,omitempty"`
+	Room     RoomSummary   `json:"room"`
+	Members  []RoomMember  `json:"members,omitempty"`
+	Messages []RoomMessage `json:"messages,omitempty"`
+	// ReplyCounts and ReactionCounts carry folded interaction summaries for
+	// the roots in Messages without expanding every reply into the timeline.
+	ReplyCounts    map[string]int            `json:"reply_counts,omitempty"`
+	ReactionCounts map[string]map[string]int `json:"reaction_counts,omitempty"`
+	Replies        []RoomMessage             `json:"replies,omitempty"`
+	Edits          []RoomMessage             `json:"edits,omitempty"`
+	Root           *RoomMessage              `json:"root,omitempty"`
+	NextCursor     string                    `json:"next_cursor,omitempty"`
 }
 
 // rowsReader converts method-and-JSON query results into the row slices used
@@ -104,13 +108,15 @@ func roomListValue(list RoomList) any {
 
 func roomPageValueFromContract(page RoomPage) any {
 	return map[string]any{
-		"room":        page.Room,
-		"members":     page.Members,
-		"messages":    page.Messages,
-		"replies":     page.Replies,
-		"edits":       page.Edits,
-		"root":        page.Root,
-		"next_cursor": page.NextCursor,
+		"room":            page.Room,
+		"members":         page.Members,
+		"messages":        page.Messages,
+		"reply_counts":    page.ReplyCounts,
+		"reaction_counts": page.ReactionCounts,
+		"replies":         page.Replies,
+		"edits":           page.Edits,
+		"root":            page.Root,
+		"next_cursor":     page.NextCursor,
 	}
 }
 

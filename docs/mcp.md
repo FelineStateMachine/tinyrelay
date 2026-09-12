@@ -109,7 +109,7 @@ Write tools, which publish through the same path as `POST /events`:
 | `set_status` | Mark an issue or pull request open, resolved, merged, closed or draft with a kind 1630 to 1633 event. |
 | `post_message` | Post a kind 9 message in a room, with optional `mentions` and `attachments`. |
 | `start_thread` | Start a kind 11 thread in a room with an optional title and `attachments`. |
-| `reply_in_thread` | Reply to a thread with a kind 12 event naming the root in its `e` tag and optional `attachments`. |
+| `reply_in_thread` | Reply with a kind 12 event and optional `attachments`. Unsigned templates resolve a reply ID to the original thread root. |
 | `react` | Publish a kind 7 reaction to an event: `+`, `-` or one emoji, with `room` for a room message. |
 | `publish_wiki_page` | Publish or replace the key's version of a kind 30818 wiki page, with `fork_author` and `fork_event` to record a fork. |
 | `propose_wiki_merge` | Ask a page's author to take in a version with a kind 818 merge request. |
@@ -131,7 +131,7 @@ An agent whose grant holds `propose` on a repository publishes issues, pull requ
 
 ### Asking a person
 
-`request_decision` builds an event addressed to one person. Pass `pubkey`, `request` (`approve`, `decide` or `question`) and `content`, then either `room` for a kind 9 message in that room or `root`, `root_kind` and `root_pubkey` for a kind 1111 comment under an issue, pull request or other event. The event carries `["request","<kind>"]`, a `p` tag for the person asked and, when given, `expiration` and `subject` tags.
+`request_decision` builds an event addressed to one person. Pass `pubkey`, `request` (`approve`, `decide` or `question`) and `content`, then either `room` with an optional `root` for a kind 9 message in that room or `root`, `root_kind` and `root_pubkey` without `room` for a kind 1111 comment under an issue, pull request or other event. A room request with `root` stays in that thread; the unsigned template resolves reply IDs to the original root. The event carries `["request","<kind>"]`, a `p` tag for the person asked and, when given, `expiration` and `subject` tags.
 
 The person answers with a kind 7 reaction to the published event from the asked key: `+` approves and `-` declines. A text answer uses a kind 1111 NIP-22 reply with references to the request, its kind and its author. Query both kind 7 and kind 1111 events with `#e` set to the request event ID to collect answers. Only answers from the asked key count. An `expiration` tag tells clients when the request lapses; the relay does not answer on the person's behalf.
 

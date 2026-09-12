@@ -383,8 +383,8 @@
    const footer = el("footer");
    const mentions = notice ? [] : (event.tags || []).filter(tag => tag[0] === "p" && isHex64(tag[1]) && tag[1] !== pubkey).map(tag => tag[1]);
    if (mentions.length) { const span = el("span", "to "); mentions.forEach(key => span.append(nameNode(key), " ")); footer.append(span); }
-   if (!inThread && room && [9, 11, 40002].includes(event.kind)) { const link = el("a", "thread"); link.href = roomPath(room, "/thread/" + event.id); footer.append(link); }
    const root = replyRoot(event);
+   if (!inThread && room && !root && [9, 11, 40002].includes(event.kind)) { const link = el("a", "thread"); link.href = roomPath(room, "/thread/" + event.id); footer.append(link); }
    if (!inThread && room && isHex64(root)) { const link = el("a", "in thread"); link.href = roomPath(room, "/thread/" + root); footer.append(link); }
    if (footer.childNodes.length) node.append(footer);
    return node;
@@ -403,14 +403,14 @@
  // roomAppend adds one message to the timeline unless it is already there,
  // keeps the list bounded and follows the newest message when the viewer
  // is already reading the end of it.
- const roomAppend = (event, {room = "", inThread = false, own = false} = {}) => {
+ const roomAppend = (event, {room = "", inThread = false, own = false, canonicalRoot = ""} = {}) => {
    const list = document.getElementById("messages");
    if (!list || !isHex64(event?.id) || document.getElementById("msg-" + event.id)) return null;
    list.roomSeen ||= new Set();
    if (list.roomSeen.has(event.id)) return null;
    list.roomSeen.add(event.id);
    while (list.roomSeen.size > 2000) list.roomSeen.delete(list.roomSeen.values().next().value);
-   const reference = replyRoot(event);
+   const reference = canonicalRoot || replyRoot(event);
    if (reference && !inThread) {
      const link = document.querySelector("#msg-" + reference + " > footer > a");
      if (link) { const count = Number((link.textContent.match(/(\d+) repl/) || [])[1] || 0) + 1; link.textContent = "thread | " + count + (count === 1 ? " reply" : " replies"); }
@@ -762,13 +762,15 @@
      const room = this.getAttribute("room");
      if (!room || this.source || typeof EventSource !== "function") return;
      this.delay = this.delay || 1000;
+     const generation = (this.generation || 0) + 1;
+     this.generation = generation;
      const source = new EventSource(roomPath(room, "/stream"), {withCredentials: true});
      this.source = source;
      source.addEventListener("open", () => { this.delay = 1000; this.textContent = ""; });
      source.addEventListener("message", event => {
        let parsed;
        try { parsed = JSON.parse(event.data); } catch { return; }
-       this.receive(parsed);
+       this.receive(parsed, source, generation);
      });
      source.addEventListener("error", () => {
        if (this.source !== source) return;
@@ -780,14 +782,57 @@
    }
 
    close() {
+     this.generation = (this.generation || 0) + 1;
+     this.lookupController?.abort();
+     this.lookupController = null;
+     this.roots?.clear();
+     this.rootQueries?.clear();
      this.source?.close();
      this.source = null;
      clearTimeout(this.timer);
      this.timer = null;
    }
 
-   receive(event) {
+   async canonicalRoot(room, reference, source, generation, eventID = "") {
+     this.roots ||= new Map();
+     if (this.roots.has(reference)) { const root = this.roots.get(reference); this.rememberRoot(eventID, root); return root; }
+     this.rootQueries ||= new Map();
+     if (!this.rootQueries.has(reference)) {
+       const path = tiny.localPath("/webmcp/query");
+       const params = encodeURIComponent(JSON.stringify([{id: room, event: reference, limit: 1}]));
+       this.lookupController ||= new AbortController();
+       const query = this.rootQueries.get(reference) || (async () => {
+         if (typeof fetch !== "function") return "";
+         const response = await fetch(path + "?method=browsethread&params=" + params, {credentials: "same-origin", cache: "no-store", signal: this.lookupController?.signal});
+         if (!response.ok) throw Error("thread lookup failed");
+         const value = await response.json();
+         const root = value?.root || value?.result?.root;
+         const id = root?.id;
+         if (!isHex64(id) || ![9, 11, 40002].includes(Number(root?.kind)) || tagValue(root, "h") !== room || replyRoot(root)) return "";
+         return id;
+       })();
+       this.rootQueries.set(reference, query);
+     }
+     const query = this.rootQueries.get(reference);
+     try {
+       const root = await query;
+       if (source && (this.source !== source || this.generation !== generation)) return "";
+       if (root) { this.rememberRoot(reference, root); this.rememberRoot(eventID, root); }
+       return root;
+     } catch { return ""; }
+     finally { if (this.rootQueries.get(reference) === query) this.rootQueries.delete(reference); }
+   }
+
+   rememberRoot(eventID, root) {
+     if (!isHex64(eventID) || !isHex64(root)) return;
+     this.roots ||= new Map();
+     this.roots.set(eventID, root);
+     while (this.roots.size > 256) this.roots.delete(this.roots.keys().next().value);
+   }
+
+   async receive(event, source = null, generation = this.generation) {
      if (!event || typeof event !== "object") return;
+     if (source && (this.source !== source || this.generation !== generation)) return;
      const room = this.getAttribute("room");
      if (tagValue(event, "h") !== room && !(event.kind === 20001 && !tagValue(event, "h"))) return;
      if (typeof CustomEvent === "function") document.dispatchEvent?.(new CustomEvent("tiny:room-event", {detail: {room, event}}));
@@ -795,11 +840,30 @@
      if (event.kind === 40003) { roomEdit(event); return; }
      if (!roomKinds.includes(event.kind)) return;
      const root = this.getAttribute("root");
-     if (root) {
-       const reference = replyRoot(event);
-       if (reference !== root && !document.getElementById("msg-" + reference)) return;
+     const reference = replyRoot(event);
+     if (reference) {
+       // The common direct-reply path is already canonical and can update the
+       // UI synchronously. Unknown parents are resolved below so nested or
+       // out-of-order events still use the original thread root.
+       if (root && reference === root) {
+         this.rememberRoot(event.id, root);
+         roomAppend(event, {room, inThread: true, canonicalRoot: root});
+         return;
+       }
+       if (!root && document.getElementById("msg-" + reference)) {
+         this.rememberRoot(event.id, reference);
+         roomAppend(event, {room, inThread: false, canonicalRoot: reference});
+         return;
+       }
+       const canonical = await this.canonicalRoot(room, reference, source, generation, event.id);
+       if (source && (this.source !== source || this.generation !== generation)) return;
+       if (root && canonical !== root) return;
+       if (!canonical) return;
+       roomAppend(event, {room, inThread: Boolean(root), canonicalRoot: canonical});
+       return;
      }
-     roomAppend(event, {room: this.getAttribute("room"), inThread: Boolean(root)});
+     if (root) return;
+     roomAppend(event, {room, inThread: false});
    }
  }
 

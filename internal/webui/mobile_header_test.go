@@ -46,6 +46,17 @@ func TestMobileHeaderRoomAndThread(t *testing.T) {
 	}
 }
 
+func TestThreadHeaderReturnsToCanonicalRoot(t *testing.T) {
+	root, reply := strings.Repeat("a", 64), strings.Repeat("b", 64)
+	header := mobileHeader(PageData{Path: "/rooms/general/thread/" + reply, Tab: "thread", Event: map[string]any{
+		"room": map[string]any{"id": "general", "name": "General"},
+		"root": map[string]any{"id": root},
+	}})
+	if header.BackURL != "/rooms/general#msg-"+root {
+		t.Fatalf("thread back link points to a folded reply: %+v", header)
+	}
+}
+
 func TestMobileHeaderDirectAndHiddenData(t *testing.T) {
 	peer := strings.Repeat("b", 64)
 	got := mobileHeader(PageData{Path: "/chat/dm/" + peer, Tab: "direct", View: peer})

@@ -33,7 +33,7 @@ function setup(options={}) {
   document.removeEventListener = name => delete document.listeners?.[name];
   const definitions = {}, saved = [], dispatched = [];
   document.dispatchEvent = event => dispatched.push(event);
-  const tiny = {signedFetch: async (path,method,body,settings) => {saved.push({path,method,body,settings}); if(options.saveError) throw Error(options.saveError); return {json:async()=>JSON.parse(body)};},localPath:path=>path,signer: () => signer, signing: {publish: async event => published.push(event)}};
+  const tiny = {signedFetch: async (path,method,body,settings) => {saved.push({path,method,body,settings}); if(options.saveError) throw Error(options.saveError); return {json:async()=>JSON.parse(body)};},localPath:path=>path,signer: () => signer, signing: {publish: async event => { if (options.publishGate) await options.publishGate.promise; if (options.publishError) { const error = options.publishError; options.publishError = null; throw Error(error); } published.push(event); }}};
   const published = [];
   const signer = {getPublicKey: async () => key, signEvent: async () => ({})};
   class HTMLElement extends Node {}
@@ -120,6 +120,77 @@ test("saved account preference enables chat without a chat control, and respects
   published.length=0; tiny.signer=()=>({signEvent:async()=>({}),getPublicKey:async()=>other});
   const otherAccount=make(); await new Promise(resolve=>setTimeout(resolve,0));
   assert.equal(published.length,0); otherAccount.disconnectedCallback();
+});
+
+test("signer recovery clears a transient presence failure without a reload", async () => {
+  const options = {share:true, publishError:"Signer connection changed. Retry when connected."};
+  const {definitions, document, published} = setup(options);
+  const host = new definitions["chat-presence"](); host.setAttribute("room","room"); host.setAttribute("actor",key);
+  host.append(new Node("output")); host.parent = document; host.connectedCallback();
+  await new Promise(resolve => setTimeout(resolve, 0));
+  assert.match(host.status.textContent, /Presence could not be shared/);
+  assert.equal(host.failed, true);
+  document.listeners["tiny:signer-status"]({detail:{status:"ready"}});
+  await new Promise(resolve => setTimeout(resolve, 0));
+  assert.equal(host.failed, false);
+  assert.equal(host.status.textContent, "");
+  await host.publish(20001, "online");
+  assert.equal(published.length, 1);
+  host.disconnectedCallback();
+});
+
+test("a presence failure from before signer recovery cannot restore the warning", async () => {
+  let resolve, reject;
+  const options = {share:false, publishGate:{promise:new Promise((done, fail) => { resolve = done; reject = fail; })}};
+  const {definitions, document} = setup(options);
+  const host = new definitions["chat-presence"](); host.setAttribute("room","room"); host.setAttribute("actor",key);
+  host.append(new Node("output")); host.parent = document; host.connectedCallback(); host.enabled = true;
+  const pending = host.publish(20001, "online");
+  document.listeners["tiny:signer-status"]({detail:{status:"ready"}});
+  reject(Error("Signer connection changed. Retry when connected."));
+  await pending;
+  assert.notEqual(host.failed, true);
+  assert.equal(host.status.textContent, "");
+  resolve();
+  host.disconnectedCallback();
+});
+
+test("a failed hidden cleanup announcement does not create a signer warning", async () => {
+  const {definitions, document} = setup({publishError:"Signer connection changed. Retry when connected."});
+  const host = new definitions["chat-presence"](); host.setAttribute("room","room"); host.setAttribute("actor",key);
+  host.append(new Node("output")); host.parent = document; host.connectedCallback();
+  host.last[20001] = 1; document.hidden = true;
+  await host.publish(20001, "offline", true);
+  assert.notEqual(host.failed, true);
+  assert.equal(host.status.textContent, "");
+  host.disconnectedCallback();
+});
+
+test("a ready signer event queues preference reload after an in-flight request", async () => {
+  let resolveFirst, calls = 0;
+  const first = new Promise(resolve => { resolveFirst = resolve; });
+  const {definitions, document} = setup({fetch: async () => ++calls === 1 ? first : {ok:true,json:async()=>({share_presence:true})}});
+  const host = new definitions["chat-presence"](); host.setAttribute("room","room"); host.setAttribute("actor",key);
+  host.append(new Node("output")); host.parent = document; host.connectedCallback();
+  document.listeners["tiny:signer-status"]({detail:{status:"ready"}});
+  document.listeners["tiny:signer"]({detail:{}});
+  assert.equal(host.preferenceReload, true);
+  resolveFirst({ok:true,json:async()=>({share_presence:true})});
+  await new Promise(resolve => setTimeout(resolve, 0));
+  await new Promise(resolve => setTimeout(resolve, 0));
+  assert.equal(calls, 2);
+  assert.equal(host.enabled, true);
+  host.disconnectedCallback();
+});
+
+test("a failed visible opt-out announcement does not create a signer warning", async () => {
+  const {definitions, document} = setup({publishError:"Signer connection changed. Retry when connected."});
+  const host = new definitions["chat-presence"](); host.setAttribute("room","room"); host.setAttribute("actor",key);
+  host.append(new Node("output")); host.parent = document; host.connectedCallback();
+  host.last[20001] = 1; await host.publish(20001, "offline", true);
+  assert.notEqual(host.failed, true);
+  assert.equal(host.status.textContent, "");
+  host.disconnectedCallback();
 });
 
 test("account preference saves with a signed JSON request and restores checkbox after failure", async () => {

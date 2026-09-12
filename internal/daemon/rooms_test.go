@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -318,6 +319,90 @@ func TestRoomThreadRejectsCrossRoomRootsAndPaginatesNestedReplies(t *testing.T) 
 		t.Fatal("cross-room root was accepted")
 	}
 	_ = second
+}
+
+func TestReadRoomPagesTopLevelRootsPastFoldedReplies(t *testing.T) {
+	h := newRoomHarness(t)
+	older := h.must("alice", event.KIND_CHAT, [][]string{{"h", "main"}}, "older root")
+	root := h.must("alice", event.KIND_CHAT, [][]string{{"h", "main"}}, "root before reply burst")
+	for i := 0; i < 105; i++ {
+		h.must("bob", event.KIND_CHAT, [][]string{{"h", "main"}, {"e", root.ID, "", "reply"}}, fmt.Sprintf("folded reply %d", i))
+	}
+	h.must("alice", 7, [][]string{{"h", "main"}, {"e", root.ID}}, "+")
+	olderReply := h.must("bob", event.KIND_CHAT, [][]string{{"h", "main"}, {"e", older.ID, "", "reply"}}, "reply to older root")
+	h.must("alice", event.KIND_CHAT, [][]string{{"h", "main"}, {"e", olderReply.ID, "", "reply"}}, "nested reply to older root")
+	h.must("bob", 7, [][]string{{"h", "main"}, {"e", older.ID}}, "heart")
+	seen := map[string]bool{}
+	cursor := ""
+	for pages := 0; ; pages++ {
+		page, err := h.tenant.ReadRoom(h.ctx, h.keys["bob"], "main", cursor, 1)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(page.Messages) > 1 || pages > 20 {
+			t.Fatalf("unbounded timeline page: %d messages on page %d", len(page.Messages), pages)
+		}
+		for _, row := range page.Messages {
+			if seen[row.ID] {
+				t.Fatalf("repeated message across tied timestamp pages: %s", row.ID)
+			}
+			seen[row.ID] = true
+			switch row.ID {
+			case root.ID:
+				if page.ReplyCounts[root.ID] != 105 || page.ReactionCounts[root.ID]["+1"] != 1 {
+					t.Fatalf("burst summaries missing: %+v", page)
+				}
+			case older.ID:
+				if page.ReplyCounts[older.ID] != 2 || page.ReactionCounts[older.ID]["heart"] != 1 {
+					t.Fatalf("older root summaries missing: %+v", page)
+				}
+			default:
+				if row.Kind != event.KIND_ROOM_MEMBER_ADDED && row.Kind != event.KIND_ROOM_MEMBER_REMOVED {
+					t.Fatalf("unfolded event on timeline: %d %s", row.Kind, row.ID)
+				}
+			}
+		}
+		if page.NextCursor == "" {
+			break
+		}
+		if page.NextCursor == cursor || len(page.Messages) == 0 {
+			t.Fatal("pagination failed to advance through visible messages")
+		}
+		cursor = page.NextCursor
+	}
+	if !seen[root.ID] || !seen[older.ID] {
+		t.Fatalf("timeline skipped roots after folded reply burst: %v", seen)
+	}
+	thread, err := h.tenant.ReadThread(h.ctx, h.keys["bob"], "main", root.ID, "", 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if thread.ReplyCounts[root.ID] != 105 || len(thread.Replies) != 1 {
+		t.Fatalf("thread folded count = %d replies=%d", thread.ReplyCounts[root.ID], len(thread.Replies))
+	}
+}
+
+func TestReadRoomRemainsReadableWhenThreadExceedsTraversalLimit(t *testing.T) {
+	h := newRoomHarness(t)
+	root := h.must("alice", event.KIND_CHAT, [][]string{{"h", "main"}}, "root")
+	parent := root.ID
+	for i := 0; i < 65; i++ {
+		row := h.must("bob", event.KIND_CHAT, [][]string{{"h", "main"}, {"e", parent, "", "reply"}}, "deep reply")
+		parent = row.ID
+	}
+	page, err := h.tenant.ReadRoom(h.ctx, h.keys["alice"], "main", "", 50)
+	if err != nil {
+		t.Fatalf("one bounded thread blocked the room: %v", err)
+	}
+	for _, row := range page.Messages {
+		if row.ID == root.ID {
+			if _, found := page.ReplyCounts[root.ID]; found {
+				t.Fatal("a partial reply count was presented as complete")
+			}
+			return
+		}
+	}
+	t.Fatal("root missing from room")
 }
 
 func TestTypedRoomReaderPreservesSignedEvents(t *testing.T) {

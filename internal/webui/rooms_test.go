@@ -38,6 +38,23 @@ func roomRecord(id, name, access, role string) map[string]any {
 	return map[string]any{"id": id, "name": name, "about": "Where " + name + " happens.", "picture": "", "access": access, "created_by": roomOwner, "created_at": 1757200000, "event_id": "", "members": 2, "last_message_at": 1757203600, "role": role}
 }
 
+func TestRoomInteractionSummariesSurvivePagination(t *testing.T) {
+	root := RoomMessage{ID: roomThread, PubKey: roomAgent, Kind: 11, Content: "Root"}
+	page := RoomPage{
+		Room: RoomSummary{ID: "general"}, Messages: []RoomMessage{root}, Root: &root,
+		ReplyCounts:    map[string]int{roomThread: 105},
+		ReactionCounts: map[string]map[string]int{roomThread: {"+1": 2, "wave": 1}},
+	}
+	value := roomPageValueFromContract(page)
+	items := roomItems(value, "messages")
+	if len(items) != 1 || items[0].Replies != 105 || len(items[0].Reactions) != 2 || items[0].Reactions[0] != (reaction{Content: "+1", Count: 2}) {
+		t.Fatalf("folded summaries missing: %#v", items)
+	}
+	if item := roomRoot(value); item.Replies != 105 {
+		t.Fatalf("thread total counts only the current page: %d", item.Replies)
+	}
+}
+
 func (b *roomsBackend) Query(_ context.Context, method string, params []json.RawMessage, actor string) (any, error) {
 	b.calls = append(b.calls, method+":"+actor)
 	q := map[string]any{}

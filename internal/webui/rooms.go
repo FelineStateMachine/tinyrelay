@@ -70,10 +70,12 @@ func (a *App) roomList(ctx context.Context, actor string) []any {
 // legacyRoomPage is the compatibility decoder for Backend.Query results.
 // Typed production adapters use RoomPage from read_contracts.go instead.
 type legacyRoomPage struct {
-	Members  []any `json:"members"`
-	Messages []any `json:"messages"`
-	Replies  []any `json:"replies"`
-	Edits    []any `json:"edits"`
+	Members        []any                     `json:"members"`
+	Messages       []any                     `json:"messages"`
+	Replies        []any                     `json:"replies"`
+	Edits          []any                     `json:"edits"`
+	ReplyCounts    map[string]int            `json:"reply_counts"`
+	ReactionCounts map[string]map[string]int `json:"reaction_counts"`
 }
 
 func legacyRoomPageValue(value any) (legacyRoomPage, bool) {
@@ -122,8 +124,11 @@ func memberIndex(value any) map[string]map[string]any {
 	return index
 }
 
-// replyCounts counts the thread replies on this page by their root id.
+// replyCounts prefers complete thread summaries over the legacy page counts.
 func replyCounts(value any) map[string]int {
+	if page, ok := legacyRoomPageValue(value); ok && page.ReplyCounts != nil {
+		return page.ReplyCounts
+	}
 	counts := map[string]int{}
 	for _, row := range roomSlice(value, "messages") {
 		if root := webRoomReplyRoot(row); root != "" {
@@ -195,6 +200,9 @@ func reactionSummary(value any) map[string][]reaction {
 			counts[target] = map[string]int{}
 		}
 		counts[target][content]++
+	}
+	if page, ok := legacyRoomPageValue(value); ok && page.ReactionCounts != nil {
+		counts = page.ReactionCounts
 	}
 	summary := map[string][]reaction{}
 	for target, byContent := range counts {
@@ -328,7 +336,7 @@ func roomItems(value any, field string, actors ...string) []roomItem {
 	return items
 }
 
-// roomRoot is the thread page's root message, with the page's replies counted.
+// roomRoot is the thread page's root message with its complete reply count.
 func roomRoot(value any, actors ...string) roomItem {
 	data := valueMap(value)
 	item, _ := newRoomItem(data["root"], plainString(valueMap(data["room"])["id"]), memberIndex(value))
@@ -337,6 +345,10 @@ func roomRoot(value any, actors ...string) roomItem {
 		item.UpdatedAt = edit.CreatedAt
 	}
 	item.Replies = len(roomSlice(value, "replies"))
+	if count, ok := replyCounts(value)[item.ID]; ok {
+		item.Replies = count
+	}
+	item.Reactions = reactionSummary(value)[item.ID]
 	item.InThread = true
 	actor := firstString(actors)
 	item.Own = actor != "" && item.PubKey == actor && item.Notice == ""

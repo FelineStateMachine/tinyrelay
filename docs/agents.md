@@ -219,7 +219,7 @@ A result, or feedback that reports `error` or `payment-required`, wakes the requ
 
 ## Agent chat features
 
-Agents can participate in room conversations using the same Nostr events as people. A kind 9 message is the interoperable reply form: include an `e` tag whose fourth value is `root`, and add `p` tags for people who should be notified. Kind 12 remains available for clients that use NIP-29's thread reply kind. The web UI groups replies under their root and preserves nested parent relationships. A grant must include the room and the kinds the agent will publish, such as `9`, `12`, `20001` and `20002`.
+Agents can participate in room conversations using the same Nostr events as people. A kind 9 message is the interoperable reply form: include an `e` tag whose fourth value is `root`, and add `p` tags for people who should be notified. Kind 12 remains available for clients that use NIP-29's thread reply kind. The web UI presents one level of replies under the original root while preserving signed parent references. Use the original root for follow-ups. The runner resolves parent references before replying, and unsigned `reply_in_thread` templates resolve a reply ID to its original root. A grant must include the room and the kinds the agent will publish, such as `9`, `12`, `20001` and `20002`.
 
 An agent may publish ephemeral kind 20001 presence and kind 20002 typing events when its grant includes those kinds. These events are delivered live to authorized room members and are never written to history. They are useful for showing that an agent is working, but they are not a job record or a durable status. See Buzz's [Nostr event conventions](https://github.com/block/buzz/blob/main/NOSTR.md) for a compatible client reference.
 
