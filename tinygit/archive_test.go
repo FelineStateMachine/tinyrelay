@@ -31,7 +31,7 @@ func TestArchiveAnnouncementRequiresOptInWhenServiceConfigured(t *testing.T) {
 		"enabled":  {Features: policy.Features{Grasp02: true, Grasp05: true}},
 	} {
 		t.Run(name, func(t *testing.T) {
-			g, err := New(Config{Store: store, Root: filepath.Join(root, name), PublicURL: "https://relay.example", Policy: func() policy.Policy { return p }})
+			g, err := New(Config{Store: tinyStore(store), Root: filepath.Join(root, name), PublicURL: "https://relay.example", Policy: func() Policy { return fromInternalPolicy(p) }})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -58,7 +58,7 @@ func TestArchiveAdmissionRecognizesServiceAndMaintainerExceptions(t *testing.T) 
 	_, _ = event.PublicKey(ownerSecret)
 	maintainer, _ := event.PublicKey(maintainerSecret)
 	p := policy.Policy{Features: policy.Features{Grasp02: true, Grasp05: true}}
-	g, err := New(Config{Store: store, Root: filepath.Join(root, "git"), PublicURL: "https://relay.example", Policy: func() policy.Policy { return p }, Authorize: func(context.Context, event.Event, Repository) error { return nil }})
+	g, err := New(Config{Store: tinyStore(store), Root: filepath.Join(root, "git"), PublicURL: "https://relay.example", Policy: func() Policy { return fromInternalPolicy(p) }, Authorize: func(context.Context, Event, Repository) error { return nil }})
 	if err != nil {
 		t.Fatal(err)
 	}

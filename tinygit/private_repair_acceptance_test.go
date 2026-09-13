@@ -57,7 +57,7 @@ func TestFetchMissingHTTPSRepairAndNoop(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = store.Close() })
 	p := policy.Defaults("")
-	g, err := New(Config{Store: store, Root: filepath.Join(root, "git"), Policy: func() policy.Policy { return p }, AllowPrivateRelays: true})
+	g, err := New(Config{Store: tinyStore(store), Root: filepath.Join(root, "git"), Policy: func() Policy { return fromInternalPolicy(p) }, AllowPrivateRelays: true})
 	if err != nil {
 		t.Fatal(err)
 	}

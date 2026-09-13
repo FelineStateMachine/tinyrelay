@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/FelineStateMachine/tinyrelay/protocol/nostr"
 	"github.com/FelineStateMachine/tinyrelay/tinygit"
 )
 
@@ -15,7 +16,7 @@ func TestPublicStoreAcceptsRelativePath(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer store.Close()
-	if err := store.DB().Ping(); err != nil {
+	if _, err := store.Query(context.Background(), nostr.Filter{}, 0, 0); err != nil {
 		t.Fatal(err)
 	}
 }

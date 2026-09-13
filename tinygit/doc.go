@@ -40,11 +40,9 @@
 // hook used by the embedded engine. GET /healthz reports process readiness.
 //
 // New is the lower-level integration boundary. Supply an absolute Config.Root
-// and an OpenStore result, or share the host's existing Store. Event, Policy
-// and Store aliases make this API callable outside the tinyrelay module.
-// The package still depends on tinyrelay's internal event, policy, auth and
-// SQLite storage implementations and schema. It is a public package in the
-// root Go module, not a separate dependency-free module. Neither constructor
-// starts the daemon, relay protocol, UI or replication workers. Native Git
-// and a POSIX shell are required for smart HTTP and receive hooks.
+// and an OpenStore result, or provide a Store implementation for an embedded
+// host. Policy, Event and Store are public contracts; the standard SQLite
+// adapter and the host's richer policy remain behind those contracts. Neither
+// constructor starts the daemon, relay protocol, UI or replication workers.
+// Native Git and a POSIX shell are required for smart HTTP and receive hooks.
 package tinygit

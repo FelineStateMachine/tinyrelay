@@ -37,7 +37,7 @@ func TestPublishStagesRepositoryAndSignedStateHook(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer store.Close()
-	g, err := New(Config{Store: store, Root: filepath.Join(root, "git")})
+	g, err := New(Config{Store: tinyStore(store), Root: filepath.Join(root, "git")})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -81,7 +81,7 @@ func TestStateHEADSelectsNonMainBranch(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer store.Close()
-	g, err := New(Config{Store: store, Root: filepath.Join(root, "git")})
+	g, err := New(Config{Store: tinyStore(store), Root: filepath.Join(root, "git")})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -118,7 +118,7 @@ func TestStateProjectsExistingObjectsIntoNativeRefs(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer store.Close()
-	g, err := New(Config{Store: store, Root: filepath.Join(root, "git")})
+	g, err := New(Config{Store: tinyStore(store), Root: filepath.Join(root, "git")})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -188,7 +188,7 @@ func TestPendingPromotionRemovesRefsDroppedByState(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer store.Close()
-	g, err := New(Config{Store: store, Root: filepath.Join(root, "git")})
+	g, err := New(Config{Store: tinyStore(store), Root: filepath.Join(root, "git")})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -240,7 +240,7 @@ func TestStaleStateWorkerCannotRewindHEAD(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer store.Close()
-	g, err := New(Config{Store: store, Root: filepath.Join(root, "git")})
+	g, err := New(Config{Store: tinyStore(store), Root: filepath.Join(root, "git")})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -294,7 +294,7 @@ func TestObjectsPresentBatchesManyRefsAndDetectsMissing(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer store.Close()
-	g, err := New(Config{Store: store, Root: filepath.Join(root, "git")})
+	g, err := New(Config{Store: tinyStore(store), Root: filepath.Join(root, "git")})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -328,7 +328,7 @@ func TestAdmitSourceRejectsUnsafeEndpoints(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer store.Close()
-	g, err := New(Config{Store: store, Root: filepath.Join(root, "git"), ServiceURL: "https://relay.example"})
+	g, err := New(Config{Store: tinyStore(store), Root: filepath.Join(root, "git"), ServiceURL: "https://relay.example"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -350,7 +350,7 @@ func TestAlternativePRPublicationUsesSeparateRepository(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer store.Close()
-	g, err := New(Config{Store: store, Root: filepath.Join(root, "git"), EnableGRASP06: true})
+	g, err := New(Config{Store: tinyStore(store), Root: filepath.Join(root, "git"), EnableGRASP06: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -429,7 +429,7 @@ func TestJournalRecoveryCompletesStateFile(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer store.Close()
-	g, err := New(Config{Store: store, Root: filepath.Join(root, "git")})
+	g, err := New(Config{Store: tinyStore(store), Root: filepath.Join(root, "git")})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -450,7 +450,7 @@ func TestJournalRecoveryCompletesStateFile(t *testing.T) {
 	if err := g.writeJournal(r, jr); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := New(Config{Store: store, Root: filepath.Join(root, "git")}); err != nil {
+	if _, err := New(Config{Store: tinyStore(store), Root: filepath.Join(root, "git")}); err != nil {
 		t.Fatal(err)
 	}
 	b, err := os.ReadFile(filepath.Join(root, "git", r.Owner, "demo.git", "tinyrelay.pending"))
@@ -468,7 +468,7 @@ func TestNewRebuildsRepositoriesAfterRestart(t *testing.T) {
 	defer store.Close()
 	secret := strings.Repeat("0", 63) + "1"
 	owner, _ := event.PublicKey(secret)
-	g, err := New(Config{Store: store, Root: filepath.Join(root, "git")})
+	g, err := New(Config{Store: tinyStore(store), Root: filepath.Join(root, "git")})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -508,7 +508,7 @@ func TestNewRebuildsRepositoriesAfterRestart(t *testing.T) {
 	if out, err := exec.Command("git", "--git-dir", repoPath, "update-ref", "refs/heads/unannounced", strings.TrimSpace(string(commit))).CombinedOutput(); err != nil {
 		t.Fatalf("stage unannounced ref: %v %s", err, out)
 	}
-	restarted, err := New(Config{Store: store, Root: filepath.Join(root, "git")})
+	restarted, err := New(Config{Store: tinyStore(store), Root: filepath.Join(root, "git")})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -543,7 +543,7 @@ func TestGRASPServiceTickPersistsProgressAndRepairOrder(t *testing.T) {
 	p := policy.Defaults("")
 	p.Features.Grasp = true
 	p.Features.Grasp02 = true
-	g, err := New(Config{Store: store, Root: filepath.Join(root, "git"), Policy: func() policy.Policy { return p }, GitSync: func(context.Context, Repository) error { called++; return nil }})
+	g, err := New(Config{Store: tinyStore(store), Root: filepath.Join(root, "git"), Policy: func() Policy { return fromInternalPolicy(p) }, GitSync: func(context.Context, Repository) error { called++; return nil }})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -577,7 +577,7 @@ func TestGRASPServiceTickContinuesAfterRepositoryFailure(t *testing.T) {
 	p.Features.Grasp = true
 	p.Features.Grasp02 = true
 	var synced []string
-	g, err := New(Config{Store: store, Root: filepath.Join(root, "git"), Policy: func() policy.Policy { return p }, GitSync: func(_ context.Context, r Repository) error {
+	g, err := New(Config{Store: tinyStore(store), Root: filepath.Join(root, "git"), Policy: func() Policy { return fromInternalPolicy(p) }, GitSync: func(_ context.Context, r Repository) error {
 		synced = append(synced, r.Identifier)
 		if r.Identifier == "first" {
 			return errors.New("temporary source failure")
@@ -648,7 +648,7 @@ func TestValidateAndCommitAfterStoreAvoidDuplicateSave(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer store.Close()
-	g, err := New(Config{Store: store, Root: filepath.Join(root, "git")})
+	g, err := New(Config{Store: tinyStore(store), Root: filepath.Join(root, "git")})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -680,7 +680,7 @@ func TestSmartHTTPServesBareRepository(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer store.Close()
-	g, err := New(Config{Store: store, Root: filepath.Join(root, "git")})
+	g, err := New(Config{Store: tinyStore(store), Root: filepath.Join(root, "git")})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -752,7 +752,7 @@ func TestPendingStatePromotesAfterAuthorizedGitPush(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer store.Close()
-	g, err := New(Config{Store: store, Root: filepath.Join(root, "git")})
+	g, err := New(Config{Store: tinyStore(store), Root: filepath.Join(root, "git")})
 	if err != nil {
 		t.Fatal(err)
 	}

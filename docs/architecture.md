@@ -8,6 +8,12 @@ Each tenant has a SQLite store, a policy snapshot and a set of services. The dae
 
 [`cmd/tiny`](../cmd/tiny/doc.go) owns command dispatch, listeners and process shutdown. [`daemon`](../internal/daemon/doc.go) describes tenant assembly and event flow. Package overviews and interface, constructor and transaction comments describe the contracts at their declarations. These comments are also available through `go doc` and editor symbol help.
 
+## Package layout
+
+Executable entry points live in `cmd/tiny`, `cmd/tinygit` and `cmd/tinyclient`. Host services and storage implementations live under `internal/`, where Go prevents outside projects from importing them.
+
+`tinygit`, `tinyclient` and `protocol/` are public so other Go projects can embed them. Separate executables alone do not require public packages. These packages expose the contracts an embedder needs; host policy, database access and tenant assembly remain internal. All packages belong to the root Go module.
+
 ## Responsibilities
 
 | Packages | Responsibility |

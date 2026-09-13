@@ -3,7 +3,6 @@ package tinygit
 import (
 	"context"
 	"crypto/sha256"
-	"database/sql"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -96,9 +95,8 @@ func (g *GitRelay) recoverJournals() error {
 		}
 		keepJournal := false
 		if jr.Kind == 30618 {
-			var current string
-			err := g.store.DB().QueryRowContext(context.Background(), `SELECT events.id FROM events JOIN tags ON tags.event_id=events.id AND tags.name='d' AND tags.value=? WHERE events.pubkey=? AND events.kind=30618 ORDER BY events.created_at DESC,events.id ASC LIMIT 1`, id, owner).Scan(&current)
-			if errors.Is(err, sql.ErrNoRows) || current != jr.EventID {
+			current, found, err := g.store.Latest(context.Background(), 30618, owner, id)
+			if err != nil || !found || current.ID != jr.EventID {
 				if removeErr := os.Remove(filepath.Join(g.journalDir(), entry.Name())); removeErr != nil && !errors.Is(removeErr, os.ErrNotExist) {
 					return removeErr
 				}

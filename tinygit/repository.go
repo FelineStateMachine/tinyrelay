@@ -11,8 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/FelineStateMachine/tinyrelay/internal/event"
-	"github.com/FelineStateMachine/tinyrelay/internal/storage"
+	event "github.com/FelineStateMachine/tinyrelay/protocol/nostr"
 )
 
 func (g *GitRelay) repoPath(r Repository) string {
@@ -317,14 +316,14 @@ func (g *GitRelay) lookup(owner, id string) (Repository, error) {
 	if ok {
 		return r, nil
 	}
-	q, err := g.store.Query(context.Background(), event.Filter{Authors: []string{owner}, Kinds: []int{30617}, Tags: map[string][]string{"d": {id}}}, storage.QueryOptions{Now: time.Now().Unix(), Access: storage.Access{All: true}, Limit: 1})
+	q, err := g.store.Query(context.Background(), event.Filter{Authors: []string{owner}, Kinds: []int{30617}, Tags: map[string][]string{"d": {id}}}, time.Now().Unix(), 1)
 	if err != nil {
 		return Repository{}, err
 	}
-	if len(q.Events) == 0 {
+	if len(q) == 0 {
 		return Repository{}, os.ErrNotExist
 	}
-	r, err = g.parseRepository(q.Events[0])
+	r, err = g.parseRepository(q[0])
 	if err != nil {
 		return Repository{}, err
 	}
@@ -333,9 +332,9 @@ func (g *GitRelay) lookup(owner, id string) (Repository, error) {
 	// receive-pack request can stage its authorization hook synchronously.
 	// A maintainer, including an agent the host vouches for, may have signed
 	// it; parseRepository rejects any author who is not one.
-	states, stateErr := g.store.Query(context.Background(), event.Filter{Kinds: []int{30618}, Tags: map[string][]string{"d": {id}}}, storage.QueryOptions{Now: time.Now().Unix(), Access: storage.Access{All: true}, Limit: 8})
+	states, stateErr := g.store.Query(context.Background(), event.Filter{Kinds: []int{30618}, Tags: map[string][]string{"d": {id}}}, time.Now().Unix(), 8)
 	if stateErr == nil {
-		for _, candidate := range states.Events {
+		for _, candidate := range states {
 			state, parseErr := g.parseRepository(candidate)
 			if parseErr != nil || state.Owner != owner {
 				continue

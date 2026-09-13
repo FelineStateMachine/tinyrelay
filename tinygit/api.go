@@ -1,11 +1,6 @@
 package tinygit
 
 import (
-	"context"
-	"path/filepath"
-
-	"github.com/FelineStateMachine/tinyrelay/internal/policy"
-	"github.com/FelineStateMachine/tinyrelay/internal/storage"
 	"github.com/FelineStateMachine/tinyrelay/protocol/nostr"
 )
 
@@ -13,24 +8,37 @@ import (
 // sign events themselves; the server never needs their private keys.
 type Event = nostr.Event
 
-// Policy configures the embedded engine. It currently shares tinyrelay's
-// policy model; DefaultPolicy provides the initial values.
-type Policy = policy.Policy
-
-// Store is the SQLite event store used by the engine. This alias preserves
-// shared transactions with tinyrelay; it is not a pluggable storage interface.
-type Store = storage.Store
-
-// OpenStore opens the shared event schema without starting any relay services.
-// The caller owns the returned store and must close it after stopping requests.
-func OpenStore(ctx context.Context, path string) (*Store, error) {
-	path, err := filepath.Abs(path)
-	if err != nil {
-		return nil, err
-	}
-	return storage.Open(ctx, path)
+// Policy contains the policy values used by the Git engine. Hosts may keep a
+// richer policy internally and adapt these values at the integration boundary.
+type Policy struct {
+	Owner        string
+	Reads        string
+	PrivatePeers []string
+	Features     PolicyFeatures
 }
 
-// DefaultPolicy returns the embedded engine's default host policy. Hosting
-// admission and private HTTP authorization still require Config callbacks.
-func DefaultPolicy(owner string) Policy { return policy.Defaults(owner) }
+// PolicyFeatures selects optional Git protocol capabilities.
+type PolicyFeatures struct {
+	Grasp   bool
+	Grasp02 bool
+	Grasp03 bool
+	Grasp05 bool
+	Grasp06 bool
+	Grasp08 bool
+}
+
+func (p Policy) PrivateServiceEnabled() bool {
+	return p.Features.Grasp && p.Features.Grasp08 && p.Reads == "members"
+}
+
+// DefaultPolicy returns the defaults for an embedded engine.
+func DefaultPolicy(owner string) Policy {
+	return Policy{Owner: owner, Reads: "open"}
+}
+
+func (g *GitRelay) policyValue() Policy {
+	if g.policy == nil {
+		return DefaultPolicy("")
+	}
+	return g.policy()
+}

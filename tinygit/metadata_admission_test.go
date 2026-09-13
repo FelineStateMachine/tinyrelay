@@ -8,18 +8,19 @@ import (
 	"testing"
 
 	"github.com/FelineStateMachine/tinyrelay/internal/event"
+	"github.com/FelineStateMachine/tinyrelay/internal/storage"
 )
 
 func TestValidMetadataShapeDoesNotGrantAdmission(t *testing.T) {
 	ctx := context.Background()
-	store, err := OpenStore(ctx, filepath.Join(t.TempDir(), "events.db"))
+	store, err := storage.Open(ctx, filepath.Join(t.TempDir(), "events.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer store.Close()
 	calls := 0
 	denied := errors.New("blocked: host does not accept this repository")
-	g, err := New(Config{Store: store, Root: filepath.Join(t.TempDir(), "git"), Authorize: func(context.Context, Event, Repository) error {
+	g, err := New(Config{Store: tinyStore(store), Root: filepath.Join(t.TempDir(), "git"), Authorize: func(context.Context, Event, Repository) error {
 		calls++
 		return denied
 	}})
@@ -61,9 +62,9 @@ func TestValidMetadataShapeDoesNotGrantAdmission(t *testing.T) {
 			}
 		}
 	}
-	var count int
-	if err := store.DB().QueryRowContext(ctx, "SELECT count(*) FROM events").Scan(&count); err != nil || count != 0 {
-		t.Fatalf("rejected metadata persisted: count=%d err=%v", count, err)
+	result, err := store.Query(ctx, event.Filter{}, storage.QueryOptions{})
+	if err != nil || len(result.Events) != 0 {
+		t.Fatalf("rejected metadata persisted: count=%d err=%v", len(result.Events), err)
 	}
 }
 
@@ -81,14 +82,14 @@ func TestMetadataShapePrecedesRepositoryLookup(t *testing.T) {
 
 func TestInvalidMetadataShapePrecedesHostAdmission(t *testing.T) {
 	ctx := context.Background()
-	store, err := OpenStore(ctx, filepath.Join(t.TempDir(), "events.db"))
+	store, err := storage.Open(ctx, filepath.Join(t.TempDir(), "events.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer store.Close()
 	calls := 0
 	denied := errors.New("host denial")
-	g, err := New(Config{Store: store, Root: filepath.Join(t.TempDir(), "git"), Authorize: func(context.Context, Event, Repository) error {
+	g, err := New(Config{Store: tinyStore(store), Root: filepath.Join(t.TempDir(), "git"), Authorize: func(context.Context, Event, Repository) error {
 		calls++
 		return denied
 	}})
@@ -118,9 +119,9 @@ func TestInvalidMetadataShapePrecedesHostAdmission(t *testing.T) {
 			if calls != 0 {
 				t.Errorf("host authorizer called %d times for invalid shape", calls)
 			}
-			var count int
-			if err := store.DB().QueryRowContext(ctx, "SELECT count(*) FROM events WHERE id=?", e.ID).Scan(&count); err != nil || count != 0 {
-				t.Fatalf("invalid shape persisted: count=%d err=%v", count, err)
+			result, err := store.Query(ctx, event.Filter{IDs: []string{e.ID}}, storage.QueryOptions{})
+			if err != nil || len(result.Events) != 0 {
+				t.Fatalf("invalid shape persisted: count=%d err=%v", len(result.Events), err)
 			}
 		})
 	}

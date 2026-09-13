@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/FelineStateMachine/tinyrelay/internal/event"
+	event "github.com/FelineStateMachine/tinyrelay/protocol/nostr"
 )
 
 const (
@@ -36,7 +36,7 @@ type PullRequestRepair struct {
 // Updates are accepted only from the PR author and must point to the root PR.
 // This prevents an unrelated event from supplying a ref to a hosted PR.
 func (g *GitRelay) RepairPullRequestObjects(ctx context.Context, hosted Repository, set PullRequestRepair) error {
-	root, err := pullRequestTarget(set.Root, event.KIND_GIT_PR)
+	root, err := pullRequestTarget(set.Root, 1618)
 	if err != nil {
 		return err
 	}
@@ -263,7 +263,7 @@ func validatePullRequestUpdate(root, update event.Event) error {
 	if err := event.Validate(update); err != nil {
 		return err
 	}
-	if update.Kind != event.KIND_GIT_PR_UPDATE {
+	if update.Kind != 1619 {
 		return fmt.Errorf("unsupported: event kind %d is not a pull request update", update.Kind)
 	}
 	parent := event.Tag(update, "E")

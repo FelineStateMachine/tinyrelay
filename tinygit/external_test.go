@@ -29,17 +29,24 @@ import (
  "strings"
  "testing"
  "github.com/FelineStateMachine/tinyrelay/tinygit"
+ "github.com/FelineStateMachine/tinyrelay/protocol/nostr"
 )
+type fakeStore struct{}
+func (fakeStore) Query(context.Context, nostr.Filter, int64, int) ([]tinygit.Event, error) { return nil, nil }
+func (fakeStore) Save(context.Context, tinygit.Event, int64) error { return nil }
+func (fakeStore) Latest(context.Context, int, string, string) (tinygit.Event, bool, error) { return tinygit.Event{}, false, nil }
+func (fakeStore) Exists(context.Context, string, int) (bool, error) { return false, nil }
+func (fakeStore) Close() error { return nil }
 func TestUse(t *testing.T) {
  ctx := context.Background()
  dir := t.TempDir()
- var store *tinygit.Store
+ var store tinygit.Store
  var err error
  store, err = tinygit.OpenStore(ctx, filepath.Join(dir, "events.db"))
  if err != nil { t.Fatal(err) }
  defer store.Close()
  p := tinygit.DefaultPolicy("")
- g, err := tinygit.New(tinygit.Config{Store: store, Root: filepath.Join(dir, "git"), Policy: func() tinygit.Policy { return p }, Authorize: func(context.Context, tinygit.Event, tinygit.Repository) error { return nil }})
+ g, err := tinygit.New(tinygit.Config{Store: fakeStore{}, Root: filepath.Join(dir, "git"), Policy: func() tinygit.Policy { return p }, Authorize: func(context.Context, tinygit.Event, tinygit.Repository) error { return nil }})
  if err != nil { t.Fatal(err) }
  var _ http.Handler = g
  if err := g.Publish(ctx, tinygit.Event{}); err == nil { t.Fatal("invalid event accepted") }

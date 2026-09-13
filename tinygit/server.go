@@ -13,8 +13,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/FelineStateMachine/tinyrelay/internal/event"
-	"github.com/FelineStateMachine/tinyrelay/internal/storage"
+	event "github.com/FelineStateMachine/tinyrelay/protocol/nostr"
 )
 
 // ServerConfig configures the standalone public Git host. Use a dedicated
@@ -30,7 +29,7 @@ type ServerConfig struct {
 // repository metadata. Other paths are handled by Git smart HTTP.
 type Server struct {
 	git       *GitRelay
-	store     *Store
+	store     Store
 	publishMu sync.Mutex
 }
 
@@ -86,7 +85,7 @@ func (s *Server) Publish(ctx context.Context, e Event) error {
 	if err != nil {
 		return err
 	}
-	if _, err := s.store.Save(ctx, e, storage.SaveOptions{Now: time.Now().Unix()}); err != nil && !errors.Is(err, storage.ErrDuplicate) {
+	if err := s.store.Save(ctx, e, time.Now().Unix()); err != nil && !errors.Is(err, ErrDuplicate) {
 		return err
 	}
 	return s.git.CommitAfterStore(ctx, e, repo)

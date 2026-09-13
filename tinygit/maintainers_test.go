@@ -28,7 +28,7 @@ func TestMaintainerSourceDecidesStateAuthority(t *testing.T) {
 	defer store.Close()
 	vouched := map[string]bool{}
 	var asked []string
-	g, err := New(Config{Store: store, Root: filepath.Join(root, "git"), Maintainers: maintainerFunc(func(_ context.Context, r Repository, pubkey string) bool {
+	g, err := New(Config{Store: tinyStore(store), Root: filepath.Join(root, "git"), Maintainers: maintainerFunc(func(_ context.Context, r Repository, pubkey string) bool {
 		asked = append(asked, r.Identifier+":"+pubkey)
 		return vouched[pubkey]
 	})})

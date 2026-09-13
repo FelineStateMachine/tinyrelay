@@ -2,7 +2,6 @@ package tinygit
 
 import (
 	"context"
-	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -13,8 +12,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/FelineStateMachine/tinyrelay/internal/event"
-	"github.com/FelineStateMachine/tinyrelay/internal/storage"
+	event "github.com/FelineStateMachine/tinyrelay/protocol/nostr"
 )
 
 // ValidateEvent checks the wire shape, canonical ID and signature, not
@@ -98,16 +96,11 @@ func (g *GitRelay) stageAfterStore(ctx context.Context, e event.Event, repo Repo
 	if e.Kind == 30617 {
 		// Announcements and ref state are separate addressable events. An
 		// announcement update must retain the current signed refs and HEAD.
-		var raw string
-		err := g.store.DB().QueryRowContext(ctx, `SELECT raw FROM events WHERE kind=30618 AND pubkey=? AND d=? ORDER BY created_at DESC,id ASC LIMIT 1`, e.PubKey, event.Tag(e, "d")).Scan(&raw)
-		if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		state, found, err := g.store.Latest(ctx, 30618, e.PubKey, event.Tag(e, "d"))
+		if err != nil {
 			return err
 		}
-		if err == nil {
-			state, err := event.Parse([]byte(raw))
-			if err != nil {
-				return err
-			}
+		if found {
 			stateRepo, err := g.parseRepository(state)
 			if err != nil {
 				return err
@@ -154,15 +147,11 @@ func (g *GitRelay) currentMetadata(ctx context.Context, e event.Event) (bool, er
 	if e.Kind != 30617 && e.Kind != 30618 {
 		return true, nil
 	}
-	var id string
-	err := g.store.DB().QueryRowContext(ctx, `SELECT events.id FROM events JOIN tags ON tags.event_id=events.id AND tags.name='d' AND tags.value=? WHERE events.pubkey=? AND events.kind=? ORDER BY events.created_at DESC,events.id ASC LIMIT 1`, event.Tag(e, "d"), e.PubKey, e.Kind).Scan(&id)
-	if errors.Is(err, sql.ErrNoRows) {
-		return false, nil
-	}
-	if err != nil {
+	current, found, err := g.store.Latest(ctx, e.Kind, e.PubKey, event.Tag(e, "d"))
+	if err != nil || !found {
 		return false, err
 	}
-	return id == e.ID, nil
+	return current.ID == e.ID, nil
 }
 
 // IsPending lets the event admission/read layer hide a metadata event until
@@ -268,11 +257,11 @@ func (g *GitRelay) PromotePending(ctx context.Context, repo Repository) error {
 }
 
 func (g *GitRelay) promotePending(ctx context.Context, repo Repository) (bool, error) {
-	var current int
-	if err := g.store.DB().QueryRowContext(ctx, `SELECT count(*) FROM events WHERE id=? AND kind=30618`, repo.EventID).Scan(&current); err != nil {
+	found, err := g.store.Exists(ctx, repo.EventID, 30618)
+	if err != nil {
 		return false, err
 	}
-	if current == 0 {
+	if !found {
 		return false, nil
 	}
 	if !g.stateObjectsPresent(ctx, repo) {
@@ -307,7 +296,7 @@ func (g *GitRelay) Publish(ctx context.Context, e event.Event) error {
 		return err
 	}
 	if e.Kind != 30617 && e.Kind != 30618 {
-		if !((g.grasp06 || g.policy().Features.Grasp06) && (e.Kind == 1617 || e.Kind == 1618 || e.Kind == 1619)) {
+		if !((g.grasp06 || g.policyValue().Features.Grasp06) && (e.Kind == 1617 || e.Kind == 1618 || e.Kind == 1619)) {
 			return fmt.Errorf("unsupported: event kind %d is not GRASP repository metadata", e.Kind)
 		}
 		g.commitMu.Lock()
@@ -318,7 +307,7 @@ func (g *GitRelay) Publish(ctx context.Context, e event.Event) error {
 	if err != nil {
 		return err
 	}
-	if _, err := g.store.Save(ctx, e, storage.SaveOptions{Now: time.Now().Unix()}); err != nil {
+	if err := g.store.Save(ctx, e, time.Now().Unix()); err != nil {
 		return err
 	}
 	return g.CommitAfterStore(ctx, e, repo)
@@ -344,14 +333,14 @@ func (g *GitRelay) parseRepository(e event.Event) (Repository, error) {
 	ann := g.repos[key(e.PubKey, id)]
 	g.mu.RUnlock()
 	if ann.Owner == "" {
-		q, err := g.store.Query(context.Background(), event.Filter{Kinds: []int{30617}, Tags: map[string][]string{"d": {id}}}, storage.QueryOptions{Now: time.Now().Unix(), Access: storage.Access{All: true}, Limit: 0})
+		q, err := g.store.Query(context.Background(), event.Filter{Kinds: []int{30617}, Tags: map[string][]string{"d": {id}}}, time.Now().Unix(), 0)
 		if err != nil {
 			return Repository{}, err
 		}
-		if len(q.Events) == 0 {
+		if len(q) == 0 {
 			return Repository{}, errors.New("blocked: repository announcement is missing")
 		}
-		for _, candidate := range q.Events {
+		for _, candidate := range q {
 			ann, err = g.parseRepository(candidate)
 			if err == nil && g.IsMaintainer(context.Background(), ann, e.PubKey) {
 				break
@@ -383,7 +372,7 @@ var ErrIncomplete = errors.New("synchronization incomplete")
 
 // Capabilities returns only protocol surfaces that this instance can serve.
 func (g *GitRelay) Capabilities() []string {
-	p := g.policy()
+	p := g.policyValue()
 	c := []string{"GRASP-01"}
 	if p.Features.Grasp02 && g.eventSync != nil {
 		c = append(c, "GRASP-02")
@@ -458,12 +447,12 @@ func (g *GitRelay) Reload(ctx context.Context) error {
 	if err := g.recoverJournals(); err != nil {
 		return err
 	}
-	q, err := g.store.Query(ctx, event.Filter{Kinds: []int{30617}}, storage.QueryOptions{Now: time.Now().Unix(), Access: storage.Access{All: true}, Limit: 0})
+	q, err := g.store.Query(ctx, event.Filter{Kinds: []int{30617}}, time.Now().Unix(), 0)
 	if err != nil {
 		return err
 	}
 	repos := make(map[string]Repository)
-	for _, raw := range q.Events {
+	for _, raw := range q {
 		r, parseErr := g.parseRepository(raw)
 		if parseErr == nil {
 			repos[key(r.Owner, r.Identifier)] = r
@@ -500,25 +489,25 @@ func (g *GitRelay) Reload(ctx context.Context) error {
 		} else if !errors.Is(err, os.ErrNotExist) {
 			return err
 		}
-		states, stateErr := g.store.Query(ctx, event.Filter{Authors: append([]string{announcement.Owner}, announcement.Maintainers...), Kinds: []int{30618}, Tags: map[string][]string{"d": {announcement.Identifier}}}, storage.QueryOptions{Now: time.Now().Unix(), Access: storage.Access{All: true}, Limit: 0})
+		states, stateErr := g.store.Query(ctx, event.Filter{Authors: append([]string{announcement.Owner}, announcement.Maintainers...), Kinds: []int{30618}, Tags: map[string][]string{"d": {announcement.Identifier}}}, time.Now().Unix(), 0)
 		if stateErr != nil {
 			return stateErr
 		}
-		if len(states.Events) == 0 {
+		if len(states) == 0 {
 			continue
 		}
-		sort.Slice(states.Events, func(i, j int) bool { return states.Events[i].CreatedAt > states.Events[j].CreatedAt })
-		state, parseErr := g.parseRepository(states.Events[0])
+		sort.Slice(states, func(i, j int) bool { return states[i].CreatedAt > states[j].CreatedAt })
+		state, parseErr := g.parseRepository(states[0])
 		if parseErr != nil || state.Owner != announcement.Owner || !g.stateObjectsPresent(ctx, state) {
 			continue
 		}
 		repos[coordinate] = state
 	}
-	prs, prErr := g.store.Query(ctx, event.Filter{Kinds: []int{1617, 1618, 1619}}, storage.QueryOptions{Now: time.Now().Unix(), Access: storage.Access{All: true}, Limit: 0})
+	prs, prErr := g.store.Query(ctx, event.Filter{Kinds: []int{1617, 1618, 1619}}, time.Now().Unix(), 0)
 	if prErr != nil {
 		return prErr
 	}
-	for _, raw := range prs.Events {
+	for _, raw := range prs {
 		identifier := event.Tag(raw, "d")
 		if identifier == "" {
 			identifier = event.Tag(raw, "a")
@@ -587,7 +576,7 @@ func (g *GitRelay) publishPR(ctx context.Context, e event.Event) error {
 	if err := g.writeJournal(r, journalRecord{Repository: key(r.Owner, r.Identifier), EventID: e.ID, Kind: e.Kind, Refs: r.Refs, Head: r.Head}); err != nil {
 		return err
 	}
-	if _, err := g.store.Save(ctx, e, storage.SaveOptions{Now: time.Now().Unix()}); err != nil {
+	if err := g.store.Save(ctx, e, time.Now().Unix()); err != nil {
 		return err
 	}
 	if err := g.ensureRepo(r); err != nil {

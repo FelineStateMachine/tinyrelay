@@ -53,7 +53,7 @@ Use small, consumer-owned interfaces for access decisions, persistence and optio
 
 `tinygit.Event` and the frontend room event type now originate in public `protocol/nostr`. Public `protocol/auth` depends on those primitives, not host services. Internal aliases preserve one implementation, type identity, verifier replay state and error sentinels. Feature kind constants, room-reply helpers and private-kind search exclusions remain internal rather than becoming generic protocol rules.
 
-`tinygit` still shares internal policy and SQLite storage with the host. A narrow persistence contract is a later seam, not completed by moving event types. External-consumer and transitive dependency tests guard the public protocol packages. `tinygit.ParseMetadata` validates metadata shape without asserting signature validity or authority; its admission entry points combine these checks before consulting host policy.
+`tinygit` owns its small policy and persistence contracts. Its default SQLite implementation lives in `internal/gitstore`, and tenant assembly adapts the existing host store and policy. The host retains transaction ownership; the engine does not close a supplied store. External-consumer tests exercise the public store interface, while dependency tests guard the protocol packages. `tinygit.ParseMetadata` validates metadata shape without asserting signature validity or authority; its admission entry points combine these checks before consulting host policy.
 
 ## Describe standards and project extensions separately
 

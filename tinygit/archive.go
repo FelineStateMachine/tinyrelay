@@ -6,9 +6,7 @@ import (
 	"net/url"
 	"strings"
 
-	"github.com/FelineStateMachine/tinyrelay/internal/event"
-	"github.com/FelineStateMachine/tinyrelay/internal/policy"
-	"github.com/FelineStateMachine/tinyrelay/internal/storage"
+	event "github.com/FelineStateMachine/tinyrelay/protocol/nostr"
 )
 
 // validateArchiveAnnouncement implements the GRASP-05 admission distinction:
@@ -27,10 +25,7 @@ func (g *GitRelay) validateArchiveAnnouncement(r Repository) error {
 	if g.archiveRelated(context.Background(), r) {
 		return nil
 	}
-	p := policy.Policy{}
-	if g.policy != nil {
-		p = g.policy()
-	}
+	p := g.policyValue()
 	if len(r.Clone) == 0 && len(r.Relays) == 0 && p.Features.Grasp02 && p.Features.Grasp05 {
 		return nil
 	}
@@ -62,11 +57,11 @@ func (g *GitRelay) archiveRelated(ctx context.Context, r Repository) bool {
 	if g.store == nil {
 		return false
 	}
-	q, err := g.store.Query(ctx, event.Filter{Kinds: []int{30617}, Tags: map[string][]string{"d": {r.Identifier}}}, storage.QueryOptions{Now: 0, Access: storage.Access{All: true}, Limit: 0})
+	q, err := g.store.Query(ctx, event.Filter{Kinds: []int{30617}, Tags: map[string][]string{"d": {r.Identifier}}}, 0, 0)
 	if err != nil {
 		return false
 	}
-	for _, candidate := range q.Events {
+	for _, candidate := range q {
 		parsed, parseErr := g.parseRepository(candidate)
 		if parseErr != nil || parsed.Identifier != r.Identifier {
 			continue

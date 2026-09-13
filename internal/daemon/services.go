@@ -20,6 +20,7 @@ import (
 	"github.com/FelineStateMachine/tinyrelay/internal/community"
 	"github.com/FelineStateMachine/tinyrelay/internal/configport"
 	"github.com/FelineStateMachine/tinyrelay/internal/event"
+	"github.com/FelineStateMachine/tinyrelay/internal/gitstore"
 	"github.com/FelineStateMachine/tinyrelay/internal/policy"
 	"github.com/FelineStateMachine/tinyrelay/internal/records"
 	"github.com/FelineStateMachine/tinyrelay/internal/relay"
@@ -32,6 +33,10 @@ import (
 	webui "github.com/FelineStateMachine/tinyrelay/tinyclient"
 	gitrelay "github.com/FelineStateMachine/tinyrelay/tinygit"
 )
+
+func gitrelayPolicy(p policy.Policy) gitrelay.Policy {
+	return gitrelay.Policy{Owner: p.Owner, Reads: p.Reads, PrivatePeers: append([]string(nil), p.PrivatePeers...), Features: gitrelay.PolicyFeatures{Grasp: p.Features.Grasp, Grasp02: p.Features.Grasp02, Grasp03: p.Features.Grasp03, Grasp05: p.Features.Grasp05, Grasp06: p.Features.Grasp06, Grasp08: p.Features.Grasp08}}
+}
 
 // initServices constructs feature services around the tenant store and policy
 // reader. Custom-view storage is initialized before Git can promote events;
@@ -158,7 +163,7 @@ func (t *Tenant) initServices(ctx context.Context) error {
 		return err
 	}
 	t.followups = &eventFollowups{store: t.store, callbacks: t.callbacks, views: t.customViews, telemetry: t.app.telemetry, push: t.planReplicationPushFollowup}
-	t.git, err = gitrelay.New(gitrelay.Config{Store: t.store, Root: t.meta.Paths.Git, Policy: t.Policy, PublicURL: t.publicURL, AllowPrivateRelays: t.app.cfg.AllowPrivateRelays, PrivatePeers: t.Policy().PrivatePeers, HTTPAuth: t.privateHTTPAuth, GitSync: t.gitSync, EventSync: t.gitEventSync, AuthorizeHTTP: t.authorizeGit, Maintainers: t, OnPromote: func(ctx context.Context, id string, _ gitrelay.Repository) error {
+	t.git, err = gitrelay.New(gitrelay.Config{Store: gitstore.Wrap(t.store), Root: t.meta.Paths.Git, Policy: func() gitrelay.Policy { return gitrelayPolicy(t.Policy()) }, PublicURL: t.publicURL, AllowPrivateRelays: t.app.cfg.AllowPrivateRelays, PrivatePeers: t.Policy().PrivatePeers, HTTPAuth: t.privateHTTPAuth, GitSync: t.gitSync, EventSync: t.gitEventSync, AuthorizeHTTP: t.authorizeGit, Maintainers: t, OnPromote: func(ctx context.Context, id string, _ gitrelay.Repository) error {
 		return t.releaseGit(ctx, id)
 	}})
 	if err != nil {

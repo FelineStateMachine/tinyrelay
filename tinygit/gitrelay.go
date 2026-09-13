@@ -9,9 +9,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/FelineStateMachine/tinyrelay/internal/event"
-	"github.com/FelineStateMachine/tinyrelay/internal/policy"
-	"github.com/FelineStateMachine/tinyrelay/internal/storage"
+	event "github.com/FelineStateMachine/tinyrelay/protocol/nostr"
 )
 
 // Repository is the resolved authority and Git state for one hosted project.
@@ -48,7 +46,7 @@ type MaintainerSource interface {
 
 // Config supplies the event store, Git root, authorization and transport hooks.
 type Config struct {
-	Store     *Store
+	Store     Store
 	Root      string
 	Policy    func() Policy
 	Authorize func(context.Context, Event, Repository) error
@@ -93,9 +91,9 @@ type Config struct {
 
 // GitRelay coordinates signed repository events with native bare repositories.
 type GitRelay struct {
-	store         *storage.Store
+	store         Store
 	root          string
-	policy        func() policy.Policy
+	policy        func() Policy
 	authorize     func(context.Context, event.Event, Repository) error
 	authorizeHTTP func(context.Context, *http.Request, Repository) error
 	maintainers   MaintainerSource
@@ -121,6 +119,7 @@ func New(cfg Config) (*GitRelay, error) {
 	if cfg.Store == nil {
 		return nil, errors.New("git relay: store is required")
 	}
+	store := cfg.Store
 	if cfg.Root == "" {
 		return nil, errors.New("git relay: root is required")
 	}
@@ -129,13 +128,13 @@ func New(cfg Config) (*GitRelay, error) {
 	}
 	p := cfg.Policy
 	if p == nil {
-		p = func() policy.Policy { return policy.Defaults("") }
+		p = func() Policy { return DefaultPolicy("") }
 	}
 	serviceURL := cfg.PublicURL
 	if serviceURL == "" {
 		serviceURL = cfg.ServiceURL
 	}
-	g := &GitRelay{store: cfg.Store, root: cfg.Root, policy: p, authorize: cfg.Authorize, authorizeHTTP: cfg.AuthorizeHTTP, maintainers: cfg.Maintainers, serviceURL: strings.TrimRight(serviceURL, "/"), grasp06: cfg.EnableGRASP06, allowMissing: cfg.AllowMissingObjects, allowPrivate: cfg.AllowPrivateRelays, privatePeers: append([]string(nil), cfg.PrivatePeers...), httpAuth: cfg.HTTPAuth, gitSync: cfg.GitSync, eventSync: cfg.EventSync, onPromote: cfg.OnPromote, repos: make(map[string]Repository), pending: make(map[string]struct{})}
+	g := &GitRelay{store: store, root: cfg.Root, policy: p, authorize: cfg.Authorize, authorizeHTTP: cfg.AuthorizeHTTP, maintainers: cfg.Maintainers, serviceURL: strings.TrimRight(serviceURL, "/"), grasp06: cfg.EnableGRASP06, allowMissing: cfg.AllowMissingObjects, allowPrivate: cfg.AllowPrivateRelays, privatePeers: append([]string(nil), cfg.PrivatePeers...), httpAuth: cfg.HTTPAuth, gitSync: cfg.GitSync, eventSync: cfg.EventSync, onPromote: cfg.OnPromote, repos: make(map[string]Repository), pending: make(map[string]struct{})}
 	if err := g.recoverJournals(); err != nil {
 		return nil, err
 	}

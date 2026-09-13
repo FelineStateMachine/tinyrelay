@@ -14,8 +14,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/FelineStateMachine/tinyrelay/internal/event"
-	"github.com/FelineStateMachine/tinyrelay/internal/policy"
+	event "github.com/FelineStateMachine/tinyrelay/protocol/nostr"
 )
 
 // Service is the durable GRASP scheduler boundary. Tick is safe to call from
@@ -160,7 +159,7 @@ func (s *Service) Tick(ctx context.Context) error {
 		}
 		repoKey := key(r.Owner, r.Identifier)
 		status := tickRepository{AttemptedAt: progress.At, Attempts: 1}
-		profile := s.relay.policy()
+		profile := s.relay.policyValue()
 		status.Fingerprint = repoFingerprint(r, profile)
 		if previous, ok := previousProgress.Repos[repoKey]; ok {
 			if previous.NextAt > progress.At && previous.Fingerprint == status.Fingerprint {
@@ -225,7 +224,7 @@ func (s *Service) Tick(ctx context.Context) error {
 	return tickErr
 }
 
-func repoFingerprint(r Repository, profile policy.Policy) string {
+func repoFingerprint(r Repository, profile Policy) string {
 	refs := make([]string, 0, len(r.Refs))
 	for ref, oid := range r.Refs {
 		refs = append(refs, ref+"="+oid)

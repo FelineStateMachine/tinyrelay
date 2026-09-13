@@ -15,7 +15,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/FelineStateMachine/tinyrelay/internal/policy"
+	"github.com/FelineStateMachine/tinyrelay/internal/peerurl"
 	"github.com/FelineStateMachine/tinyrelay/protocol/auth"
 )
 
@@ -218,7 +218,7 @@ func (g *GitRelay) privatePeerBase(source string) string {
 	g.mu.RLock()
 	peers := append([]string(nil), g.privatePeers...)
 	g.mu.RUnlock()
-	return policy.PrivatePeerBase(source, peers)
+	return peerurl.Match(source, peers)
 }
 
 func probePrivatePeer(ctx context.Context, source string, allowPrivate ...bool) error {

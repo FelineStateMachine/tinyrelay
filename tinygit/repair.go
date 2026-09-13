@@ -127,7 +127,7 @@ func (g *GitRelay) fetchMissing(ctx context.Context, r Repository, sources []str
 			return errRepairByteLimit
 		}
 		// Private object IDs must never be requested from a public source.
-		private := r.Private || (g.policy != nil && g.policy().Reads == "members")
+		private := r.Private || g.policyValue().Reads == "members"
 		if private && !g.privatePeer(raw) {
 			lastErr = errors.New("blocked: private Git source is not a configured peer")
 			continue

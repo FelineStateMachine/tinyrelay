@@ -108,7 +108,7 @@ func TestPullRequestRepairUsesHostedRepositoryRefs(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = store.Close() })
 	p := policy.Defaults("")
-	g, err := New(Config{Store: store, Root: filepath.Join(rootDir, "git"), Policy: func() policy.Policy { return p }, AllowPrivateRelays: true})
+	g, err := New(Config{Store: tinyStore(store), Root: filepath.Join(rootDir, "git"), Policy: func() Policy { return fromInternalPolicy(p) }, AllowPrivateRelays: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -298,7 +298,7 @@ func TestPrivatePolicyDoesNotContactUnconfiguredRepairSource(t *testing.T) {
 	t.Cleanup(func() { _ = store.Close() })
 	p := policy.Defaults("")
 	p.Reads = "members"
-	g, err := New(Config{Store: store, Root: filepath.Join(root, "git"), Policy: func() policy.Policy { return p }, AllowPrivateRelays: true})
+	g, err := New(Config{Store: tinyStore(store), Root: filepath.Join(root, "git"), Policy: func() Policy { return fromInternalPolicy(p) }, AllowPrivateRelays: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -321,7 +321,7 @@ func TestGRASPTickResumesAfterCanceledRepository(t *testing.T) {
 	var cancel context.CancelFunc
 	g := &GitRelay{
 		root:   t.TempDir(),
-		policy: func() policy.Policy { return p },
+		policy: func() Policy { return fromInternalPolicy(p) },
 		repos:  map[string]Repository{key(first.Owner, first.Identifier): first, key(second.Owner, second.Identifier): second},
 		gitSync: func(ctx context.Context, repo Repository) error {
 			calls = append(calls, repo.Identifier)
