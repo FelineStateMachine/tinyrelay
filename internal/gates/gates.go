@@ -663,7 +663,10 @@ func (g *Gate) Read(ctx context.Context, filters []event.Filter, s relay.Session
 		return false, errors.New("auth-required: this relay requires AUTH")
 	}
 	if p.Reads == "members" && !a.Member && !a.Owner {
-		return false, errors.New("auth-required: this relay is members-only")
+		if len(a.PubKeys) == 0 {
+			return false, errors.New("auth-required: this relay is members-only")
+		}
+		return false, errors.New("restricted: this relay is members-only")
 	}
 	privateOnly := true
 	authHint := false
