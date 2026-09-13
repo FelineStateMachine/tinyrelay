@@ -17,6 +17,9 @@ import (
 type Access struct {
 	PubKeys []string
 	All     bool
+	// IncludeCallbackRegistrations opts out of the daemon's callback privacy
+	// filter. Standalone relays use this to preserve opaque Nostr events.
+	IncludeCallbackRegistrations bool
 }
 
 // QueryOptions supplies query time, access principals, an optional result
@@ -121,7 +124,9 @@ func addAccess(p *predicate, who Access) error {
 		return fmt.Errorf("encode read principals: %w", err)
 	}
 	// Callback registrations never become visible through internal all-access.
-	p.add("(kind<>"+fmt.Sprint(event.KIND_PUSH_REGISTRATION)+" OR pubkey IN(SELECT value FROM json_each(?)))", string(keys))
+	if !who.IncludeCallbackRegistrations {
+		p.add("(kind<>"+fmt.Sprint(event.KIND_PUSH_REGISTRATION)+" OR pubkey IN(SELECT value FROM json_each(?)))", string(keys))
+	}
 	if who.All {
 		return nil
 	}
