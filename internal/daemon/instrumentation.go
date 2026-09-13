@@ -1,8 +1,8 @@
 package daemon
 
 import (
-	"github.com/FelineStateMachine/tinyrelay/internal/relay"
 	"github.com/FelineStateMachine/tinyrelay/internal/telemetry"
+	relay "github.com/FelineStateMachine/tinyrelay/tinyrelay"
 )
 
 // InstrumentRelayConfig attaches process-level connection and subscription

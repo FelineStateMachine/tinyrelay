@@ -16,17 +16,11 @@ import (
 
 	"github.com/FelineStateMachine/tinyrelay/internal/event"
 	"github.com/FelineStateMachine/tinyrelay/internal/syncprotocol"
+	"github.com/FelineStateMachine/tinyrelay/protocol/auth"
 	"github.com/coder/websocket"
 )
 
-type Session struct {
-	// PubKeys contains public keys established by the connection's AUTH flow.
-	PubKeys []string
-	// RelayURL is the relay identity used when authenticating and publishing.
-	RelayURL string
-	// RemoteIP is the peer address observed by the HTTP server.
-	RemoteIP string
-}
+type Session = auth.Session
 
 // Backend publishes while the Router's write gate is held. Publish performs
 // the backend's admission, persistence, duplicate handling or control action
@@ -94,6 +88,9 @@ type Config struct {
 	// OnConnection and OnSubscription receive +1 and -1 lifecycle deltas.
 	OnConnection   func(int)
 	OnSubscription func(int)
+	// ChangesAccess identifies host-specific events that invalidate existing
+	// subscriptions. A nil value leaves subscriptions intact.
+	ChangesAccess func(event.Event) bool
 }
 
 func (c Config) withDefaults() Config {
@@ -184,7 +181,7 @@ func (r *Router) Publish(ctx context.Context, e event.Event, s Session) (string,
 	defer r.mu.Unlock()
 	reason, err := r.backend.Publish(ctx, e, s)
 	if err == nil && !duplicateReason(reason) {
-		if accessEvent(e) {
+		if r.changesAccess(e) {
 			r.closeSubscriptionsLocked("blocked: relay access policy changed; subscribe again")
 		}
 		r.fanout(e)
@@ -201,7 +198,7 @@ func (r *Router) publishClient(c *client, e event.Event, s Session) (string, err
 	}
 	// Queue the sender's OK before any live EVENT fanout on that socket.
 	c.replyOK(e.ID, true, reason)
-	if accessEvent(e) {
+	if r.changesAccess(e) {
 		c.r.closeSubscriptionsLocked("blocked: relay access policy changed; subscribe again")
 	}
 	if reason == "" {
@@ -931,21 +928,10 @@ func knownProtocolReason(reason string) bool {
 	return false
 }
 
-func accessEvent(e event.Event) bool {
-	if e.Kind == event.KIND_NIP43_JOIN && event.Tag(e, "claim") == "" {
-		// An access request waits for review and changes nobody's access.
-		return false
-	}
-	switch e.Kind {
-	case event.KIND_REPORT, event.KIND_VANISH, event.KIND_JOIN, event.KIND_LEAVE,
-		event.KIND_NIP43_JOIN, event.KIND_NIP43_LEAVE, event.KIND_PUT_USER,
-		event.KIND_REMOVE_USER, event.KIND_DELETE_EVENT, event.KIND_DELETE_GROUP:
-		return true
-	default:
-		return false
-	}
-}
-
 func duplicateReason(reason string) bool {
 	return strings.HasPrefix(reason, "duplicate:")
+}
+
+func (r *Router) changesAccess(e event.Event) bool {
+	return r.cfg.ChangesAccess != nil && r.cfg.ChangesAccess(e)
 }

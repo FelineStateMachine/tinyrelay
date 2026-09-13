@@ -30,6 +30,7 @@ import (
 	"github.com/FelineStateMachine/tinyrelay/protocol/auth"
 	webui "github.com/FelineStateMachine/tinyrelay/tinyclient"
 	gitrelay "github.com/FelineStateMachine/tinyrelay/tinygit"
+	"github.com/FelineStateMachine/tinyrelay/tinyrelay"
 )
 
 type tenantConfig struct {
@@ -49,7 +50,7 @@ type Tenant struct {
 	store         *storage.Store
 	community     *community.Service
 	gate          *gates.Gate
-	router        *relay.Router
+	router        *tinyrelay.Relay
 	auth          *auth.Validator
 	blobs         *blob.Service
 	sites         *sites.Service
@@ -110,7 +111,10 @@ func newTenant(ctx context.Context, cfg tenantConfig) (*Tenant, error) {
 	if err != nil {
 		return nil, err
 	}
-	t.router = relay.New(t, InstrumentRelayConfig(relay.Config{RelayURL: t.RelayURL(), RequestRelayURL: func(r *http.Request) string { return strings.Replace(t.requestURL(r), "http", "ws", 1) }, OnAuthenticate: t.authenticated, MaxMessageBytes: t.app.cfg.MaxMessageBytes, MaxPendingBytes: t.app.cfg.MaxPendingBytes, OriginPatterns: []string{"*"}}, t.app.telemetry))
+	t.router, err = tinyrelay.New(t, InstrumentRelayConfig(tinyrelay.Config{RelayURL: t.RelayURL(), RequestRelayURL: func(r *http.Request) string { return strings.Replace(t.requestURL(r), "http", "ws", 1) }, OnAuthenticate: t.authenticated, MaxMessageBytes: t.app.cfg.MaxMessageBytes, MaxPendingBytes: t.app.cfg.MaxPendingBytes, OriginPatterns: []string{"*"}, ChangesAccess: relayAccessChange}, t.app.telemetry))
+	if err != nil {
+		return nil, err
+	}
 	if err := t.initServices(ctx); err != nil {
 		return nil, err
 	}

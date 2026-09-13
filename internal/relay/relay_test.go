@@ -146,7 +146,7 @@ func TestApplyACLChangeInvalidatesSyncUnderPublicationFence(t *testing.T) {
 }
 
 func TestAcceptedMembershipEventInvalidatesSyncBeforeFanout(t *testing.T) {
-	r := New(testBackend{}, Config{})
+	r := New(testBackend{}, Config{ChangesAccess: func(e event.Event) bool { return e.Kind == event.KIND_LEAVE }})
 	c := newClient(r, nil, httptest.NewRequest("GET", "http://relay.example/", nil))
 	c.syncs["sync"] = &syncprotocol.Session{}
 	c.subs["sub"] = subscription{filters: []event.Filter{{Kinds: []int{event.KIND_LEAVE}}}}

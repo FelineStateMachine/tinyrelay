@@ -45,7 +45,7 @@ func (t *Tenant) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if strings.EqualFold(r.Header.Get("Upgrade"), "websocket") {
-		t.router.HandleHTTP(w, r)
+		t.router.ServeHTTP(w, r)
 		return
 	}
 	if isRoomStreamPath(r.URL.Path) {

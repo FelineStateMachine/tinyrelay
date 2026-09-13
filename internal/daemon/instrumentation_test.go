@@ -8,8 +8,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/FelineStateMachine/tinyrelay/internal/relay"
 	"github.com/FelineStateMachine/tinyrelay/internal/telemetry"
+	relay "github.com/FelineStateMachine/tinyrelay/tinyrelay"
 )
 
 func TestInstrumentRelayConfigRecordsConnectionLifecycle(t *testing.T) {
