@@ -10,7 +10,7 @@ import { npubEncode } from "nostr-tools/nip19";
 import { getToken } from "nostr-tools/nip98";
 import { sha256 } from "@noble/hashes/sha2.js";
 import { hexToBytes } from "@noble/hashes/utils.js";
-import { Client, HTTP_URL, RELAY_URL, now } from "./helpers.ts";
+import { Client, HTTP_URL, RELAY_URL, newKey, now } from "./helpers.ts";
 
 const exec = promisify(execFile);
 const KIND_REPO = 30617;
@@ -72,6 +72,18 @@ describe("GRASP-08 stock Git", () => {
     const identifier = `stock-${Math.random().toString(36).slice(2, 10)}`;
     const repoURL = `${HTTP_URL}/${npub}/${encodeURIComponent(identifier)}.git`;
     const proof = auth(sk, repoURL);
+    const outsiderProof = auth(newKey(), repoURL);
+    for (const service of ["git-upload-pack", "git-receive-pack"]) {
+      const endpoint = `${repoURL}/info/refs?service=${service}`;
+      const anonymous = await fetch(endpoint);
+      expect(anonymous.status).toBe(401);
+      expect(await anonymous.text()).toBe("");
+      expect(anonymous.headers.get("www-authenticate")).toBe(`Nostr method="GET"`);
+      const outsider = await fetch(endpoint, { headers: { authorization: outsiderProof } });
+      expect(outsider.status).toBe(401);
+      expect(await outsider.text()).toBe("");
+      expect(outsider.headers.get("www-authenticate")).toBe(`Nostr method="GET"`);
+    }
     const c = await Client.connect(RELAY_URL);
     try {
       await c.auth(OWNER_SK, RELAY_URL);

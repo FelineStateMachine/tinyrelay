@@ -13,6 +13,9 @@ export const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 export type Key = Uint8Array;
 export const newKey = (): Key => generateSecretKey();
+// fixedKey gives multi-process conformance runs stable actors without ever
+// reading a signing key from the environment.
+export const fixedKey = (seed: string): Key => sha256(new TextEncoder().encode(`tinyrelay conformance actor:${seed}`));
 export const pub = (sk: Key) => getPublicKey(sk);
 
 export function newEvent(sk: Key, kind: number, content: string, tags: string[][] = [], created_at = now()): NostrEvent {
