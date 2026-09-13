@@ -1,18 +1,18 @@
 # Architecture
 
-`tinyrelay` assembles the relay host. `tinygit` owns Git functionality, and `tinyclient` owns the frontend. These functional modules share one repository and Go module. See [Module boundaries and protocol contracts](module-contracts.md) for ownership rules, extension documentation and proposed follow-up seams.
+`tiny` assembles the combined relay host. The public `tinyrelay` package provides the standalone and embeddable Nostr relay, `tinygit` owns Git functionality, and `tinyclient` owns the frontend. These functional modules share one repository and Go module. See [Module boundaries and protocol contracts](module-contracts.md) for ownership rules, extension documentation and proposed follow-up seams.
 
 Each tenant has a SQLite store, a policy snapshot and a set of services. The daemon constructs those services, connects their contracts and manages their lifetimes. HTTP, WebSocket and management adapters establish caller identity and enter the tenant's operation gate before calling services.
 
 ## Find your starting point
 
-[`cmd/tiny`](../cmd/tiny/doc.go) owns command dispatch, listeners and process shutdown. [`daemon`](../internal/daemon/doc.go) describes tenant assembly and event flow. Package overviews and interface, constructor and transaction comments describe the contracts at their declarations. These comments are also available through `go doc` and editor symbol help.
+[`cmd/tiny`](../cmd/tiny/doc.go) owns combined command dispatch, while [`cmd/tinyrelay`](../cmd/tinyrelay/main.go) starts the standalone relay through the shared runner. [`daemon`](../internal/daemon/doc.go) describes tenant assembly and event flow. Package overviews and interface, constructor and transaction comments describe the contracts at their declarations. These comments are also available through `go doc` and editor symbol help.
 
 ## Package layout
 
-Executable entry points live in `cmd/tiny`, `cmd/tinygit` and `cmd/tinyclient`. Host services and storage implementations live under `internal/`, where Go prevents outside projects from importing them.
+Executable entry points live in `cmd/tiny`, `cmd/tinyrelay`, `cmd/tinygit` and `cmd/tinyclient`. Host services and storage implementations live under `internal/`, where Go prevents outside projects from importing them.
 
-`tinygit`, `tinyclient` and `protocol/` are public so other Go projects can embed them. Separate executables alone do not require public packages. These packages expose the contracts an embedder needs; host policy, database access and tenant assembly remain internal. All packages belong to the root Go module.
+`tinyrelay`, `tinygit`, `tinyclient` and `protocol/` are public so other Go projects can embed them. Separate executables alone do not require public packages. These packages expose the contracts an embedder needs; host policy, database access and tenant assembly remain internal. All packages belong to the root Go module.
 
 ## Responsibilities
 
@@ -20,6 +20,7 @@ Executable entry points live in `cmd/tiny`, `cmd/tinygit` and `cmd/tinyclient`. 
 | --- | --- |
 | [`protocol/nostr`](../protocol/nostr/doc.go) | Public event and filter values, canonical encoding, signatures and generic wire checks. No host access policy. |
 | [`protocol/auth`](../protocol/auth/doc.go) | Public request-proof verification and replay state. No membership or permission decisions. |
+| [`tinyrelay`](../tinyrelay/relay.go) | Standalone Nostr transport, durable event storage and generic relay metadata and policy. No tenant, Git or browser features. |
 | [`event`](../internal/event/doc.go), [`auth`](../internal/auth/doc.go) | Internal compatibility aliases and feature helpers; private-kind search filtering remains host behavior. |
 | [`policy`](../internal/policy/doc.go), [`gates`](../internal/gates/doc.go) | Host policy, event admission and visibility checks. |
 | [`storage`](../internal/storage/doc.go), [`work`](../internal/work/doc.go) | Event persistence, queries, transaction hooks and durable queue claims. |
@@ -28,7 +29,7 @@ Executable entry points live in `cmd/tiny`, `cmd/tinygit` and `cmd/tinyclient`. 
 | [`blob`](../internal/blob/doc.go), [`sites`](../internal/sites/doc.go) | Content-addressed files, upload rules and sites backed by signed manifests. |
 | [`tinygit`](../tinygit/doc.go) | Repository admission, object storage, synchronization, repair and Git HTTP endpoints. |
 | [`replication`](../internal/replication/doc.go), [`syncprotocol`](../internal/syncprotocol/doc.go) | Relay synchronization plans and transports, count sketches and reconciliation sessions. |
-| [`relay`](../internal/relay/doc.go), [`mcp`](../internal/mcp/doc.go), [`tinyclient`](../tinyclient/doc.go) | WebSocket sessions, MCP requests, HTML pages and browser interactions. |
+| [`relay`](../internal/relay/doc.go), [`relaycmd`](../internal/relaycmd), [`mcp`](../internal/mcp/doc.go), [`tinyclient`](../tinyclient/doc.go) | WebSocket sessions, standalone command lifecycle, MCP requests, HTML pages and browser interactions. |
 | [`agentrunner`](../internal/agentrunner) | The optional agent process: room mentions, durable queue recovery, ACP or command execution, and permission prompts. |
 | [`views`](../internal/views/doc.go), [`wiki`](../internal/wiki/doc.go), [`webpush`](../internal/webpush/doc.go) | Fenced-block parsing, article rendering and encrypted browser push delivery. |
 | [`seedmark`](../internal/seedmark) | Deterministic decorative SVG avatars for people and rooms without a profile picture. |
@@ -42,7 +43,7 @@ Executable entry points live in `cmd/tiny`, `cmd/tinygit` and `cmd/tinyclient`. 
 
 Services own the schema and data access for their features. `storage.Save` and `storage.SaveTx` accept transaction hooks so event data, projections and work intents can commit together. APIs that receive `*sql.Tx` use the caller's transaction. Community event handlers that accept a persistence callback open the transaction and pass it into the callback.
 
-Consumers declare interfaces around the operations they need. `records.CommunityReader` reads membership and moderation projections through `communityread` values. `relay.Backend` supplies event operations to the WebSocket router. `tinyclient.Backend` supplies management results, and `tinyclient.RoomsReader` supplies typed room pages. The daemon implements these adapters and assembles the feature handlers used by `work.Worker`.
+Consumers declare interfaces around the operations they need. `records.CommunityReader` reads membership and moderation projections through `communityread` values. `relay.Backend` supplies event operations to the WebSocket router. `tinyrelay.Backend` is the embedding contract for a host that owns persistence, while `tinyrelay.OpenServer` supplies a durable standalone implementation. `tinyclient.Backend` supplies management results, and `tinyclient.RoomsReader` supplies typed room pages. The daemon implements these adapters and assembles the feature handlers used by `work.Worker`.
 
 ## Event acceptance
 

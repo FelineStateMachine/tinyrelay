@@ -1,11 +1,14 @@
-.PHONY: build build-tiny build-tinygit build-tinyclient test test-race test-internal-race benchmark verify web-test docker-test docker-build linux-test
+.PHONY: build build-tiny build-tinyrelay build-tinygit build-tinyclient test test-race test-internal-race benchmark verify web-test docker-test docker-build linux-test
 
 TEST_PACKAGES ?= ./...
 
-build: build-tiny build-tinygit build-tinyclient
+build: build-tiny build-tinyrelay build-tinygit build-tinyclient
 
 build-tiny:
 	go build -mod=readonly -o bin/tiny ./cmd/tiny
+
+build-tinyrelay:
+	go build -mod=readonly -o bin/tinyrelay ./cmd/tinyrelay
 
 build-tinygit:
 	go build -mod=readonly -o bin/tinygit ./cmd/tinygit

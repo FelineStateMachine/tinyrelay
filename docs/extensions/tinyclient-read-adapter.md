@@ -5,7 +5,7 @@
 | Identifier | `tinyclient-read-adapter` |
 | Status | Experimental |
 | Contract revision | 1, tied to this repository revision; no version negotiation |
-| Owner | `tinyclient` defines the presentation contract; the tinyrelay backend owns data and authorization. |
+| Owner | `tinyclient` defines the presentation contract; the combined `tiny` backend owns data and authorization. |
 | Transport | HTTP GET, JSON success bodies, plain-text error bodies. |
 | Endpoint | `/api/tinyclient`, under the selected tenant prefix when present. |
 

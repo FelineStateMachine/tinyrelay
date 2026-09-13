@@ -17,11 +17,14 @@ Build all executables with `make build`. Run the focused component suites with:
 
 ```sh
 go test -race ./protocol/... ./internal/auth ./internal/event ./tinygit ./cmd/tinygit ./tinyclient ./cmd/tinyclient
+go test -race ./tinyrelay ./internal/relaycmd ./cmd/tinyrelay
 go test ./internal/daemon -run TestStandaloneTinyclient
 npm run test:tinyclient
 ```
 
 The tinygit command test exercises a real binary through signed metadata publication, Git push, clone, unauthorized-ref rejection and restart. The tinyclient integration test compares the standalone frontend with the integrated renderer using a real backend, including session authentication, signed writes, logout and private metadata masking. Public-consumer and dependency checks guard the package boundaries.
+
+The tinyrelay tests cover the standalone relay's WebSocket protocol, NIP-11 metadata, durable restart, authentication mode, connection limits and shutdown. The command tests cover flag defaults, public URL normalization, listener startup and cancellation. The standalone profile has generic event visibility; tenant and feature access tests belong to the combined daemon.
 
 Run `make verify` for the full integrated regression suite before shipping. Standalone tests verify the documented component profiles, not every integrated capability. During an extraction, also compare the baseline and refactored binaries using the same fixture data and check that moved browser assets and existing tests were retained. See the [module contracts](module-contracts.md#verification).
 

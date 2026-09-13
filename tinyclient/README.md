@@ -17,7 +17,7 @@ go build -o tinyclient-server ./cmd/tinyclient
   -public-url https://relay.example
 ```
 
-The backend must be a compatible tinyrelay backend (`tiny serve`) from this
+The backend must be the combined `tiny` host (`tiny serve`) from this
 repository. Set its `--public-url` to the same `https://relay.example` address.
 Route that public
 origin to tinyclient through your HTTPS reverse proxy, preserving the Host

@@ -42,7 +42,7 @@ This JSON endpoint is the standalone service's HTTP binding, not a Nostr WebSock
 
 The standalone service admits public repositories owned by the configured key and state signed by their authorized maintainers. It rejects private repository announcements. It does not provide agent grants, collaboration pages, relay event delivery or automatic peer synchronization.
 
-Those features remain available through the integrated tinyrelay host and its existing adapters. A standalone build is not a claim of full integrated feature parity or support for every GRASP capability.
+Those features remain available through the combined `tiny` host and its existing adapters. A standalone build is not a claim of full integrated feature parity or support for every GRASP capability.
 
 ## Embed
 

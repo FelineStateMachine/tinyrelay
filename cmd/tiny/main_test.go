@@ -14,7 +14,7 @@ func TestCommandNameAndPermanentTenant(t *testing.T) {
 	if err := run(context.Background(), []string{"help"}, &out); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(out.String(), "tiny serve") || strings.Contains(out.String(), "tinyrelay serve") {
+	if !strings.Contains(out.String(), "tiny serve") || !strings.Contains(out.String(), "tiny relay") {
 		t.Fatal(out.String())
 	}
 	args := []string{"tenant", "create", "--data-dir", t.TempDir(), "--name", "main", "--owner", strings.Repeat("a", 64)}
@@ -23,6 +23,13 @@ func TestCommandNameAndPermanentTenant(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), "ready") {
 		t.Fatal(out.String())
+	}
+}
+
+func TestRelayCommandDelegatesFlagValidation(t *testing.T) {
+	err := run(context.Background(), []string{"relay", "--public-url", "ftp://relay.example"}, &bytes.Buffer{})
+	if err == nil {
+		t.Fatal("accepted invalid standalone relay URL")
 	}
 }
 
