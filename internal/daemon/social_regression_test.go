@@ -61,7 +61,11 @@ func TestSocialRegressionHiddenActivityAndProfilesAreNotFolded(t *testing.T) {
 	if items[0].AuthorName == "leaked name" || items[0].AuthorPicture != "" {
 		t.Fatalf("hidden profile leaked: %#v", items[0])
 	}
-	tenant.policy.Reads = "members"
+	updated := tenant.Policy()
+	updated.Reads = "members"
+	if err := tenant.applyPolicy(context.Background(), updated); err != nil {
+		t.Fatal(err)
+	}
 	_, err := tenant.Execute(context.Background(), "", "browsesocial", []json.RawMessage{rawJSON(map[string]any{"limit": 10})})
 	if err == nil || !strings.Contains(err.Error(), "members-only") {
 		t.Fatalf("members-only social feed guest error = %v", err)
