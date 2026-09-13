@@ -96,14 +96,14 @@ func (g *GitRelay) recoverJournals() error {
 		keepJournal := false
 		if jr.Kind == 30618 {
 			current, found, err := g.store.Latest(context.Background(), 30618, owner, id)
-			if err != nil || !found || current.ID != jr.EventID {
+			if err != nil {
+				return err
+			}
+			if !found || current.ID != jr.EventID {
 				if removeErr := os.Remove(filepath.Join(g.journalDir(), entry.Name())); removeErr != nil && !errors.Is(removeErr, os.ErrNotExist) {
 					return removeErr
 				}
 				continue
-			}
-			if err != nil {
-				return err
 			}
 			if g.stateObjectsPresent(context.Background(), r) {
 				err = g.writeState(r)
