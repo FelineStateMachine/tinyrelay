@@ -629,7 +629,7 @@ func (c *client) handleCount(id string, filters []event.Filter) {
 	value, err := c.r.backend.Count(c.ctx, filters, c.snapshot())
 	c.r.mu.RUnlock()
 	if err != nil {
-		c.closedSub(id, "error: count failed: "+err.Error())
+		c.closedSub(id, queryErrorReason(err))
 		return
 	}
 	_ = c.enqueue(fmt.Sprintf(`["COUNT",%q,%s]`, id, mustJSON(value)))

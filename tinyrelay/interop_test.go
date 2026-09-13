@@ -436,6 +436,38 @@ func TestStandaloneRelayNIP42AndNIP77(t *testing.T) {
 	}
 }
 
+func TestStandaloneRelayCountAuthRequiredWire(t *testing.T) {
+	_, httpServer, anonymous := openRelay(t, true)
+	anonymous.send("COUNT", "anonymous-count", map[string]any{})
+	denied := anonymous.expect("CLOSED", 3)
+	var reason string
+	if err := json.Unmarshal(denied[2], &reason); err != nil {
+		t.Fatalf("decode COUNT denial reason: %v", err)
+	}
+	if reason != "auth-required: this relay requires AUTH" {
+		t.Fatalf("anonymous COUNT reason = %q", reason)
+	}
+
+	secret, err := nostr.GenerateKey()
+	if err != nil {
+		t.Fatal(err)
+	}
+	authenticated := connectAuthClient(t, httpServer.URL)
+	authenticated.send("AUTH", signedEvent(t, secret, 22242, time.Now().Unix(), [][]string{{"relay", "ws://relay.example"}, {"challenge", authenticated.challenge}}, ""))
+	assertAccepted(t, authenticated.expect("OK", 4), true)
+	authenticated.send("COUNT", "authenticated-count", map[string]any{})
+	count := authenticated.expect("COUNT", 3)
+	var value struct {
+		Count int `json:"count"`
+	}
+	if err := json.Unmarshal(count[2], &value); err != nil {
+		t.Fatalf("decode authenticated COUNT: %v", err)
+	}
+	if value.Count != 0 {
+		t.Fatalf("authenticated COUNT = %d, want 0", value.Count)
+	}
+}
+
 func TestStandaloneRelayGenericInboxAndRegistrationKinds(t *testing.T) {
 	_, httpServer, publisher := openRelay(t, false)
 	recipientSecret, err := nostr.GenerateKey()
