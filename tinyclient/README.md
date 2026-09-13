@@ -41,7 +41,8 @@ The default listener is `127.0.0.1:8081`. Run `tinyclient-server -help` for flag
 
 The binary embeds its assets and needs no working directory, SQLite database,
 Git installation or relay signing key at runtime. It requires a running backend
-for relay data and session validation. Failure to load the relay snapshot
+for relay data and session validation. Embedded scripts and icons remain available
+when the backend is unavailable. Failure to load the relay snapshot
 returns HTTP 502 rather than serving cached private data. It is not an offline client or a frontend for
 an arbitrary Nostr relay.
 

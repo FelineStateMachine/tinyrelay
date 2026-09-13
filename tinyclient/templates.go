@@ -10,6 +10,7 @@ import (
 	"net/url"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -267,7 +268,34 @@ var scriptsVersion = func() string {
 	return hex.EncodeToString(digest.Sum(nil))[:12]
 }()
 
+var (
+	templateBaseOnce sync.Once
+	templateBase     *template.Template
+	templateBaseErr  error
+)
+
+// parseTemplates clones the immutable parsed template set and installs the
+// request backend's rendering helpers. Parsing is expensive, while the
+// helpers must remain bound to the current App and cannot be shared safely.
 func parseTemplates(a *App) (*template.Template, error) {
+	templateBaseOnce.Do(func() { templateBase, templateBaseErr = parseTemplateBase() })
+	if templateBaseErr != nil {
+		return nil, templateBaseErr
+	}
+	tmpl, err := templateBase.Clone()
+	if err != nil {
+		return nil, fmt.Errorf("clone web templates: %w", err)
+	}
+	tmpl = tmpl.Funcs(template.FuncMap{
+		"socialBody":   a.socialBody,
+		"markdown":     a.markdown,
+		"chatMarkdown": a.chatMarkdown,
+		"wikiHTML":     a.wikiHTML,
+	})
+	return tmpl, nil
+}
+
+func parseTemplateBase() (*template.Template, error) {
 	funcs := template.FuncMap{
 		"stylesheet": func() template.CSS { return template.CSS(styleCSS) },
 		"scriptURL": func(name string) (string, error) {
@@ -298,14 +326,14 @@ func parseTemplates(a *App) (*template.Template, error) {
 		"socialQuery":         socialQuery,
 		"socialURL":           socialURL,
 		"socialThreadURL":     socialURL,
-		"socialBody":          a.socialBody,
+		"socialBody":          func(any) template.HTML { return "" },
 		"socialPreview":       socialPreview,
 		"socialMediaURL":      socialMediaURL,
 		"avatarURL":           avatarURL,
 		"roomAvatarURL":       roomAvatarURL,
 		"mobileHeader":        mobileHeader,
-		"markdown":            a.markdown,
-		"chatMarkdown":        a.chatMarkdown,
+		"markdown":            func(string) template.HTML { return "" },
+		"chatMarkdown":        func(string) template.HTML { return "" },
 		"hasPrefix":           strings.HasPrefix,
 		"npub":                identityNpub,
 		"wsURL":               wsURL,
@@ -356,7 +384,7 @@ func parseTemplates(a *App) (*template.Template, error) {
 		"approvalViews":       approvalViews,
 		"approvalCounts":      approvalCounts,
 		"approvalDevices":     approvalDevices,
-		"wikiHTML":            a.wikiHTML,
+		"wikiHTML":            func(any) template.HTML { return "" },
 		"viewState":           customViewState,
 		"viewKinds":           customViewKinds,
 		"viewLanguages":       customViewLanguages,

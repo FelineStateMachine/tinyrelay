@@ -119,6 +119,32 @@ func TestPagesRenderCustomViewFiguresFromTheBackendSummary(t *testing.T) {
 	}
 }
 
+func TestTemplateClonesKeepBackendSpecificMarkdownHelpers(t *testing.T) {
+	owner := strings.Repeat("a", 64)
+	withView := &viewsBackend{fakeBackend: fakeBackend{policy: policy.Defaults(owner)}, views: []views.View{{Name: "diagrams", Languages: []string{"mermaid"}}}}
+	withView.policy.Description = "```mermaid\ngraph TD; A-->B\n```"
+	withoutView := &viewsBackend{fakeBackend: fakeBackend{policy: policy.Defaults(owner)}}
+	withoutView.policy.Description = withView.policy.Description
+	withApp, err := New(withView, Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	withoutApp, err := New(withoutView, Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	withResponse := httptest.NewRecorder()
+	withoutResponse := httptest.NewRecorder()
+	withApp.ServeHTTP(withResponse, httptest.NewRequest(http.MethodGet, "/", nil))
+	withoutApp.ServeHTTP(withoutResponse, httptest.NewRequest(http.MethodGet, "/", nil))
+	if !strings.Contains(withResponse.Body.String(), `<figure data-view="diagrams">`) {
+		t.Fatal("backend with a custom view did not render its figure")
+	}
+	if strings.Contains(withoutResponse.Body.String(), `<figure data-view="diagrams">`) {
+		t.Fatal("backend without a custom view inherited another App's markdown helper")
+	}
+}
+
 func TestViewsPageListsCustomViewsWithControlsAndTheAddForm(t *testing.T) {
 	owner := strings.Repeat("a", 64)
 	backend := &viewsBackend{fakeBackend: fakeBackend{policy: policy.Defaults(owner)}, rows: []map[string]any{

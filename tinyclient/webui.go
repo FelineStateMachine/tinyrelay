@@ -230,50 +230,7 @@ func (a *App) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
 		a.invitePage(writer, request)
 		return
 	}
-	if strings.HasPrefix(request.URL.Path, "/scripts/") {
-		source, ok := scripts[strings.TrimPrefix(request.URL.Path, "/scripts/")]
-		if !ok {
-			http.NotFound(writer, request)
-			return
-		}
-		writer.Header().Set("content-type", "application/javascript; charset=utf-8")
-		if request.URL.Query().Get("v") == scriptsVersion {
-			writer.Header().Set("cache-control", "public, max-age=31536000, immutable")
-		} else {
-			writer.Header().Set("cache-control", "no-cache")
-		}
-		_, _ = writer.Write([]byte(source))
-		return
-	}
-	if request.URL.Path == "/signer.js" {
-		writer.Header().Set("content-type", "application/javascript; charset=utf-8")
-		_, _ = writer.Write([]byte(signerJS))
-		return
-	}
-	if request.URL.Path == "/fixi.js" {
-		writer.Header().Set("content-type", "application/javascript; charset=utf-8")
-		_, _ = writer.Write(fixiJS)
-		return
-	}
-	if request.URL.Path == "/sw.js" {
-		writer.Header().Set("content-type", "application/javascript; charset=utf-8")
-		writer.Header().Set("service-worker-allowed", "/")
-		_, _ = writer.Write(serviceWorkerJS)
-		return
-	}
-	if png, ok := map[string][]byte{"/icon-192.png": icon192PNG, "/icon-512.png": icon512PNG, "/icon-maskable-512.png": iconMaskablePNG, "/apple-touch-icon.png": appleTouchIconPNG, "/badge-96.png": badgePNG, "/screenshot-narrow.png": screenshotNarrowPNG, "/screenshot-wide.png": screenshotWidePNG}[request.URL.Path]; ok {
-		writer.Header().Set("content-type", "image/png")
-		writer.Header().Set("cache-control", "public, max-age=86400")
-		_, _ = writer.Write(png)
-		return
-	}
-	if request.URL.Path == "/icon.svg" || request.URL.Path == "/icon-mono.svg" {
-		writer.Header().Set("content-type", "image/svg+xml; charset=utf-8")
-		if request.URL.Path == "/icon.svg" {
-			_, _ = writer.Write(iconSVG)
-		} else {
-			_, _ = writer.Write(iconMonoSVG)
-		}
+	if serveEmbeddedAsset(writer, request, request.URL.Path) {
 		return
 	}
 	if request.URL.Path == "/open" {

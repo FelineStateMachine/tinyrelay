@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -84,5 +85,81 @@ func TestRemoteProxiesWebSocketUpgrades(t *testing.T) {
 	_, body, err := conn.Read(ctx)
 	if err != nil || string(body) != `["REQ","test",{}]` {
 		t.Fatalf("websocket relay: %s %v", body, err)
+	}
+}
+
+func TestRemoteServesImmutableAssetsWithoutBackendReads(t *testing.T) {
+	var calls atomic.Int32
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls.Add(1)
+		http.Error(w, "backend should not be called for immutable assets", http.StatusBadGateway)
+	}))
+	remote, err := NewRemote(RemoteOptions{BackendURL: upstream.URL, PublicURL: "http://relay.example"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	upstream.Close()
+	for _, method := range []string{http.MethodGet, http.MethodHead} {
+		for _, path := range []string{"/scripts/bridge.js", "/signer.js", "/fixi.js", "/sw.js", "/icon.svg", "/icon-192.png"} {
+			recorder := httptest.NewRecorder()
+			request := httptest.NewRequest(method, "http://relay.example"+path, nil)
+			request.AddCookie(&http.Cookie{Name: "tiny_session", Value: "session"})
+			remote.ServeHTTP(recorder, request)
+			if recorder.Code != http.StatusOK || calls.Load() != 0 {
+				t.Fatalf("%s %s: status=%d backend calls=%d", method, path, recorder.Code, calls.Load())
+			}
+		}
+	}
+	for _, path := range []string{"/r/other/scripts/bridge.js", "/r/other/icon.svg"} {
+		recorder := httptest.NewRecorder()
+		remote.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "http://relay.example"+path, nil))
+		if recorder.Code != http.StatusNotFound || calls.Load() != 0 {
+			t.Fatalf("cross-tenant %s: status=%d backend calls=%d", path, recorder.Code, calls.Load())
+		}
+	}
+}
+
+func TestRemoteEmbeddedAssetsMatchIntegratedClient(t *testing.T) {
+	app, err := New(&fakeBackend{policy: DefaultPolicy(strings.Repeat("a", 64))}, Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var calls atomic.Int32
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls.Add(1)
+		http.Error(w, "unexpected upstream request", http.StatusBadGateway)
+	}))
+	defer upstream.Close()
+	paths := []string{"/scripts/bridge.js", "/scripts/bridge.js?v=" + scriptsVersion, "/signer.js", "/fixi.js", "/sw.js", "/icon.svg", "/icon-mono.svg", "/icon-192.png"}
+	for _, prefix := range []string{"", "/r/team"} {
+		remote, err := NewRemote(RemoteOptions{BackendURL: upstream.URL + prefix, PublicURL: "http://relay.example" + prefix})
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, method := range []string{http.MethodGet, http.MethodHead} {
+			for _, path := range paths {
+				request := httptest.NewRequest(method, "http://relay.example"+prefix+path, nil)
+				request.AddCookie(&http.Cookie{Name: "tiny_session", Value: "session"})
+				got, want := httptest.NewRecorder(), httptest.NewRecorder()
+				remote.ServeHTTP(got, request)
+				local := request.Clone(request.Context())
+				local.URL.Path = strings.TrimPrefix(local.URL.Path, prefix)
+				app.ServeHTTP(want, local)
+				if got.Code != want.Code || got.Body.String() != want.Body.String() {
+					t.Fatalf("%s %s%s: standalone status/body differs from integrated", method, prefix, path)
+				}
+				if method == http.MethodHead && got.Body.Len() != 0 {
+					t.Fatalf("HEAD %s carries a response body", path)
+				}
+				for _, header := range []string{"Content-Type", "Cache-Control", "Service-Worker-Allowed"} {
+					if got.Header().Get(header) != want.Header().Get(header) {
+						t.Fatalf("%s %s: %s=%q, want %q", method, path, header, got.Header().Get(header), want.Header().Get(header))
+					}
+				}
+			}
+		}
+	}
+	if calls.Load() != 0 {
+		t.Fatalf("embedded assets made %d upstream requests", calls.Load())
 	}
 }

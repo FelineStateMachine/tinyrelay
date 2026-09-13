@@ -264,6 +264,9 @@ func (remote *remoteClient) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		remote.proxy.ServeHTTP(w, r)
 		return
 	}
+	if serveEmbeddedAsset(w, r, path) {
+		return
+	}
 	b := &requestBackend{remote: remote, cookie: r.Header.Get("Cookie")}
 	if err := remote.read(r.Context(), b.cookie, nil, &b.snapshot); err != nil {
 		http.Error(w, "relay backend unavailable", http.StatusBadGateway)
