@@ -215,14 +215,12 @@ func (s *Service) blob(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, http.StatusMethodNotAllowed, errors.New("method not allowed"))
 		return
 	}
+	var pubkey string
 	if s.config.CanRead != nil {
-		pubkey, err := s.authorize(r, ActionGet)
+		var err error
+		pubkey, err = s.authorize(r, ActionGet)
 		if err != nil {
 			s.fail(w, http.StatusUnauthorized, err)
-			return
-		}
-		if !s.config.CanRead(r.Context(), sha, []string{pubkey}) {
-			s.fail(w, http.StatusForbidden, errors.New("restricted: read access denied"))
 			return
 		}
 	}
@@ -233,6 +231,10 @@ func (s *Service) blob(w http.ResponseWriter, r *http.Request) {
 	}
 	if err != nil {
 		s.fail(w, http.StatusInternalServerError, err)
+		return
+	}
+	if s.config.CanRead != nil && !s.config.CanRead(r.Context(), sha, []string{pubkey}) {
+		s.fail(w, http.StatusForbidden, errors.New("restricted: read access denied"))
 		return
 	}
 	if s.blocked(r.Context(), sha) {
