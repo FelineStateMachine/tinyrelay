@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import vm from "node:vm";
 
-const source = fs.readFileSync("internal/webui/chat-activity.js", "utf8");
+const source = fs.readFileSync("tinyclient/chat-activity.js", "utf8");
 const actor = "a".repeat(64), author = "b".repeat(64), request = "c".repeat(64);
 
 class Node {

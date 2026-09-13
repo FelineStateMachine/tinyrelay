@@ -7,8 +7,8 @@ import { signerBundle, nostrNameBundle } from "./bundle-config.mjs";
 const root = new URL("..", import.meta.url);
 const temporaryDirectory = await mkdtemp(join(tmpdir(), "tinyrelay-bundles-"));
 const bundles = [
-  ["signer", signerBundle(join(temporaryDirectory, "signer.js")), "internal/webui/signer.js"],
-  ["nostr-name", nostrNameBundle(join(temporaryDirectory, "nostr-name.js")), "internal/webui/nostr-name.js"],
+  ["signer", signerBundle(join(temporaryDirectory, "signer.js")), "tinyclient/signer.js"],
+  ["nostr-name", nostrNameBundle(join(temporaryDirectory, "nostr-name.js")), "tinyclient/nostr-name.js"],
 ];
 
 try {

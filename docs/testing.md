@@ -11,6 +11,20 @@ make test-race
 
 The repository also contains a multistage Docker build. `make docker-test` runs `TEST_PACKAGES` (default `./...`) under Go 1.27.1 on Debian Bookworm with the race detector. `make docker-build` builds the self-hosted runtime image.
 
+## Component checks
+
+Build all executables with `make build`. Run the focused component suites with:
+
+```sh
+go test -race ./tinygit ./cmd/tinygit ./tinyclient ./cmd/tinyclient
+go test ./internal/daemon -run TestStandaloneTinyclient
+npm run test:tinyclient
+```
+
+The tinygit command test exercises a real binary through signed metadata publication, Git push, clone, unauthorized-ref rejection and restart. The tinyclient integration test compares the standalone frontend with the integrated renderer using a real backend, including session authentication, signed writes, logout and private metadata masking. Public-consumer and dependency checks guard the package boundaries.
+
+Run `make verify` for the full integrated regression suite before shipping. Standalone tests verify the documented component profiles, not every integrated capability. During an extraction, also compare the baseline and refactored binaries using the same fixture data and check that moved browser assets and existing tests were retained. See the [module contracts](module-contracts.md#verification).
+
 ## Remote Linux host
 
 `scripts/test-linux.sh` runs the same internal race test in an isolated Docker build on the configured Linux host. It synchronizes the exact worktree, including untracked files, over SSH into a unique directory under `~/tinyrelay-tests/` in the remote home directory; it never runs global Docker cleanup and never edits host configuration.
@@ -88,6 +102,6 @@ The raw JSON records failures as failures; interrupted or absent phases are not 
 
 ## Git collaboration checks
 
-Run `npm run test:collaboration` to check signed issue, reply, status and pull request events. Run `go test ./internal/daemon ./internal/gitrelay ./internal/replication ./internal/webui` for collaboration queries, access controls, synchronization, Git repair and page rendering.
+Run `npm run test:collaboration` to check signed issue, reply, status and pull request events. Run `go test ./internal/daemon ./tinygit ./internal/replication ./tinyclient` for collaboration queries, access controls, synchronization, Git repair and page rendering.
 
 The UX fixture includes an issue, a threaded comment, a status change and a pull request with a real Git diff. Use a disposable daemon when testing signed browser publishing.

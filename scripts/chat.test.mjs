@@ -39,7 +39,7 @@ const protocol = {
 let pages = [];
 globalThis.tiny = {chat: {protocol}, signer: () => signer, signedFetch: async () => ({ok: true, json: async () => pages.shift()}), localPath: value => value, util: {relayURL: value => value}, rooms: {linkify: value => Object.assign(new FakeNode("text"), {textContent: value})}, ui: {FormElement: FakeElement}, navigate: async () => {}, signing: {publish: async () => ({})}};
 globalThis.NostrSigner = {verifyEvent: () => true};
-vm.runInThisContext(fs.readFileSync("internal/webui/chat.js", "utf8"), {filename: "chat.js"});
+vm.runInThisContext(fs.readFileSync("tinyclient/chat.js", "utf8"), {filename: "chat.js"});
 const ui = tiny.chat.ui;
 
 test("cache accepts files, rejects groups, deduplicates and folds reactions", async () => {

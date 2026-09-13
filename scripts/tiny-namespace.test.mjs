@@ -5,7 +5,7 @@ import test from "node:test";
 import vm from "node:vm";
 import {generateSecretKey, getPublicKey, nip19} from "nostr-tools";
 
-const read = name => readFile(new URL(`../internal/webui/${name}`, import.meta.url), "utf8");
+const read = name => readFile(new URL(`../tinyclient/${name}`, import.meta.url), "utf8");
 const [tiny, encryption, manifests, upload] = await Promise.all([
   read("tiny.js"), read("blossom-encryption.js"), read("blossom-manifests.js"), read("blossom-upload.js")
 ]);

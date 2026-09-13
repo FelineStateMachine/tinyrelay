@@ -1,5 +1,7 @@
 # Architecture
 
+`tinyrelay` assembles the relay host. `tinygit` owns Git functionality, and `tinyclient` owns the frontend. These functional modules share one repository and Go module. See [Module boundaries and protocol contracts](module-contracts.md) for ownership rules, extension documentation and proposed follow-up seams.
+
 Each tenant has a SQLite store, a policy snapshot and a set of services. The daemon constructs those services, connects their contracts and manages their lifetimes. HTTP, WebSocket and management adapters establish caller identity and enter the tenant's operation gate before calling services.
 
 ## Find your starting point
@@ -16,9 +18,9 @@ Each tenant has a SQLite store, a policy snapshot and a set of services. The dae
 | [`community`](../internal/community/doc.go), [`communityread`](../internal/communityread/doc.go) | Membership, moderation, rooms, agents and the read models consumed by records. |
 | [`records`](../internal/records/doc.go) | Relay identity, signed protocol records, projections and notifications. |
 | [`blob`](../internal/blob/doc.go), [`sites`](../internal/sites/doc.go) | Content-addressed files, upload rules and sites backed by signed manifests. |
-| [`gitrelay`](../internal/gitrelay/doc.go) | Repository admission, object storage, synchronization, repair and Git HTTP endpoints. |
+| [`tinygit`](../tinygit/doc.go) | Repository admission, object storage, synchronization, repair and Git HTTP endpoints. |
 | [`replication`](../internal/replication/doc.go), [`syncprotocol`](../internal/syncprotocol/doc.go) | Relay synchronization plans and transports, count sketches and reconciliation sessions. |
-| [`relay`](../internal/relay/doc.go), [`mcp`](../internal/mcp/doc.go), [`webui`](../internal/webui/doc.go) | WebSocket sessions, MCP requests, HTML pages and browser interactions. |
+| [`relay`](../internal/relay/doc.go), [`mcp`](../internal/mcp/doc.go), [`tinyclient`](../tinyclient/doc.go) | WebSocket sessions, MCP requests, HTML pages and browser interactions. |
 | [`agentrunner`](../internal/agentrunner) | The optional agent process: room mentions, durable queue recovery, ACP or command execution, and permission prompts. |
 | [`views`](../internal/views/doc.go), [`wiki`](../internal/wiki/doc.go), [`webpush`](../internal/webpush/doc.go) | Fenced-block parsing, article rendering and encrypted browser push delivery. |
 | [`seedmark`](../internal/seedmark) | Deterministic decorative SVG avatars for people and rooms without a profile picture. |
@@ -32,7 +34,7 @@ Each tenant has a SQLite store, a policy snapshot and a set of services. The dae
 
 Services own the schema and data access for their features. `storage.Save` and `storage.SaveTx` accept transaction hooks so event data, projections and work intents can commit together. APIs that receive `*sql.Tx` use the caller's transaction. Community event handlers that accept a persistence callback open the transaction and pass it into the callback.
 
-Consumers declare interfaces around the operations they need. `records.CommunityReader` reads membership and moderation projections through `communityread` values. `relay.Backend` supplies event operations to the WebSocket router. `webui.Backend` supplies management results, and `webui.RoomsReader` supplies typed room pages. The daemon implements these adapters and assembles the feature handlers used by `work.Worker`.
+Consumers declare interfaces around the operations they need. `records.CommunityReader` reads membership and moderation projections through `communityread` values. `relay.Backend` supplies event operations to the WebSocket router. `tinyclient.Backend` supplies management results, and `tinyclient.RoomsReader` supplies typed room pages. The daemon implements these adapters and assembles the feature handlers used by `work.Worker`.
 
 ## Event acceptance
 

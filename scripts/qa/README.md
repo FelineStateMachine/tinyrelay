@@ -15,7 +15,7 @@ In another terminal, seed notes, articles, files and a Git repository, then chec
 ```sh
 node scripts/qa/ux-fixture.mjs --data /tmp/tinyrelay-ux
 node scripts/qa/ux-http-fuzz.mjs
-go test ./internal/webui -run '^$' -fuzz FuzzInjectBasePreservesText -fuzztime=10s
+go test ./tinyclient -run '^$' -fuzz FuzzInjectBasePreservesText -fuzztime=10s
 ```
 
 The HTTP report and browser screenshots are saved under `output/playwright/ux/`.

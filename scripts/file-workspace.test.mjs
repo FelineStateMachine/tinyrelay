@@ -57,9 +57,9 @@ const load = (workspace = false) => {
   globalThis.tiny = window.tiny;
   Object.defineProperty(globalThis, "navigator", {configurable: true, value: {clipboard: {writeText: async () => { throw Error("clipboard unavailable"); }}}});
   globalThis.btoa = value => Buffer.from(value, "binary").toString("base64"); globalThis.atob = value => Buffer.from(value, "base64").toString("binary");
-  vm.runInThisContext(fs.readFileSync("internal/webui/tiny.js", "utf8"));
-  if (workspace) { vm.runInThisContext(fs.readFileSync("internal/webui/blossom-manifests.js", "utf8")); vm.runInThisContext(fs.readFileSync("internal/webui/blossom-encryption.js", "utf8")); vm.runInThisContext(fs.readFileSync("internal/webui/blossom-upload.js", "utf8")); vm.runInThisContext(fs.readFileSync("internal/webui/file-workspace.js", "utf8")); } else { delete globalThis.tiny.blossom.upload; }
-  vm.runInThisContext(fs.readFileSync("internal/webui/components.js", "utf8"));
+  vm.runInThisContext(fs.readFileSync("tinyclient/tiny.js", "utf8"));
+  if (workspace) { vm.runInThisContext(fs.readFileSync("tinyclient/blossom-manifests.js", "utf8")); vm.runInThisContext(fs.readFileSync("tinyclient/blossom-encryption.js", "utf8")); vm.runInThisContext(fs.readFileSync("tinyclient/blossom-upload.js", "utf8")); vm.runInThisContext(fs.readFileSync("tinyclient/file-workspace.js", "utf8")); } else { delete globalThis.tiny.blossom.upload; }
+  vm.runInThisContext(fs.readFileSync("tinyclient/components.js", "utf8"));
   return {document, window, FileTools: customElements.registry["file-tools"], FileMirror: customElements.registry["file-mirror"], FileUpload: customElements.registry["file-upload"]};
 };
 
@@ -430,6 +430,8 @@ test("large uploads hand signed requests to Background Fetch and read the parked
   const hash = await window.tiny.sha256hex(bytes);
   const descriptor = {sha256: hash, size: bytes.byteLength};
   let started;
+  let signalStart;
+  const didStart = new Promise(resolve => { signalStart = resolve; });
   const task = {result: "", uploaded: 0, uploadTotal: bytes.byteLength, listeners: [], addEventListener(name, fn) { this.listeners.push(fn); }, removeEventListener() {}};
   const parked = new Map();
   globalThis.caches = {open: async () => ({match: async key => parked.get(key), delete: async key => parked.delete(key), put: async (key, value) => parked.set(key, value)})};
@@ -438,7 +440,7 @@ test("large uploads hand signed requests to Background Fetch and read the parked
   globalThis.localStorage = {getItem: key => store.get(key) ?? null, setItem: (key, value) => store.set(key, value), removeItem: key => store.delete(key), get length() { return store.size; }};
   Object.defineProperty(globalThis, "localStorage", {configurable: true, value: globalThis.localStorage});
   Object.keys = ((original => target => target === globalThis.localStorage ? [...store.keys()] : original(target)))(Object.keys);
-  Object.defineProperty(globalThis, "navigator", {configurable: true, value: {clipboard: {writeText: async () => { throw Error("unavailable"); }}, serviceWorker: {controller: {}, ready: Promise.resolve({backgroundFetch: {fetch: async (id, requests, options) => { started = {id, requests, options}; return task; }, get: async () => null}})}}});
+  Object.defineProperty(globalThis, "navigator", {configurable: true, value: {clipboard: {writeText: async () => { throw Error("unavailable"); }}, serviceWorker: {controller: {}, ready: Promise.resolve({backgroundFetch: {fetch: async (id, requests, options) => { started = {id, requests, options}; signalStart(); return task; }, get: async () => null}})}}});
   const originalFetch = globalThis.fetch;
   globalThis.fetch = async (_url, init = {}) => new Response(null, {status: 204, headers: {Allow: "PATCH, PUT"}});
   try {
@@ -447,7 +449,14 @@ test("large uploads hand signed requests to Background Fetch and read the parked
     form.elements.namedItem("file").files = [new File([bytes], "big.bin", {type: "application/octet-stream"})];
     form.elements.namedItem("background").checked = true;
     const run = upload.run(form);
-    await new Promise(resolve => setTimeout(resolve, 50));
+    let timeout;
+    try {
+      await Promise.race([didStart, new Promise((_, reject) => {
+        timeout = setTimeout(() => reject(new Error("background fetch was not started")), 5000);
+      })]);
+    } finally {
+      clearTimeout(timeout);
+    }
     assert.ok(started, "background fetch was not started");
     assert.equal(started.requests.length, 2);
     assert.equal(started.requests[0].method, "PATCH");

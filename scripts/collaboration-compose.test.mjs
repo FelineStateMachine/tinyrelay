@@ -7,7 +7,7 @@ import { sharedSigning } from "./test-signing.mjs";
 
 const root = "a".repeat(64), author = "b".repeat(64), parent = "c".repeat(64), parentAuthor = "d".repeat(64);
 const coordinate = `30617:${author}:test`;
-const source = fs.readFileSync("internal/webui/components.js", "utf8");
+const source = fs.readFileSync("tinyclient/components.js", "utf8");
 const composeSource = source.slice(source.indexOf("  class NostrCompose "), source.indexOf("  class NostrKey "));
 function setup(attributes, values = {}, options = {}) {
   const sent = [], signed = [];

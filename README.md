@@ -19,6 +19,20 @@ flowchart LR
   tenant -- "inbox and outbox" --> relays((other relays))
 ```
 
+## Components
+
+The repository contains three executables in one Go module:
+
+| Component | Build target | Role |
+| --- | --- | --- |
+| `tinyrelay`, distributed as `tiny` | `make build-tiny` | Integrated relay host with Git hosting and the browser interface. |
+| [`tinygit`](tinygit/README.md) | `make build-tinygit` | Standalone public Git host using signed repository metadata and refs. |
+| [`tinyclient`](tinyclient/README.md) | `make build-tinyclient` | Standalone frontend connected to a compatible tinyrelay backend. |
+
+`make build` writes all three binaries to `bin/`. Go builds embed the checked-in browser assets and do not require Node.js. The integrated `tiny` command, wire formats and existing tenant data remain compatible. Standalone components have narrower capabilities: tinygit does not start a relay or private-repository service, and tinyclient needs a backend and preserves its public origin and tenant path.
+
+See [Architecture](docs/architecture.md) and [Module boundaries and protocol contracts](docs/module-contracts.md) for the current responsibilities and proposed follow-up boundaries.
+
 ## Run locally
 
 Build and start the daemon:

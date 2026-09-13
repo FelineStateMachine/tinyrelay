@@ -9,7 +9,7 @@ import { finalizeEvent, generateSecretKey, verifyEvent } from "nostr-tools";
 import { sharedSigning } from "./test-signing.mjs";
 
 const request = "a".repeat(64), asker = "b".repeat(64);
-const source = fs.readFileSync("internal/webui/components.js", "utf8");
+const source = fs.readFileSync("tinyclient/components.js", "utf8");
 const reactSource = source.slice(source.indexOf("  const publishSigned = "), source.indexOf("  // ApprovalItem reacts"));
 
 // node builds enough of an element for the confirmation prompt: text,
@@ -114,7 +114,7 @@ test("the confirmation prompt signs only after Confirm and waits for a signer", 
 
 // The service worker runs against a fake self with a registration and a
 // client list, so the click handler's window choice is observable.
-const workerSource = fs.readFileSync("internal/webui/sw.js", "utf8");
+const workerSource = fs.readFileSync("tinyclient/sw.js", "utf8");
 function worker({windows = []} = {}) {
   const handlers = {}, shown = [], opened = [];
   const self = {

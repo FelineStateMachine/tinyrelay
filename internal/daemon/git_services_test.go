@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/FelineStateMachine/tinyrelay/internal/gitrelay"
+	gitrelay "github.com/FelineStateMachine/tinyrelay/tinygit"
 )
 
 func TestGitEventFiltersCoverRepositoryAndCollaborationScopes(t *testing.T) {

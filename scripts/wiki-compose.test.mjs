@@ -5,8 +5,8 @@ import vm from "node:vm";
 import { finalizeEvent, generateSecretKey, getPublicKey, verifyEvent } from "nostr-tools";
 import { sharedSigning } from "./test-signing.mjs";
 
-const source = fs.readFileSync("internal/webui/components.js", "utf8");
-const tinySource = fs.readFileSync("internal/webui/tiny.js", "utf8");
+const source = fs.readFileSync("tinyclient/components.js", "utf8");
+const tinySource = fs.readFileSync("tinyclient/tiny.js", "utf8");
 const wikiSource = source.slice(source.indexOf("  const publishSigned = "), source.indexOf("  // ApprovalItem reacts"));
 const isHex64 = value => /^[0-9a-f]{64}$/.test(value || "");
 

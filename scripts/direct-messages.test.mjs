@@ -6,7 +6,7 @@ import { finalizeEvent, generateSecretKey, getEventHash, getPublicKey, nip19, ni
 
 globalThis.NostrSigner = {generateSecretKey, getPublicKey, getEventHash, finalizeEvent, verifyEvent, nip44, decodeNpub: value => nip19.decode(value).data};
 globalThis.tiny = {util: {relayURL: value => value}, files: {messages: {normalizePubkey: value => /^[0-9a-f]{64}$/i.test(value) ? value.toLowerCase() : nip19.decode(value).data}}};
-vm.runInThisContext(fs.readFileSync("internal/webui/direct-messages.js", "utf8"), {filename: "direct-messages.js"});
+vm.runInThisContext(fs.readFileSync("tinyclient/direct-messages.js", "utf8"), {filename: "direct-messages.js"});
 
 const alice = generateSecretKey();
 const bob = generateSecretKey();
@@ -66,7 +66,7 @@ test("normalizes npub and preserves relay transport wrappers", () => {
 });
 
 test("round trips a kind 15 file rumor through the NIP-07 path", async () => {
-  vm.runInThisContext(fs.readFileSync("internal/webui/file-messages.js", "utf8"), {filename: "file-messages.js"});
+  vm.runInThisContext(fs.readFileSync("tinyclient/file-messages.js", "utf8"), {filename: "file-messages.js"});
   const file = await globalThis.tiny.files.messages.build({
     recipient: bobPub, fileURL: "https://files.example/photo.jpg", ciphertextHash: "a".repeat(64),
     mimeType: "image/jpeg", key: "b".repeat(64), nonce: "c".repeat(24)

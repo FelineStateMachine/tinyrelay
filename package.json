@@ -3,6 +3,8 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "build:tinyclient": "npm run build:signer && npm run build:nostr-name",
+    "test:tinyclient": "npm run verify:bundles && npm run test:js",
     "build:signer": "node scripts/build-signer.mjs",
     "build:nostr-name": "node scripts/build-nostr-name.mjs",
     "verify:bundles": "node scripts/verify-bundles.mjs",

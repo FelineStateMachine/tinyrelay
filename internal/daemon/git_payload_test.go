@@ -13,7 +13,7 @@ import (
 	"testing"
 
 	"github.com/FelineStateMachine/tinyrelay/internal/event"
-	"github.com/FelineStateMachine/tinyrelay/internal/gitrelay"
+	gitrelay "github.com/FelineStateMachine/tinyrelay/tinygit"
 )
 
 type repeatedGitByte struct{}

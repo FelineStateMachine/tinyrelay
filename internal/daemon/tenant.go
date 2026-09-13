@@ -19,7 +19,7 @@ import (
 	"github.com/FelineStateMachine/tinyrelay/internal/configport"
 	"github.com/FelineStateMachine/tinyrelay/internal/event"
 	"github.com/FelineStateMachine/tinyrelay/internal/gates"
-	"github.com/FelineStateMachine/tinyrelay/internal/gitrelay"
+	gitrelay "github.com/FelineStateMachine/tinyrelay/tinygit"
 	"github.com/FelineStateMachine/tinyrelay/internal/mcp"
 	"github.com/FelineStateMachine/tinyrelay/internal/policy"
 	"github.com/FelineStateMachine/tinyrelay/internal/records"
@@ -29,7 +29,7 @@ import (
 	"github.com/FelineStateMachine/tinyrelay/internal/storage"
 	"github.com/FelineStateMachine/tinyrelay/internal/syncprotocol"
 	"github.com/FelineStateMachine/tinyrelay/internal/webpush"
-	"github.com/FelineStateMachine/tinyrelay/internal/webui"
+	webui "github.com/FelineStateMachine/tinyrelay/tinyclient"
 )
 
 type tenantConfig struct {

@@ -6,8 +6,8 @@ import { finalizeEvent, generateSecretKey, getPublicKey, verifyEvent } from "nos
 import * as nip19 from "nostr-tools/nip19";
 import { createHash } from "node:crypto";
 
-const roomsSource = fs.readFileSync("internal/webui/rooms.js", "utf8");
-const parity = JSON.parse(fs.readFileSync("internal/webui/room_parity.json", "utf8"));
+const roomsSource = fs.readFileSync("tinyclient/rooms.js", "utf8");
+const parity = JSON.parse(fs.readFileSync("tinyclient/room_parity.json", "utf8"));
 
 // A small document: enough of the DOM for the room elements to render
 // messages, find their targets and keep the list bounded.

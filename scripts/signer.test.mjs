@@ -4,8 +4,8 @@ import {readFile} from "node:fs/promises";
 import test from "node:test";
 import vm from "node:vm";
 
-const bridge = await readFile(new URL("../internal/webui/bridge.js", import.meta.url), "utf8");
-const shared = await readFile(new URL("../internal/webui/tiny.js", import.meta.url), "utf8");
+const bridge = await readFile(new URL("../tinyclient/bridge.js", import.meta.url), "utf8");
+const shared = await readFile(new URL("../tinyclient/tiny.js", import.meta.url), "utf8");
 
 async function page({signedIn = false, bunkerResult = null, href = "https://tiny.example/r/work/signin", referrer = "", connect = async () => {}} = {}) {
   const elements = new Map();

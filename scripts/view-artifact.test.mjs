@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import vm from "node:vm";
 
-const source = fs.readFileSync("internal/webui/components.js", "utf8");
+const source = fs.readFileSync("tinyclient/components.js", "utf8");
 const classSource = source.slice(source.indexOf("  class ViewArtifact"), source.indexOf("  // ViewForm adds"));
 
 class HTMLElement {}

@@ -4,7 +4,7 @@ import fs from "node:fs";
 import vm from "node:vm";
 import {webcrypto,createHash} from "node:crypto";
 
-const source=fs.readFileSync("internal/webui/components.js","utf8");
+const source=fs.readFileSync("tinyclient/components.js","utf8");
 const code=source.slice(source.indexOf("  // Social follows"),source.indexOf("  // Social end."));
 const author="a".repeat(64),parentAuthor="b".repeat(64),root="c".repeat(64),parent="d".repeat(64),hint="wss://relay.test";
 function setup(attrs={},values={},options={}) {

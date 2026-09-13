@@ -28,7 +28,7 @@ RUN apt-get update \
     && mkdir -p /data \
     && chown relay:relay /data
 COPY --from=binary /out/tiny /usr/local/bin/tiny
-COPY LICENSE THIRD_PARTY_NOTICES internal/webui/signer.js.license internal/webui/nostr-name.js.license /usr/share/doc/tiny/
+COPY LICENSE THIRD_PARTY_NOTICES tinyclient/signer.js.license tinyclient/nostr-name.js.license /usr/share/doc/tiny/
 USER relay
 WORKDIR /home/relay
 VOLUME ["/data"]

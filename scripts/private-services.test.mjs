@@ -3,8 +3,8 @@ import {readFile} from "node:fs/promises";
 import test from "node:test";
 import vm from "node:vm";
 
-const shared = await readFile(new URL("../internal/webui/tiny.js", import.meta.url), "utf8");
-const source = await readFile(new URL("../internal/webui/private-services.js", import.meta.url), "utf8");
+const shared = await readFile(new URL("../tinyclient/tiny.js", import.meta.url), "utf8");
+const source = await readFile(new URL("../tinyclient/private-services.js", import.meta.url), "utf8");
 class Element {}
 const definitions = new Map();
 const sandbox = {

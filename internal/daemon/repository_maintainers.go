@@ -4,7 +4,7 @@ import (
 	"context"
 	"time"
 
-	"github.com/FelineStateMachine/tinyrelay/internal/gitrelay"
+	gitrelay "github.com/FelineStateMachine/tinyrelay/tinygit"
 )
 
 // Repository maintainers. The owner and the keys in an announcement's

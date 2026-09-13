@@ -8,7 +8,7 @@ import (
 	"github.com/FelineStateMachine/tinyrelay/internal/community"
 	"github.com/FelineStateMachine/tinyrelay/internal/event"
 	"github.com/FelineStateMachine/tinyrelay/internal/storage"
-	"github.com/FelineStateMachine/tinyrelay/internal/webui"
+	webui "github.com/FelineStateMachine/tinyrelay/tinyclient"
 )
 
 var _ webui.RoomsReader = (*Tenant)(nil)

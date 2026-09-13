@@ -7,7 +7,7 @@ import vm from "node:vm";
 import { finalizeEvent, generateSecretKey, getPublicKey, verifyEvent } from "nostr-tools/pure";
 import { sharedSigning } from "./test-signing.mjs";
 
-const source = fs.readFileSync("internal/webui/components.js", "utf8");
+const source = fs.readFileSync("tinyclient/components.js", "utf8");
 const formSource = source.slice(source.indexOf("  // ProfileForm publishes"), source.indexOf("  // AgentGrant signs"));
 const plain = value => JSON.parse(JSON.stringify(value));
 

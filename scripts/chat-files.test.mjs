@@ -4,7 +4,7 @@ import {readFile} from "node:fs/promises";
 import test from "node:test";
 import vm from "node:vm";
 
-const source = await readFile(new URL("../internal/webui/chat-files.js", import.meta.url), "utf8");
+const source = await readFile(new URL("../tinyclient/chat-files.js", import.meta.url), "utf8");
 const hex = value => Buffer.from(value).toString("hex");
 let DirectFile;
 const revoked = [];

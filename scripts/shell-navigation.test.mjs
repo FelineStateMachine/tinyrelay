@@ -5,7 +5,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import vm from "node:vm";
 
-const source = fs.readFileSync("internal/webui/components.js", "utf8");
+const source = fs.readFileSync("tinyclient/components.js", "utf8");
 const start = source.indexOf("    const swapShell = (text, url, push) => {");
 const end = source.indexOf("    const load = async (url, push) => {", start);
 const swapSource = source.slice(start, end);

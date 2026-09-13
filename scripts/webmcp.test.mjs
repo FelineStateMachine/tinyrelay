@@ -3,7 +3,7 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 import vm from "node:vm";
 
-const script = await readFile(new URL("../internal/webui/webmcp.js", import.meta.url), "utf8");
+const script = await readFile(new URL("../tinyclient/webmcp.js", import.meta.url), "utf8");
 
 async function browser({path = "/tools", failRegistration = "", fetch, signedFetch} = {}) {
   const tools = new Map();

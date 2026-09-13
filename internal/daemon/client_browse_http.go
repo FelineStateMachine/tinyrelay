@@ -12,7 +12,7 @@ import (
 	"time"
 
 	"github.com/FelineStateMachine/tinyrelay/internal/blob"
-	"github.com/FelineStateMachine/tinyrelay/internal/gitrelay"
+	gitrelay "github.com/FelineStateMachine/tinyrelay/tinygit"
 )
 
 func (t *Tenant) tryBrowseHTTP(w http.ResponseWriter, r *http.Request) bool {

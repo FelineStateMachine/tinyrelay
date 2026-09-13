@@ -1,6 +1,6 @@
 # Vendored Fixi integration
 
-The web UI vendors the all-in-one Fixi bundle at `internal/webui/fixi.js`. It is copied from [the-fixi-project](https://github.com/bigskysoftware/the-fixi-project) commit `71307c9694dff3cc7f2aef087cb57b44db4bdd17` (retrieved 2026-09-07). The upstream project documents the bundle and APIs at [fixiproject.org/llms.txt](https://fixiproject.org/llms.txt). Upstream declares BSD-0 (Zero-Clause BSD) for all five libraries; see its [README license section](https://github.com/bigskysoftware/the-fixi-project#license).
+The web UI vendors the all-in-one Fixi bundle at `tinyclient/fixi.js`. It is copied from [the-fixi-project](https://github.com/bigskysoftware/the-fixi-project) commit `71307c9694dff3cc7f2aef087cb57b44db4bdd17` (retrieved 2026-09-07). The upstream project documents the bundle and APIs at [fixiproject.org/llms.txt](https://fixiproject.org/llms.txt). Upstream declares BSD-0 (Zero-Clause BSD) for all five libraries; see its [README license section](https://github.com/bigskysoftware/the-fixi-project#license).
 
 The vendored file's SHA-256 is:
 

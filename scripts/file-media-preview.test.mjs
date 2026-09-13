@@ -55,12 +55,12 @@ const setup = () => {
   class HTMLElement extends Node {}
   Object.assign(globalThis, {window, document, customElements, HTMLElement, location, Blob, URL, CustomEvent: class {}});
   globalThis.tiny = window.tiny;
-  vm.runInThisContext(fs.readFileSync("internal/webui/tiny.js", "utf8"));
+  vm.runInThisContext(fs.readFileSync("tinyclient/tiny.js", "utf8"));
   window.tiny.localPath = path => "/r/test" + path;
   window.tiny.require = async () => {};
   window.tiny.sha256hex = async () => "cipher";
   window.tiny.blossom.encryption.decryptCHK = async () => new TextEncoder().encode("video bytes");
-  vm.runInThisContext(fs.readFileSync("internal/webui/components.js", "utf8"));
+  vm.runInThisContext(fs.readFileSync("tinyclient/components.js", "utf8"));
   return {FileTools: customElements.registry["file-tools"], window};
 };
 

@@ -23,7 +23,7 @@ import (
 	"github.com/FelineStateMachine/tinyrelay/internal/wiki"
 )
 
-// The MCP tool table mirrors the browser tools in internal/webui/webmcp.js.
+// The MCP tool table mirrors the browser tools in tinyclient/webmcp.js.
 // Reads run through the browse methods, controls through the NIP-86
 // management path, and writes through the same publish path as POST /events,
 // so every tool is executed as the signed-in pubkey with the tenant's

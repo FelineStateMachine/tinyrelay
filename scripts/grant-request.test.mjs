@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
-const source=fs.readFileSync('internal/webui/grant-request.js','utf8');
+const source=fs.readFileSync('tinyclient/grant-request.js','utf8');
 const id='a'.repeat(64),base='b'.repeat(64),agent='c'.repeat(64),operator='d'.repeat(64);
 const review=()=>({request_id:id,base,agent,operator,before:{name:"Agent",scope:{kinds:[9]}},after:{scope:{kinds:[9,30617]}},unsigned:{kind:30392,pubkey:operator,created_at:100,tags:[['grant-request',id],['grant-base',base],['e',id]],content:''}});
 function setup() {

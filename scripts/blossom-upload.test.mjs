@@ -5,8 +5,8 @@ import {readFile} from "node:fs/promises";
 import test from "node:test";
 import vm from "node:vm";
 
-const source = await readFile(new URL("../internal/webui/blossom-upload.js", import.meta.url), "utf8");
-const shared = await readFile(new URL("../internal/webui/tiny.js", import.meta.url), "utf8");
+const source = await readFile(new URL("../tinyclient/blossom-upload.js", import.meta.url), "utf8");
+const shared = await readFile(new URL("../tinyclient/tiny.js", import.meta.url), "utf8");
 const sandbox = {crypto: webcrypto, Blob, ArrayBuffer, Uint8Array, AbortController, Map, setTimeout, clearTimeout, URL};
 sandbox.globalThis = sandbox;
 vm.runInNewContext(shared + source, sandbox);

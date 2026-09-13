@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import vm from "node:vm";
 
-const source = fs.readFileSync("internal/webui/components.js", "utf8");
+const source = fs.readFileSync("tinyclient/components.js", "utf8");
 const linkSource = source.slice(source.indexOf("  // PageLink is the crumb"), source.indexOf("  // JsonView renders"));
 
 function setup({url = "https://relay.example/wiki/notes", clipboard = true} = {}) {

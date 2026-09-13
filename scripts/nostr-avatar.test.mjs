@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import vm from "node:vm";
 
-const source = fs.readFileSync("internal/webui/components.js", "utf8");
+const source = fs.readFileSync("tinyclient/components.js", "utf8");
 const avatarSource = source.slice(source.indexOf("  class NostrAvatar "), source.indexOf("  // PageLink"));
 const key = "a".repeat(64);
 const location = {href: "https://relay.example/r/demo/chat", origin: "https://relay.example"};
