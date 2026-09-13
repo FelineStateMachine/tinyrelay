@@ -45,7 +45,7 @@ func TestPublicProtocolDependencyGraph(t *testing.T) {
 // kind constants, private-kind classification and room/job semantics belong
 // to their owning packages, not the Nostr wire model.
 func TestNostrPublicSurface(t *testing.T) {
-	want := strings.Fields("Event Filter Validate Parse Canonical Tag TagValues Expiration Difficulty CommittedDifficulty Sign GenerateKey PublicKey IsEphemeral IsReplaceable IsAddressable ParseFilter Matches SearchTerms Filter.MarshalJSON")
+	want := strings.Fields("Event EventRef Filter Validate Parse Canonical Tag TagValues Expiration Difficulty CommittedDifficulty Sign GenerateKey PublicKey IsEphemeral IsReplaceable IsAddressable ParseFilter Matches SearchTerms Filter.MarshalJSON")
 	var got []string
 	files, err := filepath.Glob("nostr/*.go")
 	if err != nil {

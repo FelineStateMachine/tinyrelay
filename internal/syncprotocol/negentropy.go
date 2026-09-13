@@ -3,16 +3,15 @@ package syncprotocol
 import (
 	"fmt"
 
+	wire "github.com/FelineStateMachine/tinyrelay/protocol/nostr"
+
 	"fiatjaf.com/nostr"
 	"fiatjaf.com/nostr/nip77/negentropy"
 	"fiatjaf.com/nostr/nip77/negentropy/storage/vector"
 )
 
 // Item identifies one event in a reconciliation index.
-type Item struct {
-	ID        string
-	Timestamp int64
-}
+type Item = wire.EventRef
 
 // Result contains one negentropy response and the IDs discovered by the
 // initiator when reconciliation completes.
