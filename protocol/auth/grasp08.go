@@ -5,7 +5,7 @@ import (
 	"net/url"
 	"strings"
 
-	"github.com/FelineStateMachine/tinyrelay/internal/event"
+	"github.com/FelineStateMachine/tinyrelay/protocol/nostr"
 )
 
 // ErrGRASP08Unauthorized is the detail-free GRASP-08 authentication error
@@ -15,24 +15,24 @@ var ErrGRASP08Unauthorized = errors.New("auth-required:")
 // VerifyGRASP08 validates a reusable kind 27235 GET proof for the repository
 // root named by a GRASP-08 Smart HTTP request. The proof remains valid for
 // one minute across the repository's supported Git requests.
-func (v *Validator) VerifyGRASP08(header, rawURL string) (event.Event, error) {
+func (v *Validator) VerifyGRASP08(header, rawURL string) (nostr.Event, error) {
 	e, err := decodeToken(header, "GRASP-08")
 	if err != nil {
-		return event.Event{}, ErrGRASP08Unauthorized
+		return nostr.Event{}, ErrGRASP08Unauthorized
 	}
-	if err := event.Validate(e); err != nil || e.Kind != 27235 {
-		return event.Event{}, ErrGRASP08Unauthorized
+	if err := nostr.Validate(e); err != nil || e.Kind != 27235 {
+		return nostr.Event{}, ErrGRASP08Unauthorized
 	}
 	now := v.now()
 	if e.CreatedAt < now.Unix()-60 || e.CreatedAt > now.Unix()+60 {
-		return event.Event{}, ErrGRASP08Unauthorized
+		return nostr.Event{}, ErrGRASP08Unauthorized
 	}
-	if event.Tag(e, "method") != "GET" {
-		return event.Event{}, ErrGRASP08Unauthorized
+	if nostr.Tag(e, "method") != "GET" {
+		return nostr.Event{}, ErrGRASP08Unauthorized
 	}
 	root, ok := GRASP08RepositoryRoot(rawURL)
-	if !ok || sameRequestURL(event.Tag(e, "u"), root) != nil {
-		return event.Event{}, ErrGRASP08Unauthorized
+	if !ok || sameRequestURL(nostr.Tag(e, "u"), root) != nil {
+		return nostr.Event{}, ErrGRASP08Unauthorized
 	}
 	return e, nil
 }

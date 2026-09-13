@@ -17,12 +17,15 @@ import (
 	"github.com/FelineStateMachine/tinyrelay/internal/storage"
 )
 
-// ValidateEvent checks the event's signature and structural validity.
+// ValidateEvent checks the wire shape, canonical ID and signature, not
+// repository metadata shape or host admission. Use ParseMetadata for the pure
+// metadata check, or Validate for the complete admission boundary.
 func (g *GitRelay) ValidateEvent(e event.Event) error { return event.Validate(e) }
 
-// Validate performs GRASP admission and returns the repository authority
-// that the caller must associate with its event transaction. It has no store
-// side effects.
+// Validate checks the signature and metadata shape, resolves repository
+// authority, then applies host admission. Shape failures precede host callbacks.
+// The caller must associate the returned authority with its event transaction.
+// Validate has no store side effects and does not require Git objects locally.
 func (g *GitRelay) Validate(ctx context.Context, e event.Event) (Repository, error) {
 	if err := event.Validate(e); err != nil {
 		return Repository{}, err
@@ -49,9 +52,6 @@ func (g *GitRelay) Validate(ctx context.Context, e event.Event) (Repository, err
 	if e.Kind == 30618 {
 		if r.EventID == "" {
 			return Repository{}, errors.New("blocked: repository announcement is missing")
-		}
-		if err := g.validateRefs(r.Refs); err != nil {
-			return Repository{}, err
 		}
 		// Missing objects are a durable pending transition. The signed state is
 		// accepted, but remains invisible until receive-pack supplies every tip.
@@ -299,9 +299,9 @@ func (g *GitRelay) promotePending(ctx context.Context, repo Repository) (bool, e
 	return true, nil
 }
 
-// Publish ingests a signed repository announcement or state event. Callers
-// must validate the event before invoking this method; ValidateEvent is
-// provided for callers that want one explicit boundary.
+// Publish validates and admits a signed repository announcement or state
+// before saving it and staging the Git transition. Enabled GRASP-06 events
+// use their separate admission path.
 func (g *GitRelay) Publish(ctx context.Context, e event.Event) error {
 	if err := event.Validate(e); err != nil {
 		return err
@@ -324,54 +324,22 @@ func (g *GitRelay) Publish(ctx context.Context, e event.Event) error {
 	return g.CommitAfterStore(ctx, e, repo)
 }
 
+// parseRepository resolves parsed metadata against the host's announcement
+// and maintainer authority. All shape checks finish before consulting the host.
 func (g *GitRelay) parseRepository(e event.Event) (Repository, error) {
-	id := event.Tag(e, "d")
-	if !validIdentifier(id) {
-		return Repository{}, errors.New("invalid: repository identifier")
+	m, err := ParseMetadata(e)
+	if err != nil {
+		return Repository{}, err
 	}
-	r := Repository{Owner: e.PubKey, Identifier: id, EventID: e.ID, Refs: map[string]string{}}
-	if e.Kind == 30617 {
-		for _, tag := range e.Tags {
-			if len(tag) < 2 {
-				continue
-			}
-			switch tag[0] {
-			case "private":
-				r.Private = tag[1] == "true"
-			case "clone":
-				r.Clone = append(r.Clone, tag[1:]...)
-			case "relays":
-				r.Relays = append(r.Relays, tag[1:]...)
-			case "maintainers":
-				r.Maintainers = append(r.Maintainers, tag[1:]...)
-			}
-		}
-		return r, nil
+	state := Repository{Owner: m.Author, Identifier: m.Identifier, EventID: m.EventID,
+		Private: m.Private, Clone: m.Clone, Relays: m.Relays, Maintainers: m.Maintainers,
+		Refs: m.Refs, Head: m.Head}
+	if m.Kind == 30617 {
+		return state, nil
 	}
 	// State is replaceable: bind it to the current announcement owner and
 	// carry the announcement's identity into the hook/state file.
-	state := Repository{Owner: e.PubKey, Identifier: id, EventID: e.ID, Refs: map[string]string{}}
-	for _, tag := range e.Tags {
-		if len(tag) == 0 {
-			continue
-		}
-		if tag[0] == "HEAD" {
-			if len(tag) != 2 || state.Head != "" {
-				return Repository{}, errors.New("invalid: repository state has multiple HEAD tags")
-			}
-			state.Head = tag[1]
-			continue
-		}
-		if len(tag) < 2 {
-			continue
-		}
-		if strings.HasPrefix(tag[0], "refs/") {
-			if _, duplicate := state.Refs[tag[0]]; duplicate || tag[1] == "" || !isObjectID(tag[1]) || strings.Trim(tag[1], "0") == "" {
-				return Repository{}, fmt.Errorf("invalid: ref %s is not a SHA-1", tag[0])
-			}
-			state.Refs[tag[0]] = tag[1]
-		}
-	}
+	id := m.Identifier
 	g.mu.RLock()
 	ann := g.repos[key(e.PubKey, id)]
 	g.mu.RUnlock()
@@ -402,37 +370,11 @@ func (g *GitRelay) parseRepository(e event.Event) (Repository, error) {
 	state.Relays = append([]string(nil), ann.Relays...)
 	state.Maintainers = append([]string(nil), ann.Maintainers...)
 	state.EventID = e.ID
-	if err := validateHead(state.Head, state.Refs); err != nil {
-		return Repository{}, err
-	}
 	return state, nil
 }
 
-func validateHead(head string, refs map[string]string) error {
-	if head == "" {
-		return nil
-	}
-	if !strings.HasPrefix(head, "ref: ") {
-		return errors.New("invalid: HEAD must use ref: syntax")
-	}
-	ref := strings.TrimPrefix(head, "ref: ")
-	if !strings.HasPrefix(ref, "refs/heads/") && !strings.HasPrefix(ref, "refs/tags/") {
-		return errors.New("invalid: HEAD must name a branch or tag")
-	}
-	if !validRef(ref) {
-		return errors.New("invalid: HEAD ref")
-	}
-	return nil
-}
-
-func (g *GitRelay) validateRefs(refs map[string]string) error {
-	for ref, oid := range refs {
-		if !validRef(ref) || oid != "" && !isObjectID(oid) {
-			return fmt.Errorf("invalid: ref %s", ref)
-		}
-	}
-	return nil
-}
+// validateRefs preserves the internal caller boundary for synchronization.
+func (g *GitRelay) validateRefs(refs map[string]string) error { return validateRefs(refs) }
 
 // ErrIncomplete reports a synchronization pass that saved progress and has
 // more history to fetch. The scheduler continues it soon without counting a

@@ -31,7 +31,7 @@ The repository contains three executables in one Go module:
 
 `make build` writes all three binaries to `bin/`. Go builds embed the checked-in browser assets and do not require Node.js. The integrated `tiny` command, wire formats and existing tenant data remain compatible. Standalone components have narrower capabilities: tinygit does not start a relay or private-repository service, and tinyclient needs a backend and preserves its public origin and tenant path.
 
-See [Architecture](docs/architecture.md) and [Module boundaries and protocol contracts](docs/module-contracts.md) for the current responsibilities and proposed follow-up boundaries.
+Reusable `protocol/nostr` and `protocol/auth` packages supply wire values and proof verification without importing host services. Feature semantics and access policy remain separate. See [Architecture](docs/architecture.md), [Module boundaries and protocol contracts](docs/module-contracts.md) and the [extension catalog](docs/extensions/README.md) for ownership, supported profiles and remaining seams.
 
 ## Run locally
 

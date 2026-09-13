@@ -11,8 +11,8 @@ import (
 	"net/url"
 	"strings"
 
-	"github.com/FelineStateMachine/tinyrelay/internal/auth"
 	"github.com/FelineStateMachine/tinyrelay/internal/policy"
+	"github.com/FelineStateMachine/tinyrelay/protocol/auth"
 )
 
 func (t *Tenant) privateHTTPAuth(ctx context.Context, method, rawURL, payloadHash string) (string, error) {

@@ -5,8 +5,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/FelineStateMachine/tinyrelay/internal/event"
 	"github.com/FelineStateMachine/tinyrelay/internal/sites"
+	event "github.com/FelineStateMachine/tinyrelay/protocol/nostr"
 )
 
 func TestSitePresentationMatchesRelayManifests(t *testing.T) {

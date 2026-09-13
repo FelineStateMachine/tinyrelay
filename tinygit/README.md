@@ -51,9 +51,10 @@ Import `github.com/FelineStateMachine/tinyrelay/tinygit`.
 - `OpenServer` owns the standalone service's store and returns an HTTP handler. Stop serving requests before calling `Close`.
 - `New` constructs the lower-level engine using `Config`. The caller owns its store, policy, access decisions, synchronization transports and lifecycle.
 - `OpenStore`, `Event`, `Policy` and `Store` make the public API usable from another Go module.
+- `ParseMetadata` parses repository claims and validates their supported shape without checking signatures, host authority or Git objects. Call `nostr.Validate` separately before trusting a claimed author.
 - `Validate`, `CommitAfterStore` and the promotion callback separate admission, durable event persistence and visible Git state. Integration code must preserve that ordering and its transaction guarantees.
 
-The engine still shares internal event, authentication, policy and SQLite implementations with tinyrelay. It is a public package in the root Go module, not an independent dependency-free Go module. See [Module boundaries and protocol contracts](../docs/module-contracts.md) for the next dependency seams.
+The engine uses public `protocol/nostr` event types and `protocol/auth` proof verification. It still shares internal policy, feature helpers and SQLite implementations with tinyrelay. It is a public package in the root Go module, not an independent dependency-free Go module. See [Module boundaries and protocol contracts](../docs/module-contracts.md) for the next dependency seams.
 
 ## Verify
 

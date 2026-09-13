@@ -1,4 +1,4 @@
-package event
+package nostr
 
 import (
 	"encoding/json"

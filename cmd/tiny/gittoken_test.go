@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/FelineStateMachine/tinyrelay/internal/auth"
+	"github.com/FelineStateMachine/tinyrelay/protocol/auth"
 )
 
 func TestGitTokenMintsAReusableRepositoryRootProof(t *testing.T) {

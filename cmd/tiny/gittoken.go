@@ -11,8 +11,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/FelineStateMachine/tinyrelay/internal/auth"
 	"github.com/FelineStateMachine/tinyrelay/internal/event"
+	"github.com/FelineStateMachine/tinyrelay/protocol/auth"
 )
 
 // gitToken mints the GRASP-08 repository-root proof that private Git hosting

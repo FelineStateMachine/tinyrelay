@@ -5,7 +5,7 @@ import (
 	"strings"
 
 	"fiatjaf.com/nostr"
-	"github.com/FelineStateMachine/tinyrelay/internal/event"
+	event "github.com/FelineStateMachine/tinyrelay/protocol/nostr"
 )
 
 const (

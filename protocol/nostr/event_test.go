@@ -1,4 +1,4 @@
-package event
+package nostr
 
 import (
 	"bytes"
@@ -58,7 +58,7 @@ func TestSearchTermsAndKinds(t *testing.T) {
 	if len(terms) != 1 || terms[0] != "hello" {
 		t.Fatalf("terms: %#v", terms)
 	}
-	if !IsEphemeral(20001) || IsEphemeral(30000) || !IsReplaceable(10001) || !IsAddressable(30001) || !IsPrivate(4) || IsPrivate(KIND_DM) {
+	if !IsEphemeral(20001) || IsEphemeral(30000) || !IsReplaceable(10001) || !IsAddressable(30001) {
 		t.Fatal("kind classification mismatch")
 	}
 }

@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"net/url"
 
-	"github.com/FelineStateMachine/tinyrelay/internal/event"
+	"github.com/FelineStateMachine/tinyrelay/protocol/nostr"
 )
 
 // RoomsReader supplies the typed reads used by room pages. actor is the
@@ -62,7 +62,7 @@ type RoomMember struct {
 	AddedAt  int64  `json:"added_at,omitempty"`
 }
 
-type RoomMessage = event.Event
+type RoomMessage = nostr.Event
 
 // RoomPage is the typed result for a room or thread read. A room read fills
 // Members and Messages; a thread read fills Root and Replies. Edits contains

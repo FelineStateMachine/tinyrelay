@@ -2,7 +2,7 @@
 
 The project is a monorepo. `tinyrelay` is the relay host, `tinygit` is the Git engine and standalone Git service, and `tinyclient` is the browser interface and standalone frontend. Separate executables do not imply separate Go modules, databases or network services for every package.
 
-The Git and frontend extraction establishes the first boundaries. The additional boundaries below are proposed follow-up work, not claims that those packages have already been extracted.
+The Git and frontend components, public `protocol/nostr` and `protocol/auth` packages, and `tinygit.ParseMetadata` establish the current boundaries. Blob, room and narrower community/records services below remain proposed follow-up work.
 
 ## Keep protocol rules separate from access policy
 
@@ -22,8 +22,8 @@ The client can validate a draft for feedback and verify a signer's result, but s
 
 | Boundary | Owns | Must not own |
 | --- | --- | --- |
-| Shared Nostr primitives, a proposed public `protocol/nostr` package | Event and filter types, canonical serialization, event IDs, signatures and common encoding rules. | Tenant configuration, membership, SQL or feature-specific tags. |
-| Request-proof adapters | Verification for HTTP, WebSocket and service-specific proof profiles; authenticated actor and proof scope. | Deciding what that actor may do. |
+| Public `protocol/nostr` | Event and filter types, canonical serialization, event IDs, signatures and common encoding rules. | Tenant configuration, membership, SQL or feature-specific tags. |
+| Public `protocol/auth` | Verification for HTTP, WebSocket and service-specific proof profiles; authenticated actor and proof scope. | Deciding what that actor may do. |
 | Host access policy | Membership, agent grants, visibility, quotas and admission decisions. | Reinterpreting signed fields or weakening feature protocol validation. |
 | `tinygit` | Git repository metadata, signed refs, object storage, smart HTTP, repair and Git-specific protocol rules. | Rooms, browser sessions or general relay management. |
 | `tinyclient` | Server-rendered pages, browser interactions, draft construction and signer-result verification. | Authoritative permissions, repository mutation or event persistence. |
@@ -51,7 +51,9 @@ Each public feature boundary should document:
 
 Use small, consumer-owned interfaces for access decisions, persistence and optional transports. Prefer feature-specific read models to a universal backend interface. Moving packages must not break the atomicity of event persistence, projections and durable work.
 
-During the extraction, `tinygit` still shares internal event, policy and SQLite implementations with the host. Public aliases can preserve source compatibility, but they are transitional plumbing, not a substitute for a small public protocol and persistence contract. Independent builds are a first milestone; a dependency boundary check is the next one.
+`tinygit.Event` and the frontend room event type now originate in public `protocol/nostr`. Public `protocol/auth` depends on those primitives, not host services. Internal aliases preserve one implementation, type identity, verifier replay state and error sentinels. Feature kind constants, room-reply helpers and private-kind search exclusions remain internal rather than becoming generic protocol rules.
+
+`tinygit` still shares internal policy and SQLite storage with the host. A narrow persistence contract is a later seam, not completed by moving event types. External-consumer and transitive dependency tests guard the public protocol packages. `tinygit.ParseMetadata` validates metadata shape without asserting signature validity or authority; its admission entry points combine these checks before consulting host policy.
 
 ## Describe standards and project extensions separately
 
@@ -64,7 +66,7 @@ Protocol documentation should classify each behavior as one of:
 
 For each project extension, create a specification under `docs/extensions/` when its behavior has been audited. Each specification should include a stable identifier, status, version, owning module, upstream references, exact event kinds and tag shapes or endpoint schemas, validation rules, authorization requirements, errors, discovery, security considerations and compatibility rules. Include valid and invalid fixtures and link the implementation and tests.
 
-The extension catalog should index those specifications rather than repeat their rules. Start by auditing agent grants and grant requests, callbacks, custom-view transforms and custom HTTP/MCP bindings. Existing behavior is not automatically standardized, and an implementation detail should not be promoted into a wire extension merely because it is unusual.
+The [extension catalog](extensions/README.md) indexes specifications for agent grants and grant requests, callbacks, custom-view transforms and the tinyclient HTTP read adapter. These describe implemented behavior and its audited limits; they are not full upstream conformance certificates. Continue auditing remaining custom bindings without repeating each specification in the catalog. Existing behavior is not automatically standardized, and an implementation detail should not be promoted into a wire extension merely because it is unusual.
 
 Keep transport-specific method names in their adapters. A feature operation may have HTTP, MCP and browser bindings, but its domain contract and validation must have one owner. Generate discovery and schema checks from the same definitions where practical; do not create a parallel hand-maintained registry with different defaults.
 

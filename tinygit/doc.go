@@ -10,8 +10,17 @@
 // Synchronization runs through Service.Tick or transport callbacks invoked by
 // the caller.
 //
-// Validate checks event and maintainer admission. After the caller durably
-// stores the event, CommitAfterStore stages the corresponding Git transition.
+// ParseMetadata checks repository announcement and state shape without a store,
+// signature check or host policy. Its Metadata result contains claims, not
+// resolved repository authority. Use protocol/nostr.Validate for the separate
+// wire, event ID and signature check. Neither check establishes maintainer
+// authority, hosting permission or Git object availability, and the metadata
+// parser does not claim full NIP or GRASP compliance.
+//
+// Validate and ValidateImported check signatures and metadata shape before
+// resolving repository authority and applying host admission. A valid shape may
+// still be denied by Config.Authorize or lack a current announcement. After the
+// caller durably stores an admitted event, CommitAfterStore stages its Git transition.
 // CommitAfterStoreNoNotify serves callers already holding the host publication
 // fence. PromotePending completes a receive-pack repair and invokes OnPromote
 // after state becomes visible.

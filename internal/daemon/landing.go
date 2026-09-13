@@ -10,11 +10,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/FelineStateMachine/tinyrelay/internal/auth"
 	"github.com/FelineStateMachine/tinyrelay/internal/catalog"
 	"github.com/FelineStateMachine/tinyrelay/internal/policy"
 	"github.com/FelineStateMachine/tinyrelay/internal/storage"
 	"github.com/FelineStateMachine/tinyrelay/internal/templates"
+	"github.com/FelineStateMachine/tinyrelay/protocol/auth"
 )
 
 // ServeLanding handles only the process landing page and permanent relay

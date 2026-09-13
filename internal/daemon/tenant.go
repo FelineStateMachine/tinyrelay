@@ -12,14 +12,12 @@ import (
 	"sync"
 	"time"
 
-	"github.com/FelineStateMachine/tinyrelay/internal/auth"
 	"github.com/FelineStateMachine/tinyrelay/internal/blob"
 	"github.com/FelineStateMachine/tinyrelay/internal/catalog"
 	"github.com/FelineStateMachine/tinyrelay/internal/community"
 	"github.com/FelineStateMachine/tinyrelay/internal/configport"
 	"github.com/FelineStateMachine/tinyrelay/internal/event"
 	"github.com/FelineStateMachine/tinyrelay/internal/gates"
-	gitrelay "github.com/FelineStateMachine/tinyrelay/tinygit"
 	"github.com/FelineStateMachine/tinyrelay/internal/mcp"
 	"github.com/FelineStateMachine/tinyrelay/internal/policy"
 	"github.com/FelineStateMachine/tinyrelay/internal/records"
@@ -29,7 +27,9 @@ import (
 	"github.com/FelineStateMachine/tinyrelay/internal/storage"
 	"github.com/FelineStateMachine/tinyrelay/internal/syncprotocol"
 	"github.com/FelineStateMachine/tinyrelay/internal/webpush"
+	"github.com/FelineStateMachine/tinyrelay/protocol/auth"
 	webui "github.com/FelineStateMachine/tinyrelay/tinyclient"
+	gitrelay "github.com/FelineStateMachine/tinyrelay/tinygit"
 )
 
 type tenantConfig struct {

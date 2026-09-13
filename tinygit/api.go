@@ -4,14 +4,14 @@ import (
 	"context"
 	"path/filepath"
 
-	"github.com/FelineStateMachine/tinyrelay/internal/event"
 	"github.com/FelineStateMachine/tinyrelay/internal/policy"
 	"github.com/FelineStateMachine/tinyrelay/internal/storage"
+	"github.com/FelineStateMachine/tinyrelay/protocol/nostr"
 )
 
 // Event is the signed Nostr wire event accepted by the Git engine. Clients
 // sign events themselves; the server never needs their private keys.
-type Event = event.Event
+type Event = nostr.Event
 
 // Policy configures the embedded engine. It currently shares tinyrelay's
 // policy model; DefaultPolicy provides the initial values.

@@ -16,12 +16,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/FelineStateMachine/tinyrelay/internal/auth"
 	"github.com/FelineStateMachine/tinyrelay/internal/blob"
 	"github.com/FelineStateMachine/tinyrelay/internal/community"
 	"github.com/FelineStateMachine/tinyrelay/internal/configport"
 	"github.com/FelineStateMachine/tinyrelay/internal/event"
-	gitrelay "github.com/FelineStateMachine/tinyrelay/tinygit"
 	"github.com/FelineStateMachine/tinyrelay/internal/policy"
 	"github.com/FelineStateMachine/tinyrelay/internal/records"
 	"github.com/FelineStateMachine/tinyrelay/internal/relay"
@@ -29,8 +27,10 @@ import (
 	"github.com/FelineStateMachine/tinyrelay/internal/sites"
 	"github.com/FelineStateMachine/tinyrelay/internal/storage"
 	"github.com/FelineStateMachine/tinyrelay/internal/views"
-	webui "github.com/FelineStateMachine/tinyrelay/tinyclient"
 	"github.com/FelineStateMachine/tinyrelay/internal/work"
+	"github.com/FelineStateMachine/tinyrelay/protocol/auth"
+	webui "github.com/FelineStateMachine/tinyrelay/tinyclient"
+	gitrelay "github.com/FelineStateMachine/tinyrelay/tinygit"
 )
 
 // initServices constructs feature services around the tenant store and policy

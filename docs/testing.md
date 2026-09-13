@@ -16,7 +16,7 @@ The repository also contains a multistage Docker build. `make docker-test` runs 
 Build all executables with `make build`. Run the focused component suites with:
 
 ```sh
-go test -race ./tinygit ./cmd/tinygit ./tinyclient ./cmd/tinyclient
+go test -race ./protocol/... ./internal/auth ./internal/event ./tinygit ./cmd/tinygit ./tinyclient ./cmd/tinyclient
 go test ./internal/daemon -run TestStandaloneTinyclient
 npm run test:tinyclient
 ```

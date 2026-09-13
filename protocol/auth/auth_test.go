@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/FelineStateMachine/tinyrelay/internal/event"
+	"github.com/FelineStateMachine/tinyrelay/protocol/nostr"
 )
 
 func TestNIP98ValidatesRequestAndRejectsReplay(t *testing.T) {
@@ -210,18 +210,18 @@ func TestChallengeManagerBindsRelayAndConsumesChallenge(t *testing.T) {
 	}
 }
 
-func signedEvent(t *testing.T, kind int, createdAt int64, content string, tags [][]string) event.Event {
+func signedEvent(t *testing.T, kind int, createdAt int64, content string, tags [][]string) nostr.Event {
 	t.Helper()
-	e := event.Event{CreatedAt: createdAt, Kind: kind, Content: content, Tags: tags}
-	if err := event.Sign(&e, strings.Repeat("0", 63)+"1"); err != nil {
+	e := nostr.Event{CreatedAt: createdAt, Kind: kind, Content: content, Tags: tags}
+	if err := nostr.Sign(&e, strings.Repeat("0", 63)+"1"); err != nil {
 		t.Fatalf("sign event: %v", err)
 	}
 	return e
 }
 
-func token(t *testing.T, e event.Event) string {
+func token(t *testing.T, e nostr.Event) string {
 	t.Helper()
-	raw, err := event.Canonical(e)
+	raw, err := nostr.Canonical(e)
 	if err != nil {
 		t.Fatalf("encode event: %v", err)
 	}

@@ -6,6 +6,8 @@ Block transforms can support diagrams, charts or other code-based images. They d
 
 A relay with no block transforms keeps showing code. The source remains available beneath each image. If an image fails to load, the page opens its source when JavaScript is available; without JavaScript, open **Source** to read it.
 
+The [custom-view transform contract](extensions/custom-view-transforms.md) defines this project extension, its wire exchange, artifact records and audited limits. It is not a general event-transform standard.
+
 ## Define a view
 
 Call the `addcustomview` management method, or the `add_custom_view` MCP tool, as the owner:
@@ -35,7 +37,7 @@ A view posts one request for each source event, carrying only the blocks:
 {"relay": "https://relay.example", "view": "diagrams", "source": {"id": "<source>", "kind": 30818}, "blocks": [{"index": 2, "lang": "mermaid", "source": "graph TD;\n  a-->b;"}]}
 ```
 
-`index` counts every fenced block in the text from zero, whether or not it carries a language, so an answer can name the block it rendered. No event content outside the blocks, and no tags, author or timestamp, leaves the relay. Blocks in other languages are dropped before the request is built, and a block whose artifact the relay already holds is reused rather than sent again.
+`index` counts every fenced block in the text from zero, whether or not it carries a language, so an answer can name the block it rendered. The request does not include a full event, separate tags or timestamp. For repository state, `source.id` is an address containing the state author and repository identifier; for other kinds it is the event ID. Blocks and source identities can disclose private information. Blocks in other languages are dropped before the request is built, and a block whose artifact the relay already holds is reused rather than sent again.
 
 | Header | Value |
 | --- | --- |
@@ -53,7 +55,7 @@ The relay also sends the equivalent `X-Tiny-View`, `X-Tiny-Relay` and `X-Tiny-Si
 {"artifacts": [{"block": 2, "type": "image/svg+xml", "body": "<svg ...>", "engine": "mermaid"}], "errors": [{"block": 5, "error": "unknown shape on line 3"}]}
 ```
 
-Each artifact names the block it rendered, its `type`, either `image/svg+xml` or `image/png`, and its `body`, the SVG source or a base64 PNG. `engine` is optional and is recorded on the artifact. An artifact larger than the view's `max_bytes` is refused. SVG bodies are checked before they are stored: script elements, event handlers, foreign objects and external references are rejected rather than stripped, and the whole artifact is refused. A block listed under `errors`, or left out of the answer entirely, keeps showing its code.
+Each artifact names the block it rendered, its `type`, either `image/svg+xml` or `image/png`, and its `body`, the SVG source or a base64 PNG. `engine` is optional and is recorded on the artifact. An artifact larger than the view's `max_bytes` is refused. SVG bodies are screened with regular expressions for script elements, event handlers, foreign objects and certain external-reference attributes. Matching artifacts are rejected, not sanitized. These checks are not a complete XML/CSS security validator; PNG validation checks its signature prefix rather than decoding the complete image. A block listed under `errors`, or left out of the answer entirely, keeps showing its code.
 
 SVG artifacts must include their own colors and background rules. Page styles do not reach into the SVG document. Diagramzip's `/transform/blocks` endpoint defaults to `auto-transparent`, which omits the canvas and includes light and dark palettes. The diagram follows the page's color scheme. After changing a transform's styling, rebuild the stored artifacts to apply the change.
 
@@ -63,13 +65,13 @@ An artifact is a relay-signed kind 30078 record addressed `bind.ws/view/<name>/<
 
 Artifacts follow their sources. An artifact expires when its last source expires, and one that outlives every source that referred to it is deleted. Editing an event detaches the blocks it no longer carries, and the artifact is dropped once nothing points at it. Removing a view deletes every artifact it produced.
 
-Each artifact is served at `/views/<name>/<hash>` with its stored media type, under a sandbox policy that blocks scripts and outside loads. The `.svg` and `.png` URLs remain available. A members-only view answers only members; a public one follows the relay's read rule. The relay's pages embed the artifact as an image with a native **Source** disclosure. Browsers revalidate images so a rebuild can replace them.
+Each artifact is served at `/views/<name>/<hash>` with its stored media type, under a sandbox policy that blocks scripts and outside loads. The `.svg` and `.png` URLs remain available. A members-only view admits the member, moderator and owner roles, not the agent role; a public view follows the relay's general read rule. Neither audience inherits the source event's access controls. A public artifact can expose material from a private or pending source, and a members-only artifact can expose it to members who cannot read that source. Configure transforms and audiences only for content you intend to disclose. The relay's pages embed the artifact as an image with a native **Source** disclosure. Browsers revalidate images so a rebuild can replace them.
 
 ## Failures
 
 A valid event is accepted even when its optional transform work cannot be planned immediately. The relay makes up to three background planning attempts within 15 minutes, rechecks the source and view, and skips work that is no longer relevant. Recovery fills missing work without restarting completed transforms or backfilling views registered after the event.
 
-A response outside 2xx, a timeout or a connection failure counts as a failure. The relay tries the event again after one minute and once more after five, three attempts in all, then drops it. After 20 failures in a row the view is paused and its status records the reason. A successful run resets the failure count.
+A response outside 2xx, a timeout or a connection failure counts as a failure. The relay tries the event again after one minute and once more after five, three attempts in all, then drops it. After 20 failures in a row the view is paused and its status records the reason. A valid JSON response with a 2xx status resets the failure count and can record `ok` even if every artifact is rejected. Check the actual artifact before treating a run as a successful render.
 
 ## Manage views
 

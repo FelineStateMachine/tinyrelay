@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/FelineStateMachine/tinyrelay/internal/event"
+	event "github.com/FelineStateMachine/tinyrelay/protocol/nostr"
 )
 
 func (a *App) publicFeed(ctx context.Context, tab, actor string, values url.Values) ([]any, error) {

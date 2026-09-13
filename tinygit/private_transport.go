@@ -15,8 +15,8 @@ import (
 	"os"
 	"strings"
 
-	"github.com/FelineStateMachine/tinyrelay/internal/auth"
 	"github.com/FelineStateMachine/tinyrelay/internal/policy"
+	"github.com/FelineStateMachine/tinyrelay/protocol/auth"
 )
 
 // HTTPAuthSigner returns the authorization header for a private peer request.

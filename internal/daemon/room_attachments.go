@@ -16,9 +16,9 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/FelineStateMachine/tinyrelay/internal/auth"
 	"github.com/FelineStateMachine/tinyrelay/internal/blob"
 	"github.com/FelineStateMachine/tinyrelay/internal/community"
+	"github.com/FelineStateMachine/tinyrelay/protocol/auth"
 )
 
 const roomAttachmentMaxBytes int64 = 32 << 20

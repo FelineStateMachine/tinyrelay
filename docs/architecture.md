@@ -12,8 +12,10 @@ Each tenant has a SQLite store, a policy snapshot and a set of services. The dae
 
 | Packages | Responsibility |
 | --- | --- |
-| [`event`](../internal/event/doc.go), [`policy`](../internal/policy/doc.go) | Event and filter values, signing, validation and shared policy decisions. |
-| [`auth`](../internal/auth/doc.go), [`gates`](../internal/gates/doc.go) | Signed request proofs, event admission and visibility checks. |
+| [`protocol/nostr`](../protocol/nostr/doc.go) | Public event and filter values, canonical encoding, signatures and generic wire checks. No host access policy. |
+| [`protocol/auth`](../protocol/auth/doc.go) | Public request-proof verification and replay state. No membership or permission decisions. |
+| [`event`](../internal/event/doc.go), [`auth`](../internal/auth/doc.go) | Internal compatibility aliases and feature helpers; private-kind search filtering remains host behavior. |
+| [`policy`](../internal/policy/doc.go), [`gates`](../internal/gates/doc.go) | Host policy, event admission and visibility checks. |
 | [`storage`](../internal/storage/doc.go), [`work`](../internal/work/doc.go) | Event persistence, queries, transaction hooks and durable queue claims. |
 | [`community`](../internal/community/doc.go), [`communityread`](../internal/communityread/doc.go) | Membership, moderation, rooms, agents and the read models consumed by records. |
 | [`records`](../internal/records/doc.go) | Relay identity, signed protocol records, projections and notifications. |
@@ -37,6 +39,8 @@ Services own the schema and data access for their features. `storage.Save` and `
 Consumers declare interfaces around the operations they need. `records.CommunityReader` reads membership and moderation projections through `communityread` values. `relay.Backend` supplies event operations to the WebSocket router. `tinyclient.Backend` supplies management results, and `tinyclient.RoomsReader` supplies typed room pages. The daemon implements these adapters and assembles the feature handlers used by `work.Worker`.
 
 ## Event acceptance
+
+`protocol/nostr.Validate` checks wire shape, event ID and signature. `tinygit.ParseMetadata` separately parses repository claims without establishing signer validity, repository authority or object availability. Git admission entry points perform signature and metadata checks before host admission callbacks. Generic `nostr.Matches` is not a visibility gate; callers must apply host access policy.
 
 Client publication and imported events use the shared event persistence and projection path. Each entry point applies its admission rules and protocol actions. Signed repository state stays pending until its referenced Git objects are available; promotion makes it visible and plans its optional follow-up work.
 
