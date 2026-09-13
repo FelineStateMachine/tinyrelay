@@ -28,12 +28,12 @@ func TestStandaloneCloseDrainsWebSockets(t *testing.T) {
 }
 
 func TestStandaloneServerRoutesAndClose(t *testing.T) {
-	s, err := tinyrelay.OpenServer(context.Background(), tinyrelay.ServerConfig{DataDir: t.TempDir(), PublicURL: "https://relay.example/nostr"})
+	s, err := tinyrelay.OpenServer(context.Background(), tinyrelay.ServerConfig{DataDir: t.TempDir(), PublicURL: "https://relay.example/nostr/"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer s.Close()
-	for _, path := range []string{"/", "/nostr", "/healthz", "/readyz"} {
+	for _, path := range []string{"/", "/nostr", "/nostr/", "/healthz", "/readyz"} {
 		response := httptest.NewRecorder()
 		s.ServeHTTP(response, httptest.NewRequest(http.MethodGet, path, nil))
 		if response.Code != http.StatusOK {

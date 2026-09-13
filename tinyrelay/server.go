@@ -117,7 +117,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Access-Control-Allow-Origin", "*")
 	w.Header().Set("Access-Control-Allow-Headers", "Accept, Content-Type")
 	w.Header().Set("Access-Control-Allow-Methods", "GET, HEAD, OPTIONS")
-	if r.URL.Path != "/" && r.URL.Path != s.relayPath && r.URL.Path != "/healthz" && r.URL.Path != "/readyz" {
+	if r.URL.Path != "/" && strings.TrimSuffix(r.URL.Path, "/") != s.relayPath && r.URL.Path != "/healthz" && r.URL.Path != "/readyz" {
 		http.NotFound(w, r)
 		return
 	}
