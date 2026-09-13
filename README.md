@@ -83,7 +83,7 @@ See [Git collaboration](docs/git-collaboration.md) for issues, pull requests, co
 
 See [Membership](docs/membership.md) for invites, joining with NIP-43 and reviewing access requests.
 
-See [Chat](docs/rooms.md) for group rooms and one-to-one conversations, open and members-only access, room administration, NIP-17 direct messages, connecting Buzz-compatible clients and agents, and the live room stream.
+See [Chat](docs/chat.md) for group rooms and one-to-one conversations, open and members-only access, room administration, NIP-17 direct messages, connecting Buzz-compatible clients and agents, and the live room stream.
 
 See [Social](docs/social.md) for notes, long-form articles, NIP-10 and NIP-22 conversations, reactions, Markdown, media and mixed feeds.
 

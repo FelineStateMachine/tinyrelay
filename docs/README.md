@@ -9,7 +9,7 @@ Tiny combines a Nostr relay with pages for publishing, conversation, files and c
 | Set up a personal relay and connect clients | [Personal relay](personal-relay.md) |
 | Join, invite people and manage membership | [Membership](membership.md) |
 | Manage your profile, relay lists, presence and device notifications | [Account and installed app](app.md) |
-| Use group Chat and encrypted one-to-one messages | [Chat](rooms.md) |
+| Use group Chat and encrypted one-to-one messages | [Chat](chat.md) |
 | Publish notes and articles, comment and react | [Social](social.md) |
 | Upload, organize and preview files; choose public, member or secret-link access | [Files and private repositories](files-and-private-repositories.md) |
 | Publish wiki pages and review proposals or merges | [Wiki](wiki.md) |
