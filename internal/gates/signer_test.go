@@ -40,3 +40,31 @@ func TestSignerRepliesReachUnauthenticatedRecipientSubscription(t *testing.T) {
 		})
 	}
 }
+
+func TestArtifactVisibilityTracksNestedSourcesAndCycles(t *testing.T) {
+	p := policy.Defaults(strings.Repeat("a", 64))
+	nodes := map[string]event.Event{
+		"a": {ID: "a", Kind: event.KIND_VIEW},
+		"b": {ID: "b", Kind: event.KIND_VIEW},
+	}
+	refs := map[string][]string{"a": {"b"}, "b": {"hidden"}}
+	var gate *Gate
+	gate, _ = New(Config{Policy: func() policy.Policy { return p }, ArtifactVisible: func(ctx context.Context, e event.Event, s relay.Session) bool {
+		for _, id := range refs[e.ID] {
+			if id == "hidden" {
+				return false
+			}
+			if !gate.CanSee(ctx, nodes[id], s, nil) {
+				return false
+			}
+		}
+		return true
+	}})
+	if gate.CanSee(context.Background(), nodes["a"], relay.Session{}, nil) {
+		t.Fatal("nested artifact with hidden source became visible")
+	}
+	refs["b"] = []string{"a"}
+	if gate.CanSee(context.Background(), nodes["a"], relay.Session{}, nil) {
+		t.Fatal("cyclic artifact source became visible")
+	}
+}

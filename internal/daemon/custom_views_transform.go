@@ -172,9 +172,9 @@ func (t *customViewService) sourceCurrent(ctx context.Context, e event.Event) (b
 	var id string
 	var err error
 	if e.Kind == event.KIND_REPO_STATE {
-		err = t.store.DB().QueryRowContext(ctx, `SELECT id FROM events WHERE kind=? AND pubkey=? AND d=?`, e.Kind, e.PubKey, event.Tag(e, "d")).Scan(&id)
+		err = t.store.DB().QueryRowContext(ctx, `SELECT id FROM events WHERE kind=? AND pubkey=? AND d=? AND (expires=0 OR expires>?) ORDER BY created_at DESC,id ASC LIMIT 1`, e.Kind, e.PubKey, event.Tag(e, "d"), time.Now().Unix()).Scan(&id)
 	} else {
-		err = t.store.DB().QueryRowContext(ctx, `SELECT id FROM events WHERE id=?`, e.ID).Scan(&id)
+		err = t.store.DB().QueryRowContext(ctx, `SELECT id FROM events WHERE id=? AND (expires=0 OR expires>?)`, e.ID, time.Now().Unix()).Scan(&id)
 	}
 	if errors.Is(err, sql.ErrNoRows) {
 		return false, nil
@@ -612,7 +612,7 @@ func (t *customViewService) sourcePresent(ctx context.Context, source string) (b
 		if len(parts) != 3 {
 			return false, nil
 		}
-		err = t.store.DB().QueryRowContext(ctx, `SELECT 1 FROM events WHERE kind=? AND pubkey=? AND d=? LIMIT 1`, event.KIND_REPO_STATE, parts[1], parts[2]).Scan(&one)
+		err = t.store.DB().QueryRowContext(ctx, `SELECT 1 FROM events WHERE kind=? AND pubkey=? AND d=? AND (expires=0 OR expires>?) LIMIT 1`, event.KIND_REPO_STATE, parts[1], parts[2], time.Now().Unix()).Scan(&one)
 	} else {
 		err = t.store.DB().QueryRowContext(ctx, `SELECT 1 FROM events WHERE id=? AND (expires=0 OR expires>?) LIMIT 1`, source, time.Now().Unix()).Scan(&one)
 	}

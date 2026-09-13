@@ -18,16 +18,22 @@ import (
 // Config supplies the policy and optional durable services used by Gate.
 // Store and Community enable checks that depend on persisted relay state.
 type Config struct {
-	Store     *storage.Store
-	Community *community.Service
-	Policy    func() policy.Policy
-	Slug      string
+	Store           *storage.Store
+	Community       *community.Service
+	Policy          func() policy.Policy
+	Slug            string
+	ArtifactVisible func(context.Context, event.Event, relay.Session) bool
 }
 
 // Gate evaluates event admission and visibility for one tenant configuration.
 type Gate struct {
 	cfg    Config
 	agents agentLimiter
+}
+type artifactCheckContextKey struct{}
+type artifactCheckState struct {
+	seen  map[string]struct{}
+	depth int
 }
 
 // agentLimiter is the per-agent sliding one-minute counter. It lives in
@@ -692,6 +698,24 @@ func (g *Gate) Read(ctx context.Context, filters []event.Filter, s relay.Session
 // ban, repository privacy, policy, room and recipient checks.
 func (g *Gate) CanSee(ctx context.Context, e event.Event, s relay.Session, f *event.Filter) bool {
 	p := g.cfg.Policy()
+	if e.Kind == event.KIND_VIEW && g.cfg.ArtifactVisible != nil {
+		state, _ := ctx.Value(artifactCheckContextKey{}).(artifactCheckState)
+		if state.seen == nil {
+			state.seen = map[string]struct{}{}
+		}
+		if _, cycle := state.seen[e.ID]; cycle || state.depth >= 32 {
+			return false
+		}
+		seen := make(map[string]struct{}, len(state.seen)+1)
+		for id := range state.seen {
+			seen[id] = struct{}{}
+		}
+		seen[e.ID] = struct{}{}
+		ctx = context.WithValue(ctx, artifactCheckContextKey{}, artifactCheckState{seen: seen, depth: state.depth + 1})
+		if !g.cfg.ArtifactVisible(ctx, e, s) {
+			return false
+		}
+	}
 	if community.IsAgentGrantRequest(e) {
 		operator := event.Tag(e, "p")
 		if !contains(s.PubKeys, e.PubKey) && !contains(s.PubKeys, operator) {

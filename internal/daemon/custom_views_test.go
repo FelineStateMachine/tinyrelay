@@ -419,7 +419,7 @@ func TestCustomViewTransformSendsBlocksAndKeepsSignedArtifacts(t *testing.T) {
 
 	// The route serves each artifact under a sandbox, by its own type.
 	res := getArtifact(t, tenant, "/views/diagrams/"+svgHash+".svg", "")
-	if res.Code != http.StatusOK || res.Body.String() != testSVG || res.Header().Get("Content-Type") != "image/svg+xml" || res.Header().Get("Content-Security-Policy") != "sandbox; default-src 'none'; style-src 'unsafe-inline'" || res.Header().Get("X-Content-Type-Options") != "nosniff" || res.Header().Get("Cache-Control") != "public, no-cache" || res.Header().Get("ETag") == "" {
+	if res.Code != http.StatusOK || res.Body.String() != testSVG || res.Header().Get("Content-Type") != "image/svg+xml" || res.Header().Get("Content-Security-Policy") != "sandbox; default-src 'none'; style-src 'unsafe-inline'" || res.Header().Get("X-Content-Type-Options") != "nosniff" || res.Header().Get("Cache-Control") != "private, no-cache" || res.Header().Get("ETag") == "" {
 		t.Fatalf("svg route: %d %v %s", res.Code, res.Header(), res.Body.String())
 	}
 	conditional := httptest.NewRequest(http.MethodGet, "http://127.0.0.1:8080/views/diagrams/"+svgHash+".svg", nil)

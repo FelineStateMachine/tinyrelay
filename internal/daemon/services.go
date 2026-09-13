@@ -153,7 +153,7 @@ func (t *Tenant) initServices(ctx context.Context) error {
 	if err := t.reconcileAutomaticInbox(ctx, currentPolicy, currentPolicy); err != nil {
 		return err
 	}
-	t.customViews = newCustomViewService(customViewServiceConfig{Store: t.store, Community: t.community, Records: t.records, Git: t.git, Telemetry: t.app.telemetry, TenantName: t.meta.Name, PublicURL: t.publicURL, Loopback: func() bool { return loopbackPublicURL(t.publicURL) }, ResolveActor: t.resolveUIActor, BrowseRead: t.browseRead})
+	t.customViews = newCustomViewService(customViewServiceConfig{Store: t.store, Community: t.community, Records: t.records, Git: t.git, Gate: t.gate, Telemetry: t.app.telemetry, TenantName: t.meta.Name, PublicURL: t.publicURL, Loopback: func() bool { return loopbackPublicURL(t.publicURL) }, ResolveActor: t.resolveUIActor, BrowseRead: t.browseRead})
 	if err := t.customViews.initCustomViews(ctx); err != nil {
 		return err
 	}

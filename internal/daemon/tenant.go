@@ -104,7 +104,9 @@ func newTenant(ctx context.Context, cfg tenantConfig) (*Tenant, error) {
 	if err := t.community.EnsureSlugRoom(ctx, t.meta.Name, community.RoomAccessFor(p.Reads)); err != nil {
 		return nil, err
 	}
-	t.gate, err = gates.New(gates.Config{Store: t.store, Community: t.community, Policy: t.Policy, Slug: t.meta.Name})
+	t.gate, err = gates.New(gates.Config{Store: t.store, Community: t.community, Policy: t.Policy, Slug: t.meta.Name, ArtifactVisible: func(ctx context.Context, e event.Event, s relay.Session) bool {
+		return t.customViews != nil && t.customViews.artifactEventVisible(ctx, e, s)
+	}})
 	if err != nil {
 		return nil, err
 	}

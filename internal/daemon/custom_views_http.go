@@ -1,8 +1,7 @@
 package daemon
 
 // GET /views/<name>/<hash>[.<svg|png>] serves a custom view artifact under a
-// sandbox policy. A members-only view answers only members; a public one
-// follows the relay's read rule.
+// sandbox policy. Reads require both the view's audience and a visible source.
 
 import (
 	"crypto/sha256"
@@ -11,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/FelineStateMachine/tinyrelay/internal/relay"
 	"github.com/FelineStateMachine/tinyrelay/internal/views"
 )
 
@@ -84,6 +84,11 @@ func (t *customViewService) viewArtifactHTTP(w http.ResponseWriter, r *http.Requ
 		outcome = "unauthorized"
 		return
 	}
+	if !t.artifactHTTPSourceVisible(ctx, name, hash, relay.Session{PubKeys: []string{actor}, RelayURL: t.publicURL}) {
+		http.NotFound(w, r)
+		outcome = "invalid"
+		return
+	}
 	body, err := record.body()
 	if err != nil {
 		http.Error(w, "artifact is unreadable", http.StatusInternalServerError)
@@ -96,11 +101,7 @@ func (t *customViewService) viewArtifactHTTP(w http.ResponseWriter, r *http.Requ
 	etagBytes := sha256.Sum256(body)
 	etag := `"` + hex.EncodeToString(etagBytes[:]) + `"`
 	w.Header().Set("ETag", etag)
-	if record.Audience == "members" {
-		w.Header().Set("Cache-Control", "private, no-cache")
-	} else {
-		w.Header().Set("Cache-Control", "public, no-cache")
-	}
+	w.Header().Set("Cache-Control", "private, no-cache")
 	outcome = "ok"
 	if r.Header.Get("If-None-Match") == etag {
 		w.WriteHeader(http.StatusNotModified)

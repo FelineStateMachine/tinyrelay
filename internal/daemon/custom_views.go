@@ -23,11 +23,12 @@ import (
 
 	"github.com/FelineStateMachine/tinyrelay/internal/community"
 	"github.com/FelineStateMachine/tinyrelay/internal/event"
-	gitrelay "github.com/FelineStateMachine/tinyrelay/tinygit"
+	"github.com/FelineStateMachine/tinyrelay/internal/gates"
 	"github.com/FelineStateMachine/tinyrelay/internal/records"
 	"github.com/FelineStateMachine/tinyrelay/internal/storage"
 	"github.com/FelineStateMachine/tinyrelay/internal/telemetry"
 	"github.com/FelineStateMachine/tinyrelay/internal/views"
+	gitrelay "github.com/FelineStateMachine/tinyrelay/tinygit"
 )
 
 // customViewService owns custom view definitions, transform execution and
@@ -45,6 +46,7 @@ type customViewService struct {
 	loopback     func() bool
 	resolveActor func(*http.Request) (string, error)
 	browseRead   func(context.Context, string) error
+	gate         *gates.Gate
 	viewClient   *http.Client
 	viewMu       sync.Mutex
 	viewIndex    map[int][]customView
@@ -62,6 +64,7 @@ type customViewServiceConfig struct {
 	Loopback     func() bool
 	ResolveActor func(*http.Request) (string, error)
 	BrowseRead   func(context.Context, string) error
+	Gate         *gates.Gate
 }
 
 func newCustomViewService(cfg customViewServiceConfig) *customViewService {
@@ -76,6 +79,7 @@ func newCustomViewService(cfg customViewServiceConfig) *customViewService {
 		loopback:     cfg.Loopback,
 		resolveActor: cfg.ResolveActor,
 		browseRead:   cfg.BrowseRead,
+		gate:         cfg.Gate,
 	}
 }
 
