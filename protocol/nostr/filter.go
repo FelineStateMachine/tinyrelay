@@ -26,6 +26,10 @@ type Filter struct {
 // ParseFilter decodes supported Nostr filter fields, including #tag keys, and
 // checks their JSON types.
 func ParseFilter(raw []byte) (Filter, error) {
+	trimmed := strings.TrimSpace(string(raw))
+	if len(trimmed) == 0 || trimmed[0] != '{' {
+		return Filter{}, errorsFilter("filter must be an object")
+	}
 	var values map[string]json.RawMessage
 	if err := json.Unmarshal(raw, &values); err != nil {
 		return Filter{}, errorsFilter("filter must be an object")
@@ -35,6 +39,9 @@ func ParseFilter(raw []byte) (Filter, error) {
 		switch {
 		case key == "ids", key == "authors":
 			if !isJSONArray(value) {
+				return Filter{}, errorsFilter(key + " must be a list of strings")
+			}
+			if hasJSONNullElement(value) {
 				return Filter{}, errorsFilter(key + " must be a list of strings")
 			}
 			var out []string
@@ -50,10 +57,16 @@ func ParseFilter(raw []byte) (Filter, error) {
 			if !isJSONArray(value) {
 				return Filter{}, errorsFilter("kinds must be a list of integers")
 			}
+			if hasJSONNullElement(value) {
+				return Filter{}, errorsFilter("kinds must be a list of integers")
+			}
 			if err := json.Unmarshal(value, &f.Kinds); err != nil {
 				return Filter{}, errorsFilter("kinds must be a list of integers")
 			}
 		case key == "since", key == "until":
+			if isJSONNull(value) {
+				return Filter{}, errorsFilter(key + " must be an integer")
+			}
 			var n int64
 			if err := json.Unmarshal(value, &n); err != nil {
 				return Filter{}, errorsFilter(key + " must be an integer")
@@ -64,17 +77,26 @@ func ParseFilter(raw []byte) (Filter, error) {
 				f.Until = &n
 			}
 		case key == "limit":
+			if isJSONNull(value) {
+				return Filter{}, errorsFilter("limit must be an integer")
+			}
 			var n int
 			if err := json.Unmarshal(value, &n); err != nil {
 				return Filter{}, errorsFilter("limit must be an integer")
 			}
 			f.Limit = &n
 		case key == "search":
+			if isJSONNull(value) {
+				return Filter{}, errorsFilter("search must be a string")
+			}
 			if err := json.Unmarshal(value, &f.Search); err != nil {
 				return Filter{}, errorsFilter("search must be a string")
 			}
 		case len(key) == 2 && key[0] == '#':
 			if !isJSONArray(value) {
+				return Filter{}, errorsFilter(key + " must be a list of strings")
+			}
+			if hasJSONNullElement(value) {
 				return Filter{}, errorsFilter(key + " must be a list of strings")
 			}
 			var out []string
@@ -85,6 +107,23 @@ func ParseFilter(raw []byte) (Filter, error) {
 		}
 	}
 	return f, nil
+}
+
+func isJSONNull(value json.RawMessage) bool {
+	return strings.TrimSpace(string(value)) == "null"
+}
+
+func hasJSONNullElement(value json.RawMessage) bool {
+	var values []json.RawMessage
+	if err := json.Unmarshal(value, &values); err != nil {
+		return false
+	}
+	for _, item := range values {
+		if isJSONNull(item) {
+			return true
+		}
+	}
+	return false
 }
 
 // MarshalJSON encodes tag constraints with their Nostr #name wire keys.
