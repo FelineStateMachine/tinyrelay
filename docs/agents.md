@@ -354,7 +354,7 @@ export function verify(body, header, secret) {
 }
 ```
 
-Before each POST, the relay checks that the callback exists and is not paused, that its owner still has membership and that the read gate permits the queued event. Delivery does not separately recheck whether an agent grant is active or reload the source event. Pause the callback itself when delivery must stop; pausing a grant or deleting an event is not a guaranteed cancellation of already queued delivery. An in-flight request cannot be recalled.
+Before each POST, the relay checks the callback, its owner's membership and current read access. An agent must still have an active grant covering the callback's room and repository filters. Pausing, revoking or expiring its grant stops further delivery and pauses the callback. Stored events must still exist and be unexpired; deleting or hiding one stops its queued delivery. Ephemeral events travel in the queue because they have no stored source. An in-flight request cannot be recalled.
 
 Each callback has at most one in-process delivery at a time. Retries can repeat delivery, so receivers must handle events idempotently. A repository state is delivered once its objects have arrived. See the [callback contract](extensions/callbacks.md) for exact payloads, management responses, retries and audited limits.
 

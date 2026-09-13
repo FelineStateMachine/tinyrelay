@@ -27,8 +27,8 @@ import (
 	"github.com/FelineStateMachine/tinyrelay/internal/work"
 )
 
-// callbackPayload is the work intent body: the event itself, so delivery
-// does not depend on the event still being stored, and the attempt number.
+// callbackPayload carries an event and its delivery attempt. Stored events
+// are reloaded before delivery; ephemeral events use this signed payload.
 type callbackPayload struct {
 	Event   event.Event `json:"event"`
 	Attempt int         `json:"attempt"`
@@ -84,6 +84,10 @@ func (s *callbackService) handleCallbackDelivery(ctx context.Context, intent wor
 	if payload.Attempt < 1 {
 		payload.Attempt = 1
 	}
+	if err := event.Validate(payload.Event); err != nil {
+		outcome = "invalid"
+		return errors.New("callback-delivery: invalid event")
+	}
 	lock := s.callbackLock(intent.Target)
 	lock.Lock()
 	defer lock.Unlock()
@@ -99,6 +103,23 @@ func (s *callbackService) handleCallbackDelivery(ctx context.Context, intent wor
 		outcome = "paused"
 		return nil
 	}
+	source := payload.Event
+	if !event.IsEphemeral(payload.Event.Kind) {
+		var raw string
+		err := s.store.DB().QueryRowContext(ctx, `SELECT raw FROM events WHERE id=? AND (expires=0 OR expires>?)`, payload.Event.ID, time.Now().Unix()).Scan(&raw)
+		if errors.Is(err, sql.ErrNoRows) {
+			outcome = "unauthorized"
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		parsed, err := event.Parse([]byte(raw))
+		if err != nil {
+			return err
+		}
+		source = parsed
+	}
 	role, err := s.community.Role(ctx, record.Owner)
 	if err != nil {
 		return err
@@ -109,11 +130,25 @@ func (s *callbackService) handleCallbackDelivery(ctx context.Context, intent wor
 		outcome = "unauthorized"
 		return s.pauseCallback(ctx, record.ID, record.Failures, "paused: the key is no longer a member")
 	}
-	if !s.gate.CanSee(ctx, payload.Event, relay.Session{PubKeys: []string{record.Owner}, RelayURL: s.relayURL}, nil) {
+	if role == "agent" {
+		grant, ok, err := s.community.AgentGrant(ctx, record.Owner)
+		if err != nil {
+			return err
+		}
+		if !ok || !grant.Active(time.Now().Unix()) {
+			outcome = "unauthorized"
+			return s.pauseCallback(ctx, record.ID, record.Failures, "paused: the agent grant is no longer active")
+		}
+		if err := s.checkCallbackScope(ctx, record.Owner, record.Filter); err != nil {
+			outcome = "unauthorized"
+			return s.pauseCallback(ctx, record.ID, record.Failures, "paused: the agent grant no longer covers this callback")
+		}
+	}
+	if !s.gate.CanSee(ctx, source, relay.Session{PubKeys: []string{record.Owner}, RelayURL: s.relayURL}, nil) {
 		outcome = "unauthorized"
 		return nil
 	}
-	status, postErr := s.postCallback(ctx, record, payload.Event)
+	status, postErr := s.postCallback(ctx, record, source)
 	now := time.Now().Unix()
 	if postErr == nil {
 		outcome = "ok"

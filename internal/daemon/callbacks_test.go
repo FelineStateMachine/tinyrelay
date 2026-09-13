@@ -246,11 +246,19 @@ func TestCallbackManagementPermissionMatrix(t *testing.T) {
 		if _, present := byOwner[member]["url"]; present {
 			t.Fatalf("operator listing carries another key's URL path: %v", byOwner[member])
 		}
-		if _, err := tenant.Execute(ctx, actor, "pausecallback", []json.RawMessage{id(theirs)}); err != nil {
+		paused, err := tenant.Execute(ctx, actor, "pausecallback", []json.RawMessage{id(theirs)})
+		if err != nil {
 			t.Fatalf("pause by %s: %v", actor, err)
 		}
-		if _, err := tenant.Execute(ctx, actor, "resumecallback", []json.RawMessage{id(theirs)}); err != nil {
+		if _, present := paused.(map[string]any)["url"]; present {
+			t.Fatalf("pause response carries another key's URL path: %v", paused)
+		}
+		resumed, err := tenant.Execute(ctx, actor, "resumecallback", []json.RawMessage{id(theirs)})
+		if err != nil {
 			t.Fatalf("resume by %s: %v", actor, err)
+		}
+		if _, present := resumed.(map[string]any)["url"]; present {
+			t.Fatalf("resume response carries another key's URL path: %v", resumed)
 		}
 	}
 	if _, err := tenant.Execute(ctx, owner, "pausecallback", []json.RawMessage{json.RawMessage(`"missing"`)}); err == nil || !strings.HasPrefix(err.Error(), "not found:") {
@@ -591,6 +599,283 @@ func TestCallbackDeliveryRechecksTheGateAndMembership(t *testing.T) {
 	var status string
 	if err := tenant.store.DB().QueryRowContext(ctx, "SELECT paused,last_status FROM callbacks WHERE id=?", id).Scan(&paused, &status); err != nil || paused != 1 || status != "paused: the key is no longer a member" {
 		t.Fatalf("former member callback: paused=%d status=%q %v", paused, status, err)
+	}
+}
+
+func TestCallbackDeliveryStopsForInactiveAgentGrant(t *testing.T) {
+	_, tenant := loopbackTenant(t)
+	ctx := context.Background()
+	owner := tenant.Policy().Owner
+	agent, _ := event.PublicKey(testAgentSecret)
+	now := time.Now().Unix()
+	grant := agentGrantEvent(t, agent, now-1, now+3600, []string{"k", "1"})
+	if err := publishAs(t, tenant, grant); err != nil {
+		t.Fatal(err)
+	}
+	receiver := &callbackReceiver{status: http.StatusOK}
+	service := httptest.NewTLSServer(receiver)
+	defer service.Close()
+	tenant.callbacks.callbackClient = service.Client()
+	registered := addCallback(t, tenant, agent, service.URL+"/wake", `{"kinds":[1]}`)
+	id := registered["id"].(string)
+	note := signedEvent(t, testOwnerSecret, 1, now, nil, "grant pause")
+	if err := publishAs(t, tenant, note); err != nil {
+		t.Fatal(err)
+	}
+	queued := pendingCallbackIntents(t, tenant, id, note.ID)
+	if len(queued) != 1 {
+		t.Fatalf("queued = %+v", queued)
+	}
+	if _, err := tenant.Execute(ctx, owner, "pauseagent", []json.RawMessage{json.RawMessage(strconv.Quote(agent))}); err != nil {
+		t.Fatal(err)
+	}
+	if err := tenant.handleCallbackDelivery(ctx, queued[0]); err != nil {
+		t.Fatal(err)
+	}
+	if receiver.count() != 0 {
+		t.Fatal("paused agent callback delivered")
+	}
+	var paused int
+	if err := tenant.store.DB().QueryRowContext(ctx, "SELECT paused FROM callbacks WHERE id=?", id).Scan(&paused); err != nil || paused != 1 {
+		t.Fatalf("inactive grant did not pause callback: paused=%d err=%v", paused, err)
+	}
+}
+
+func TestCallbackDeliverySkipsDeletedSource(t *testing.T) {
+	_, tenant := loopbackTenant(t)
+	ctx := context.Background()
+	member, _ := event.PublicKey(testMemberSecret)
+	setRole(t, tenant, member, "member")
+	receiver := &callbackReceiver{status: http.StatusOK}
+	service := httptest.NewTLSServer(receiver)
+	defer service.Close()
+	tenant.callbacks.callbackClient = service.Client()
+	registered := addCallback(t, tenant, member, service.URL+"/wake", `{"kinds":[1]}`)
+	id := registered["id"].(string)
+	note := signedEvent(t, testOwnerSecret, 1, time.Now().Unix(), nil, "deleted source")
+	if err := publishAs(t, tenant, note); err != nil {
+		t.Fatal(err)
+	}
+	queued := pendingCallbackIntents(t, tenant, id, note.ID)
+	if len(queued) != 1 {
+		t.Fatalf("queued = %+v", queued)
+	}
+	if _, err := tenant.store.DB().ExecContext(ctx, "DELETE FROM events WHERE id=?", note.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := tenant.handleCallbackDelivery(ctx, queued[0]); err != nil {
+		t.Fatal(err)
+	}
+	if receiver.count() != 0 {
+		t.Fatal("deleted source callback delivered")
+	}
+}
+
+func TestCallbackDeliverySkipsExpiredSource(t *testing.T) {
+	_, tenant := loopbackTenant(t)
+	ctx := context.Background()
+	member, _ := event.PublicKey(testMemberSecret)
+	setRole(t, tenant, member, "member")
+	receiver := &callbackReceiver{status: http.StatusOK}
+	service := httptest.NewTLSServer(receiver)
+	defer service.Close()
+	tenant.callbacks.callbackClient = service.Client()
+	registered := addCallback(t, tenant, member, service.URL+"/wake", `{"kinds":[1]}`)
+	id := registered["id"].(string)
+	note := signedEvent(t, testOwnerSecret, 1, time.Now().Unix(), nil, "expired source")
+	if err := publishAs(t, tenant, note); err != nil {
+		t.Fatal(err)
+	}
+	queued := pendingCallbackIntents(t, tenant, id, note.ID)
+	if len(queued) != 1 {
+		t.Fatalf("queued = %+v", queued)
+	}
+	if _, err := tenant.store.DB().ExecContext(ctx, "UPDATE events SET expires=? WHERE id=?", time.Now().Unix()-1, note.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := tenant.handleCallbackDelivery(ctx, queued[0]); err != nil {
+		t.Fatal(err)
+	}
+	if receiver.count() != 0 {
+		t.Fatal("expired source callback delivered")
+	}
+}
+
+func TestCallbackDeliveryRejectsForgedEphemeralProvenance(t *testing.T) {
+	_, tenant := loopbackTenant(t)
+	ctx := context.Background()
+	member, _ := event.PublicKey(testMemberSecret)
+	setRole(t, tenant, member, "member")
+	receiver := &callbackReceiver{status: http.StatusOK}
+	service := httptest.NewTLSServer(receiver)
+	defer service.Close()
+	tenant.callbacks.callbackClient = service.Client()
+	registered := addCallback(t, tenant, member, service.URL+"/wake", `{"kinds":[1]}`)
+	id := registered["id"].(string)
+	note := signedEvent(t, testOwnerSecret, 1, time.Now().Unix(), nil, "normal event")
+	if err := publishAs(t, tenant, note); err != nil {
+		t.Fatal(err)
+	}
+	queued := pendingCallbackIntents(t, tenant, id, note.ID)
+	if len(queued) != 1 {
+		t.Fatalf("queued = %+v", queued)
+	}
+	var payload map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(queued[0].Payload), &payload); err != nil {
+		t.Fatal(err)
+	}
+	payload["ephemeral"] = json.RawMessage("true")
+	encoded, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tenant.store.DB().ExecContext(ctx, "UPDATE work_intents SET payload=? WHERE id=?", string(encoded), queued[0].ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tenant.store.DB().ExecContext(ctx, "DELETE FROM events WHERE id=?", note.ID); err != nil {
+		t.Fatal(err)
+	}
+	queued[0].Payload = string(encoded)
+	if err := tenant.handleCallbackDelivery(ctx, queued[0]); err != nil || receiver.count() != 0 {
+		t.Fatalf("forged ephemeral provenance: err=%v deliveries=%d", err, receiver.count())
+	}
+}
+
+func TestCallbackDeliveryStopsWhenAgentScopeNarrows(t *testing.T) {
+	_, tenant := loopbackTenant(t)
+	ctx := context.Background()
+	agent, _ := event.PublicKey(testAgentSecret)
+	owner := tenant.Policy().Owner
+	now := time.Now().Unix()
+	grant := agentGrantEvent(t, agent, now-1, now+3600, []string{"k", "1"}, []string{"repo", owner + ":repo:read"})
+	if err := publishAs(t, tenant, grant); err != nil {
+		t.Fatal(err)
+	}
+	receiver := &callbackReceiver{status: http.StatusOK}
+	service := httptest.NewTLSServer(receiver)
+	defer service.Close()
+	tenant.callbacks.callbackClient = service.Client()
+	filter := `{"kinds":[1],"#a":["30617:` + owner + `:repo"]}`
+	registered := addCallback(t, tenant, agent, service.URL+"/wake", filter)
+	id := registered["id"].(string)
+	note := signedEvent(t, testOwnerSecret, 1, now, [][]string{{"a", "30617:" + owner + ":repo"}}, "narrowed scope")
+	if err := publishAs(t, tenant, note); err != nil {
+		t.Fatal(err)
+	}
+	queued := pendingCallbackIntents(t, tenant, id, note.ID)
+	if len(queued) != 1 {
+		t.Fatalf("queued = %+v", queued)
+	}
+	if _, err := tenant.store.DB().ExecContext(ctx, `UPDATE agent_grants SET scope=? WHERE agent=?`, `{"kinds":[1],"rooms":[],"repos":[],"rate":60}`, agent); err != nil {
+		t.Fatal(err)
+	}
+	if err := tenant.handleCallbackDelivery(ctx, queued[0]); err != nil {
+		t.Fatal(err)
+	}
+	if receiver.count() != 0 {
+		t.Fatal("scope-narrowed agent callback delivered")
+	}
+	var paused int
+	if err := tenant.store.DB().QueryRowContext(ctx, "SELECT paused FROM callbacks WHERE id=?", id).Scan(&paused); err != nil || paused != 1 {
+		t.Fatalf("scope-narrowed callback not paused: paused=%d err=%v", paused, err)
+	}
+}
+
+func TestCallbackDeliveryAllowsActiveAgentWithStoredSource(t *testing.T) {
+	_, tenant := loopbackTenant(t)
+	ctx := context.Background()
+	agent, _ := event.PublicKey(testAgentSecret)
+	now := time.Now().Unix()
+	grant := agentGrantEvent(t, agent, now-1, now+3600, []string{"k", "1"})
+	if err := publishAs(t, tenant, grant); err != nil {
+		t.Fatal(err)
+	}
+	receiver := &callbackReceiver{status: http.StatusOK}
+	service := httptest.NewTLSServer(receiver)
+	defer service.Close()
+	tenant.callbacks.callbackClient = service.Client()
+	registered := addCallback(t, tenant, agent, service.URL+"/wake", `{"kinds":[1]}`)
+	id := registered["id"].(string)
+	note := signedEvent(t, testOwnerSecret, 1, now, nil, "active grant")
+	if err := publishAs(t, tenant, note); err != nil {
+		t.Fatal(err)
+	}
+	queued := pendingCallbackIntents(t, tenant, id, note.ID)
+	if len(queued) != 1 {
+		t.Fatalf("queued = %+v", queued)
+	}
+	if err := tenant.handleCallbackDelivery(ctx, queued[0]); err != nil {
+		t.Fatal(err)
+	}
+	if receiver.count() != 1 {
+		t.Fatalf("active agent callback deliveries=%d, want 1", receiver.count())
+	}
+}
+
+func TestEphemeralCallbackDeliveryUsesKindProvenance(t *testing.T) {
+	_, tenant := loopbackTenant(t)
+	ctx := context.Background()
+	member, _ := event.PublicKey(testMemberSecret)
+	setRole(t, tenant, member, "member")
+	receiver := &callbackReceiver{status: http.StatusOK}
+	service := httptest.NewTLSServer(receiver)
+	defer service.Close()
+	tenant.callbacks.callbackClient = service.Client()
+	registered := addCallback(t, tenant, member, service.URL+"/wake", `{"kinds":[20001]}`)
+	id := registered["id"].(string)
+	presence := signedEvent(t, testOwnerSecret, 20001, time.Now().Unix(), nil, "ephemeral")
+	tenant.notifyCallbacks(ctx, presence)
+	queued := pendingCallbackIntents(t, tenant, id, presence.ID)
+	if len(queued) != 1 {
+		t.Fatalf("queued = %+v", queued)
+	}
+	if err := tenant.handleCallbackDelivery(ctx, queued[0]); err != nil {
+		t.Fatal(err)
+	}
+	if receiver.count() != 1 {
+		t.Fatalf("ephemeral callback count=%d, want 1", receiver.count())
+	}
+}
+
+func TestCallbackDeliveryStopsForRevokedOrExpiredAgentGrant(t *testing.T) {
+	for _, action := range []string{"revoked", "expired"} {
+		t.Run(action, func(t *testing.T) {
+			_, tenant := loopbackTenant(t)
+			ctx := context.Background()
+			agent, _ := event.PublicKey(testAgentSecret)
+			now := time.Now().Unix()
+			grant := agentGrantEvent(t, agent, now-1, now+3600, []string{"k", "1"})
+			if err := publishAs(t, tenant, grant); err != nil {
+				t.Fatal(err)
+			}
+			receiver := &callbackReceiver{status: http.StatusOK}
+			service := httptest.NewTLSServer(receiver)
+			defer service.Close()
+			tenant.callbacks.callbackClient = service.Client()
+			registered := addCallback(t, tenant, agent, service.URL+"/wake", `{"kinds":[1]}`)
+			id := registered["id"].(string)
+			note := signedEvent(t, testOwnerSecret, 1, now, nil, action)
+			if err := publishAs(t, tenant, note); err != nil {
+				t.Fatal(err)
+			}
+			queued := pendingCallbackIntents(t, tenant, id, note.ID)
+			if len(queued) != 1 {
+				t.Fatalf("queued = %+v", queued)
+			}
+			column, value := "revoked_at", now
+			if action == "expired" {
+				column, value = "expires_at", now-1
+			}
+			if _, err := tenant.store.DB().ExecContext(ctx, "UPDATE agent_grants SET "+column+"=? WHERE agent=?", value, agent); err != nil {
+				t.Fatal(err)
+			}
+			if err := tenant.handleCallbackDelivery(ctx, queued[0]); err != nil {
+				t.Fatal(err)
+			}
+			if receiver.count() != 0 {
+				t.Fatalf("%s agent callback delivered", action)
+			}
+		})
 	}
 }
 

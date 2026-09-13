@@ -446,7 +446,11 @@ func (s *callbackService) changeCallback(ctx context.Context, actor string, oper
 	if method == "removecallback" {
 		return map[string]any{"id": id, "removed": true}, nil
 	}
-	return record.summary(), nil
+	result := record.summary()
+	if operator && record.Owner != actor {
+		delete(result, "url")
+	}
+	return result, nil
 }
 
 // callbackIDParam reads the id from a bare string or from {"id": ...}.
