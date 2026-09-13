@@ -71,18 +71,18 @@ A successful endpoint returns a 2xx status and JSON such as:
 {"artifacts":[{"block":2,"type":"image/svg+xml","body":"<svg ...></svg>","engine":"mermaid"}],"errors":[{"block":5,"error":"unknown shape"}]}
 ```
 
-`artifacts` and `errors` are arrays of the shown objects. No extra response fields are required; unknown object fields are ignored. The body read is limited to `4 * (4 MiB) + 1 MiB`; truncated/malformed JSON is a run failure. `block` must identify a block actually sent. Unsent-block responses and invalid artifacts are refused individually, not treated as transport failures. Missing artifacts leave code (or a prior artifact on refresh) available. `errors` is counted for diagnostics, not a signed decision or automatic retry directive.
+`artifacts` and `errors` are arrays of the shown objects. No extra response fields are required; unknown object fields are ignored. The body read is limited to `4 * (4 MiB) + 1 MiB`; truncated/malformed JSON is a run failure. `block` must identify a block actually sent. Unsent-block responses, duplicate successful blocks and invalid artifacts are refused individually. A response with no valid artifacts is a run failure. Missing artifacts leave code (or a prior artifact on refresh) available. `errors` is counted for diagnostics, not a signed decision or automatic retry directive.
 
 ### Artifact validation
 
-[`checkArtifact`, `checkSVG` and `storeArtifact`](../../internal/daemon/custom_views_transform.go) enforce:
+[`checkArtifact` and `checkSVG`](../../internal/daemon/custom_views_validation.go) validate the media before [`storeArtifact`](../../internal/daemon/custom_views_transform.go) saves it:
 
-- Exact type `image/svg+xml` or `image/png`.
-- SVG body length at most `max_bytes`. It must contain `<svg` case-insensitively. Regex checks reject script elements, `on...=` handlers, foreign objects and `href`/`xlink:href` targets other than empty strings or internal `#` fragments. The original body is rejected or retained, not sanitized.
-- PNG body is trimmed Base64 (standard alphabet, padded or unpadded). Decoded length must fit `max_bytes` and begin with the PNG signature. Storage normalizes it to padded Base64. This is a signature-prefix check, not complete PNG decoding or validation.
+- The type must be exactly `image/svg+xml` or `image/png`.
+- SVG body length must fit `max_bytes`. XML must contain one SVG root. Scripts, event handlers, embedded documents, animation, document type declarations and stylesheet instructions, external link targets and external CSS `url()` references or imports are rejected. Links may target internal `#` fragments. CSS escapes and nested elements within styles are refused. The original body is retained without rewriting.
+- PNG uses trimmed Base64 with the standard alphabet, padded or unpadded. Decoded bytes must fit `max_bytes`, the image must decode successfully, and dimensions must total at most 16,777,216 pixels. Storage normalizes Base64 padding.
 - `engine` is optional, trimmed and truncated to 64 bytes before recording.
 
-The SVG checks are not an XML/CSS parser or proof that every external-load syntax is absent. Consumers must retain the sandbox boundary below. No guarantee of a valid render, safe arbitrary SVG execution or faithful interpretation of source code follows from acceptance. A valid JSON/2xx run resets failures and records `ok` even if every returned artifact is refused or `errors` is nonempty; check actual artifact availability rather than status alone.
+SVG is served under the sandbox policy below. Acceptance does not authorize arbitrary SVG execution or attest to the transform's interpretation of source code. A run records `ok` when all requested blocks produce valid artifacts, `partial` when some do, or `no valid artifacts` when none do. Partial success clears the failure count; no valid artifacts follows the normal retry and pause rules.
 
 ## Signed records and media routes
 
@@ -109,7 +109,7 @@ Write views capture registrations and queue optional work after source acceptanc
 
 Hourly/manual runs consider at most the newest 500 events of the selected kinds; an hourly pass applies a last-run time window with overlap. This is not an unbounded backfill or guarantee to process every event. Transforms serialize per view. Before a POST, the worker checks enabled state, registration generation and whether the source is still current. Those checks do not recall an in-flight request.
 
-Non-2xx, timeout, connection/read failure or invalid JSON produces a failed run. Two retries follow, after one minute and five minutes, for three attempts total. Twenty consecutive failures pause the view; success/resume clears the counter. Reasons include `HTTP <status>`, `timeout`, `connection failed`, `read failed` and `invalid response`. Management validation uses `invalid:`, authority uses `restricted: only the owner may ...`, and missing definitions use `not found: view`. See the [transport rules](README.md#shared-transport-boundary).
+Non-2xx, timeout, connection/read failure, invalid JSON or no valid artifacts produces a failed run. Two retries follow, after one minute and five minutes, for three attempts total. Twenty consecutive failures pause the view; success/resume clears the counter. Reasons include `HTTP <status>`, `timeout`, `connection failed`, `read failed` and `invalid response`. Management validation uses `invalid:`, authority uses `restricted: only the owner may ...`, and missing definitions use `not found: view`. See the [transport rules](README.md#shared-transport-boundary).
 
 Discover management names with `supportedmethods`, MCP schemas with `tools/list`, and definitions with the owner-only list method/tool. The frontend receives only enabled view names/languages through `CustomViews`; that is presentation data, not endpoint/secret disclosure or authority to configure the view. There is no transform version capability or handshake.
 
@@ -119,4 +119,4 @@ Discover management names with `supportedmethods`, MCP schemas with `tools/list`
 - [`custom_views_test.go`](../../internal/daemon/custom_views_test.go): `TestCustomViewManagementIsOwnerOnlyAndValidated`, `TestCustomViewTransformSendsBlocksAndKeepsSignedArtifacts`, replacement/reuse/rebuild, retries, artifact validation, members-only storage, hourly runs, repository README and MCP tools.
 - [`custom_views_targets_test.go`](../../internal/daemon/custom_views_targets_test.go) tests recreated registration rejection and stable generation backfill; [`custom_views_media_test.go`](../../internal/daemon/custom_views_media_test.go) tests extensionless media routes.
 
-Repeated identical blocks in one source share a `(view,hash,source)` record with one block index, not one entry per occurrence. There is no explicit duplicate-artifact response rejection, complete PNG/SVG parser, per-source audience inheritance or full remote-renderer conformance suite. These limits, the kind 30618 source-address disclosure and the `ok`/artifact-success distinction are intentional audit disclosures, not newly introduced wire behavior.
+Repeated identical blocks in one source share a `(view,hash,source)` record with one block index. Tests cover response validation and status accounting in [`custom_views_validation_test.go`](../../internal/daemon/custom_views_validation_test.go). Remote renderers remain responsible for rendering source code correctly.

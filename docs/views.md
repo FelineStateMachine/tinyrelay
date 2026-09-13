@@ -55,7 +55,7 @@ The relay also sends the equivalent `X-Tiny-View`, `X-Tiny-Relay` and `X-Tiny-Si
 {"artifacts": [{"block": 2, "type": "image/svg+xml", "body": "<svg ...>", "engine": "mermaid"}], "errors": [{"block": 5, "error": "unknown shape on line 3"}]}
 ```
 
-Each artifact names the block it rendered, its `type`, either `image/svg+xml` or `image/png`, and its `body`, the SVG source or a base64 PNG. `engine` is optional and is recorded on the artifact. An artifact larger than the view's `max_bytes` is refused. SVG bodies are screened with regular expressions for script elements, event handlers, foreign objects and certain external-reference attributes. Matching artifacts are rejected, not sanitized. These checks are not a complete XML/CSS security validator; PNG validation checks its signature prefix rather than decoding the complete image. A block listed under `errors`, or left out of the answer entirely, keeps showing its code.
+Each artifact names the block it rendered, its `type`, either `image/svg+xml` or `image/png`, and its `body`, the SVG source or a base64 PNG. `engine` is optional and is recorded on the artifact. An artifact larger than the view's `max_bytes` is refused. SVG bodies must be well-formed XML with one SVG root. The relay rejects scripts, event handlers, embedded documents, animation and external references in links and CSS. PNG bodies must decode successfully and contain no more than 16,777,216 pixels. Invalid artifacts are rejected, not repaired. A block listed under `errors`, or left out of the answer entirely, keeps showing its code.
 
 SVG artifacts must include their own colors and background rules. Page styles do not reach into the SVG document. Diagramzip's `/transform/blocks` endpoint defaults to `auto-transparent`, which omits the canvas and includes light and dark palettes. The diagram follows the page's color scheme. After changing a transform's styling, rebuild the stored artifacts to apply the change.
 
@@ -71,7 +71,7 @@ Each artifact is served at `/views/<name>/<hash>` with its stored media type, un
 
 A valid event is accepted even when its optional transform work cannot be planned immediately. The relay makes up to three background planning attempts within 15 minutes, rechecks the source and view, and skips work that is no longer relevant. Recovery fills missing work without restarting completed transforms or backfilling views registered after the event.
 
-A response outside 2xx, a timeout or a connection failure counts as a failure. The relay tries the event again after one minute and once more after five, three attempts in all, then drops it. After 20 failures in a row the view is paused and its status records the reason. A valid JSON response with a 2xx status resets the failure count and can record `ok` even if every artifact is rejected. Check the actual artifact before treating a run as a successful render.
+A response outside 2xx, a timeout or a connection failure counts as a failure. The relay tries the event again after one minute and once more after five, three attempts in all, then drops it. After 20 failures in a row the view is paused and its status records the reason. A response with no valid artifacts also counts as a failure. A run records `ok` when every requested block produces a valid artifact, or `partial` when only some do. Both clear the failure count; missing blocks keep showing their source.
 
 ## Manage views
 

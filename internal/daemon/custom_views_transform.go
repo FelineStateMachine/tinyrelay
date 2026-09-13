@@ -19,7 +19,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -27,10 +26,10 @@ import (
 	"time"
 
 	"github.com/FelineStateMachine/tinyrelay/internal/event"
-	gitrelay "github.com/FelineStateMachine/tinyrelay/tinygit"
 	"github.com/FelineStateMachine/tinyrelay/internal/replication"
 	"github.com/FelineStateMachine/tinyrelay/internal/views"
 	"github.com/FelineStateMachine/tinyrelay/internal/work"
+	gitrelay "github.com/FelineStateMachine/tinyrelay/tinygit"
 )
 
 // viewPayload is the work intent body: the source event, so the run does
@@ -265,12 +264,17 @@ func (t *customViewService) handleViewTransform(ctx context.Context, intent work
 	if postErr == nil {
 		stored, refused := 0, 0
 		sent := map[int]views.Block{}
+		storedBlocks := map[int]bool{}
 		for _, block := range pending {
 			sent[block.Index] = block
 		}
 		for _, artifact := range response.Artifacts {
 			block, ok := sent[artifact.Block]
 			if !ok {
+				refused++
+				continue
+			}
+			if storedBlocks[artifact.Block] {
 				refused++
 				continue
 			}
@@ -281,18 +285,22 @@ func (t *customViewService) handleViewTransform(ctx context.Context, intent work
 				}
 				return err
 			}
+			storedBlocks[artifact.Block] = true
 			stored++
 		}
-		outcome = "ok"
-		if refused > 0 {
-			outcome = "invalid"
+		if stored > 0 {
+			outcome = "ok"
+			if stored < len(pending) {
+				outcome = "partial"
+			}
+			if _, err := t.store.DB().ExecContext(ctx, `UPDATE custom_views SET last_run_at=?, last_status=?, failures=0 WHERE name=?`, now, outcome, view.Name); err != nil {
+				return err
+			}
+			// Counts only: no source, block or body leaves the relay in a log.
+			t.telemetry.Logger().Info("view transform delivered", "tenant", t.tenantName, "attempt", payload.Attempt, "status", status, "blocks", len(pending), "artifacts", stored, "refused", refused, "errors", len(response.Errors))
+			return t.pruneViewArtifacts(ctx, view.Name, intent.ID)
 		}
-		if _, err := t.store.DB().ExecContext(ctx, `UPDATE custom_views SET last_run_at=?, last_status='ok', failures=0 WHERE name=?`, now, view.Name); err != nil {
-			return err
-		}
-		// Counts only: no source, block or body leaves the relay in a log.
-		t.telemetry.Logger().Info("view transform delivered", "tenant", t.tenantName, "attempt", payload.Attempt, "status", status, "blocks", len(pending), "artifacts", stored, "refused", refused, "errors", len(response.Errors))
-		return t.pruneViewArtifacts(ctx, view.Name, intent.ID)
+		postErr = errors.New("no valid artifacts")
 	}
 	reason := postErr.Error()
 	failures := view.Failures + 1
@@ -388,74 +396,6 @@ func (t *customViewService) postViewTransform(ctx context.Context, view customVi
 		return response.StatusCode, viewResponse{}, errors.New("invalid response")
 	}
 	return response.StatusCode, decoded, nil
-}
-
-var (
-	svgScript        = regexp.MustCompile(`(?i)<script`)
-	svgHandler       = regexp.MustCompile(`(?i)\bon[a-z]+\s*=`)
-	svgForeignObject = regexp.MustCompile(`(?i)<foreignObject`)
-	svgReference     = regexp.MustCompile(`(?i)(?:xlink:)?href\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))`)
-	pngSignature     = []byte("\x89PNG\r\n\x1a\n")
-)
-
-// checkArtifact validates a transform's artifact: an accepted type, a body
-// within the view's size limit, a PNG that decodes from base64 and an SVG
-// without script, handlers, foreign objects or references outside itself.
-// It returns the body as stored: the SVG text or the PNG in base64.
-func checkArtifact(artifact viewArtifact, maxBytes int) (string, error) {
-	switch artifact.Type {
-	case "image/svg+xml":
-		if len(artifact.Body) > maxBytes {
-			return "", errors.New("invalid: artifact exceeds the size limit")
-		}
-		if err := checkSVG(artifact.Body); err != nil {
-			return "", err
-		}
-		return artifact.Body, nil
-	case "image/png":
-		body := strings.TrimSpace(artifact.Body)
-		decoded, err := base64.StdEncoding.DecodeString(body)
-		if err != nil {
-			if decoded, err = base64.RawStdEncoding.DecodeString(body); err != nil {
-				return "", errors.New("invalid: png body must be base64")
-			}
-		}
-		if len(decoded) > maxBytes {
-			return "", errors.New("invalid: artifact exceeds the size limit")
-		}
-		if !bytes.HasPrefix(decoded, pngSignature) {
-			return "", errors.New("invalid: png body is not a PNG")
-		}
-		return base64.StdEncoding.EncodeToString(decoded), nil
-	default:
-		return "", errors.New("invalid: artifact type must be image/svg+xml or image/png")
-	}
-}
-
-func checkSVG(body string) error {
-	if !strings.Contains(strings.ToLower(body), "<svg") {
-		return errors.New("invalid: svg body has no svg element")
-	}
-	if svgScript.MatchString(body) {
-		return errors.New("invalid: svg contains script")
-	}
-	if svgHandler.MatchString(body) {
-		return errors.New("invalid: svg contains an event handler")
-	}
-	if svgForeignObject.MatchString(body) {
-		return errors.New("invalid: svg contains a foreign object")
-	}
-	for _, match := range svgReference.FindAllStringSubmatch(body, -1) {
-		target := strings.TrimSpace(match[1] + match[2] + match[3])
-		if target == "" || strings.HasPrefix(target, "#") {
-			continue
-		}
-		if strings.HasPrefix(strings.ToLower(target), "javascript:") {
-			return errors.New("invalid: svg contains a javascript reference")
-		}
-		return errors.New("invalid: svg references an external target")
-	}
-	return nil
 }
 
 // storeArtifact checks one artifact and keeps it as a signed record

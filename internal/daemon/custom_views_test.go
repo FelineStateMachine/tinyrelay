@@ -26,7 +26,7 @@ import (
 
 const (
 	testSVG    = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><rect width="10" height="10"/></svg>`
-	testPNGRaw = "\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR"
+	testPNGRaw = "\x89PNG\r\n\x1a\n\x00\x00\x00\x0dIHDR\x00\x00\x00\x01\x00\x00\x00\x01\x08\x04\x00\x00\x00\xb5\x1c\x0c\x02\x00\x00\x00\x0bIDATx\xda\x63\x64\xf8\x0f\x00\x01\x05\x01\x01\x27\x18\xe3\x66\x00\x00\x00\x00IEND\xaeB\x60\x82"
 )
 
 // transformServer stands in for a view transform: it records every request
@@ -740,14 +740,21 @@ func TestCustomViewArtifactValidation(t *testing.T) {
 		{"png size", viewArtifact{Type: "image/png", Body: png}, 4, "invalid: artifact exceeds"},
 		{"png base64", viewArtifact{Type: "image/png", Body: "not base64!"}, 1024, "invalid: png body must be base64"},
 		{"png signature", viewArtifact{Type: "image/png", Body: base64.StdEncoding.EncodeToString([]byte("GIF89a"))}, 1024, "invalid: png body is not a PNG"},
+		{"png truncated", viewArtifact{Type: "image/png", Body: png[:len(png)-8]}, 1024, "invalid: png body is not a valid PNG"},
 		{"svg element", viewArtifact{Type: "image/svg+xml", Body: "<div/>"}, 1024, "invalid: svg body has no svg"},
+		{"svg malformed", viewArtifact{Type: "image/svg+xml", Body: `<svg><rect></svg>`}, 1024, "invalid: svg is not well-formed XML"},
 		{"script", viewArtifact{Type: "image/svg+xml", Body: `<svg><SCRIPT>alert(1)</SCRIPT></svg>`}, 1024, "invalid: svg contains script"},
 		{"handler", viewArtifact{Type: "image/svg+xml", Body: `<svg onload = "x()"/>`}, 1024, "invalid: svg contains an event handler"},
 		{"foreign object", viewArtifact{Type: "image/svg+xml", Body: `<svg><foreignobject/></svg>`}, 1024, "invalid: svg contains a foreign object"},
 		{"javascript href", viewArtifact{Type: "image/svg+xml", Body: `<svg><a href="javascript:alert(1)"/></svg>`}, 1024, "invalid: svg contains a javascript"},
 		{"external href", viewArtifact{Type: "image/svg+xml", Body: `<svg><image href="https://evil.example/x.png"/></svg>`}, 1024, "invalid: svg references an external"},
+		{"external css", viewArtifact{Type: "image/svg+xml", Body: `<svg><style>.x { fill: url(https://evil.example/x) }</style></svg>`}, 1024, "invalid: svg references an external"},
 		{"external xlink", viewArtifact{Type: "image/svg+xml", Body: `<svg><use xlink:href='/x.svg#a'/></svg>`}, 1024, "invalid: svg references an external"},
-		{"unquoted href", viewArtifact{Type: "image/svg+xml", Body: `<svg><a href=data:text/html,x>`}, 1024, "invalid: svg references an external"},
+		{"unquoted href", viewArtifact{Type: "image/svg+xml", Body: `<svg><a href=data:text/html,x>`}, 1024, "invalid: svg is not well-formed XML"},
+		{"css escape", viewArtifact{Type: "image/svg+xml", Body: `<svg><style>.x{fill:u\72l(https://evil.example/x)}</style></svg>`}, 1024, "invalid: svg references an external"},
+		{"css comment split", viewArtifact{Type: "image/svg+xml", Body: `<svg><style>.x{fill:u/**/rl(https://evil.example/x)}</style></svg>`}, 1024, "invalid: svg references an external"},
+		{"css import", viewArtifact{Type: "image/svg+xml", Body: `<svg><style>@import "https://evil.example/x.css"</style></svg>`}, 1024, "invalid: svg references an external"},
+		{"css local palette", viewArtifact{Type: "image/svg+xml", Body: `<svg><style>@media (prefers-color-scheme:dark){.x{fill:url('#dark')}}</style><path class="x" fill="url(#light)"/></svg>`}, 1024, ""},
 	} {
 		_, err := checkArtifact(tc.artifact, tc.max)
 		if tc.want == "" && err != nil {

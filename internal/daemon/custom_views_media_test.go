@@ -17,7 +17,7 @@ func TestCustomViewMediaPathServesStoredType(t *testing.T) {
 			artifact := svgArtifact(0)
 			artifact["type"] = mediaType
 			if mediaType == "image/png" {
-				artifact["body"] = "iVBORw0KGgoAAAANSUhEUg=="
+				artifact["body"] = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="
 			}
 			server.answer(http.StatusOK, artifact)
 			e := signedEvent(t, testOwnerSecret, 1, time.Now().Unix(), nil, "```mermaid\ngraph TD; a-->b;\n```")
