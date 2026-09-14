@@ -37,6 +37,14 @@ func (a *App) handleSocialRoute(w http.ResponseWriter, r *http.Request) bool {
 		a.socialSyndication(w, r)
 		return true
 	}
+	if p == "/social/profile" {
+		a.socialProfilePage(w, r)
+		return true
+	}
+	if p == "/social/podcasts.rss" {
+		a.podcastRSS(w, r)
+		return true
+	}
 	a.socialPage(w, r)
 	return true
 }
@@ -78,12 +86,11 @@ func (a *App) socialPage(w http.ResponseWriter, r *http.Request) {
 	data := PageData{Tab: tab, Title: "Social | " + a.backend.Slug(), Event: result, Query: r.URL.Query()}
 	if tab == "social" {
 		data.Feed = browseRows(result)
+		data.Title = socialView(data.Query).Label + " | Social | " + a.backend.Slug()
 	}
 	if err != nil {
 		data.Error = err.Error()
-		if strings.HasPrefix(err.Error(), "not found:") {
-			w.WriteHeader(http.StatusNotFound)
-		}
+		w.WriteHeader(socialErrorStatus(err))
 	}
 	a.render(w, r, data)
 }
@@ -220,4 +227,17 @@ func (a *App) socialSyndication(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"version": "https://jsonfeed.org/version/1.1", "title": a.backend.Slug() + " Social", "home_page_url": strings.TrimSuffix(a.backend.URL(), "/") + "/social", "feed_url": strings.TrimSuffix(a.backend.URL(), "/") + "/social.json", "items": items})
+}
+
+func socialErrorStatus(err error) int {
+	switch {
+	case strings.HasPrefix(err.Error(), "invalid:"):
+		return http.StatusBadRequest
+	case strings.HasPrefix(err.Error(), "not found:"):
+		return http.StatusNotFound
+	case strings.HasPrefix(err.Error(), "auth-required:"):
+		return http.StatusUnauthorized
+	default:
+		return publicErrorStatus(err)
+	}
 }

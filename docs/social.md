@@ -1,10 +1,24 @@
 # Social
 
-**Social** is the relay's chronological publishing space. It brings short notes and long-form articles into one feed, with replies and reaction counts folded into each post. Every item remains a normal Nostr event that other clients can read.
+**Social** brings notes, longer posts and media into one chronological feed, with replies and reaction counts folded into each post. Use the Social navigation to browse Feed, Notes, Posts, Photos, Videos, Podcasts or Profile.
+
+Feed shows everything together. Notes collects short updates, while Posts collects long-form articles. Photos, Videos and Podcasts show posts with matching media attachments or links. A post can appear in more than one media view.
+
+## Profiles
+
+Choose **Profile** to see your own profile and posts. Select an author's name on any post to see theirs, or enter a public key or npub on the profile page. The profile's filters narrow that person's posts by type.
+
+You can read profiles without signing in when the relay allows public reads. Sign in to open your own profile or use **Edit profile** to change your name, picture and other details.
+
+## Podcast subscriptions
+
+Choose **Subscribe with RSS** in Podcasts to copy the feed address into a podcast app or RSS reader. Each profile also offers a feed for that person's audio posts. Episodes include an audio enclosure so readers can stream or download the recording.
+
+The relay-wide feed is `/social/podcasts.rss`. Add `?author=<pubkey>` to subscribe to one person. Public subscriptions work without signing in; private relays retain their normal access requirements.
 
 ## Notes and articles
 
-A note is a regular kind 1 text note. It is suited to short updates and microblogging. An article is a replaceable kind 30023 event with a `d` tag, a `title` tag and Markdown content. Articles can also carry `summary` and `image` tags for previews. The relay shows notes and articles newest first, and offers separate Notes and Articles views when you want to narrow the feed.
+A note is a regular kind 1 text note. It is suited to short updates and microblogging. An article is a replaceable kind 30023 event with a `d` tag, a `title` tag and Markdown content. Articles can also carry `summary` and `image` tags for previews. The Posts view shows these articles newest first.
 
 The web page supports writing either form, previewing article Markdown, and adding media. The relay keeps the signed event unchanged, so a Nostr client can publish to or read from the same feed. See [NIP-01](https://github.com/nostr-protocol/nips/blob/master/01.md), [NIP-23](https://github.com/nostr-protocol/nips/blob/master/23.md) and [NIP-19](https://github.com/nostr-protocol/nips/blob/master/19.md).
 
@@ -26,7 +40,7 @@ Articles use Markdown with the relay's safe text renderer. Notes and comments re
 
 ## Routes and feeds
 
-Use `/social` for the mixed feed and `/social/<event-id>` for a post and its conversation. An addressable article can also be opened with `/social?address=30023:<pubkey>:<d-tag>`. `/articles` redirects to Social, while `/articles.json` and `/feed.xml` remain available for existing article readers. The mixed feed is available as `/social.json` and `/social.xml`.
+Use `/social` for the mixed feed and `/social/<event-id>` for a post and its conversation. `/social/profile` opens your profile; add `?author=<pubkey>` to view another person. An addressable article can also be opened with `/social?address=30023:<pubkey>:<d-tag>`. `/articles` redirects to Social, while `/articles.json` and `/feed.xml` remain available for existing article readers. The mixed feed is available as `/social.json` and `/social.xml`.
 
 The browser keeps unfinished composer text as a local draft for the signed-in account and relay. Drafts stay in that browser until published or cleared. Preview requests may send the current text to the relay for rendering, but a draft is not published until you submit it.
 

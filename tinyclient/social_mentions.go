@@ -49,7 +49,7 @@ func socialNostrDestination(target string) (string, string, bool) {
 			return "", "", false
 		}
 		pubkey := hex.EncodeToString(fields)
-		return "/social?author=" + pubkey, `<nostr-name pubkey="` + pubkey + `">` + shortID(pubkey) + `</nostr-name>`, true
+		return "/social/profile?author=" + pubkey, `<nostr-name pubkey="` + pubkey + `">` + shortID(pubkey) + `</nostr-name>`, true
 	case "note", "nevent":
 		id := data
 		if hrp == "nevent" {

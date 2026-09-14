@@ -110,11 +110,12 @@ func socialOlder(a, b event.Event) bool {
 func (t *Tenant) browseSocial(ctx context.Context, actor string, q socialBrowseRequest) (any, error) {
 	kinds := []int{1, 30023}
 	switch q.Kind {
-	case "", "all":
+	case "", "all", "feed":
 	case "notes":
 		kinds = []int{1}
-	case "articles":
+	case "articles", "posts":
 		kinds = []int{30023}
+	case "photos", "videos", "podcasts":
 	default:
 		return nil, errors.New("invalid: social kind")
 	}
@@ -136,7 +137,7 @@ func (t *Tenant) browseSocial(ctx context.Context, actor string, q socialBrowseR
 		}
 		for _, row := range page.Events {
 			cursor = &storage.EventCursor{CreatedAt: row.CreatedAt, ID: row.ID}
-			if socialFeedRoot(row) && t.gate.CanSee(ctx, row, session, &filter) && socialMatches(row, q.Query) {
+			if socialFeedRoot(row) && t.gate.CanSee(ctx, row, session, &filter) && socialCategoryMatches(row, q.Kind) && socialMatches(row, q.Query) {
 				rows = append(rows, row)
 			}
 			if len(rows) > q.Limit {

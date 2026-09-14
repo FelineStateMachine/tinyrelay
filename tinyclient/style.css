@@ -454,7 +454,7 @@ room-compose{bottom:0;margin:8px -2.5ch 0;padding:8px 12px calc(8px + env(safe-a
 
 /* Social: a calm reading stream that keeps short notes quick and gives
    long-form posts a clear title, image and reading measure. */
-#social,#social-thread{max-width:760px}
+#social,#social-thread,#social-profile{max-width:760px}
 #social-head{border-bottom:1px solid var(--line);padding-bottom:10px;margin-bottom:0}
 #social-head h1{margin-bottom:4px}#social-head p{color:var(--muted);margin:0;max-width:60ch}
 #social-views{border-bottom:1px solid var(--line);margin:0 0 4px;padding:0}
@@ -483,7 +483,7 @@ room-compose{bottom:0;margin:8px -2.5ch 0;padding:8px 12px calc(8px + env(safe-a
 social-compose{display:block;border-bottom:1px solid var(--line);padding:12px 0}social-compose form{max-width:720px}social-compose label{display:block;color:var(--muted);font:13px var(--sans)}social-compose textarea{display:block;margin:5px 0 8px;font:15px/1.5 var(--sans);min-height:5em;resize:vertical}social-compose select{margin:0 8px 0 4px;font:12px var(--mono)}social-compose output{display:block;color:var(--muted);font:12px var(--mono);margin-top:5px}social-reaction{display:inline-block;margin-right:8px}
 #social-thread-post{list-style:none;margin:0;padding:0}#social-thread-post> [data-social-post]{display:block;border-bottom:0;max-width:720px;padding-bottom:12px}#social-thread-post> [data-social-post]>[data-post-body=article]{font-size:17px;line-height:1.75}#social-comments{border-top:1px solid var(--line);margin-top:22px;padding-top:8px;max-width:720px}#social-comments h2{margin:0 0 8px;font-size:17px}#social-comments ol{list-style:none;margin:0;padding:0}#social-comments li{border-bottom:1px solid var(--line);padding:14px 0}#social-comments [data-comment-body]{font:14px/1.55 var(--sans);overflow-wrap:anywhere}#social-comments [data-comment-body] p{margin:0 0 8px}#social-comments [data-comment-body]>:last-child{margin-bottom:0}
 @media(max-width:720px){#social-feed>li{padding:14px 0 16px}[data-post-body=article]{font-size:15px;line-height:1.6}[data-post-media] img{max-height:260px}#social-views a{padding-right:11px}#social-comments{margin-top:16px}}
-#social,#social-thread{margin:0 auto;width:100%;box-sizing:border-box}
+#social,#social-thread,#social-profile{margin:0 auto;width:100%;box-sizing:border-box}
 #social-head{padding-bottom:18px}#social-head h1{font-size:28px;letter-spacing:-.6px}
 #social-write{padding:14px 0 0;font-size:13px}#social-write a{display:inline-block;padding:6px 12px;border-radius:16px;color:var(--muted)}#social-write a[aria-current=page]{color:var(--accent);background:var(--soft)}
 #social-feed>li{padding:23px 0}#social-feed>li[data-kind="30023"] h2{font:600 26px/1.22 Georgia,serif;letter-spacing:-.25px}#social-feed>li[data-kind="30023"] h2 a{color:var(--ink)}
@@ -503,6 +503,25 @@ social-compose input:not([type=file]),social-compose textarea{width:100%;box-siz
 
 [data-reaction-emoji]{display:inline-block;width:20px;height:20px;object-fit:contain;vertical-align:middle}
 [data-post-body=note]>img,[data-comment-body]>img{display:block;width:auto;max-height:560px;margin:12px 0}
+
+#social-author-filter{font-size:13px;color:var(--muted);padding:14px 0;border-bottom:1px solid var(--line)}
+#social-author-filter a{margin-left:10px}
+#social-head #podcast-subscribe{margin-top:12px;font-size:13px}
+#social-profile-head{padding-bottom:20px;border-bottom:1px solid var(--line);overflow-wrap:anywhere}
+#social-profile-head h1{font-size:28px;letter-spacing:-.5px;margin:14px 0 6px}
+#social-profile-head>p{max-width:60ch}
+#social-profile-banner{display:block;width:100%;height:180px;object-fit:cover;border-radius:8px;margin-bottom:18px}
+#social-profile-picture{display:block;width:80px;height:80px;object-fit:cover;border-radius:50%;background:var(--soft)}
+#social-profile-about{white-space:pre-wrap;margin:16px 0;line-height:1.6}
+#social-profile-views{border-bottom:1px solid var(--line);margin:0 0 4px}
+#social-profile-views a{display:inline-block;margin-right:18px;padding:12px 0 10px;color:var(--muted);border-bottom:2px solid transparent;font-size:13px}
+#social-profile-views a:last-child{margin-right:0}
+#social-profile-views a[aria-current=page]{color:var(--accent);border-color:var(--accent)}
+#social-profile>form{margin:22px 0}
+#social-profile>form label{display:block;margin-bottom:8px;color:var(--muted);font-size:13px}
+#social-profile>form input{width:calc(100% - 126px);min-width:0}
+#social-profile>form button{padding:7px 14px;margin-left:8px}
+@media(max-width:720px){#social-profile-head h1{font-size:25px}#social-profile-banner{height:130px}#social-profile-views a{font-size:12px;margin-right:15px}}
 
 /* Direct conversations share the room palette and keep their plaintext in the browser. */
 #chat,#direct-chat{max-width:860px;margin:0 auto;box-sizing:border-box}

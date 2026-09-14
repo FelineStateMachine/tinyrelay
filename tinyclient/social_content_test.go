@@ -44,6 +44,17 @@ func TestSocialNoteIsPlaintext(t *testing.T) {
 	}
 }
 
+func TestSocialBodyRendersMetadataOnlyMediaOnce(t *testing.T) {
+	row := map[string]any{"kind": 1, "content": "This week's conversation.", "tags": [][]string{
+		{"imeta", "url https://cdn.test/episode", "m audio/mpeg"},
+		{"imeta", "url https://cdn.test/episode", "m audio/mpeg"},
+	}}
+	got := string(socialBody(row))
+	if strings.Count(got, "<audio controls") != 1 || !strings.Contains(got, `src="https://cdn.test/episode"`) {
+		t.Fatalf("metadata audio missing or repeated: %s", got)
+	}
+}
+
 func TestSocialMediaSkipsInlineAndFencedCode(t *testing.T) {
 	url := "https://cdn.example.test/hidden.png"
 	row := map[string]any{"kind": "30023", "content": "`![x](" + url + ")`\n\n````\n![x](" + url + ")\n````", "tags": [][]string{{"imeta", "url " + url, "m image/png"}}}

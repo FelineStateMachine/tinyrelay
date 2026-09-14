@@ -89,6 +89,26 @@ func roomHeader(data PageData, route roomPath, thread bool) mobileHeaderData {
 func generalMobileHeader(data PageData) mobileHeaderData {
 	path := data.Path
 	result := mobileHeaderData{Title: mobileTitle(path, data), Subtitle: data.Slug, BackLabel: "Back"}
+	if data.Tab == "social" {
+		view := socialView(data.Query)
+		result.Title, result.Subtitle = view.Label, "Social"
+		if view.Key != "feed" {
+			result.BackURL, result.BackLabel = "/social", "Back to feed"
+			return result
+		}
+	}
+	if data.Tab == "social-profile" {
+		result.Title, result.Subtitle = "Profile", "Social"
+		if data.Error == "" {
+			profile := valueMap(valueMap(data.Event)["profile"])
+			for _, field := range []string{"display_name", "name"} {
+				if name := plainString(profile[field]); name != "" {
+					result.Title = shortHeaderText(name)
+					break
+				}
+			}
+		}
+	}
 	if data.Tab == "social-thread" {
 		result.Title = eventShortTitle(data.Event, "Social")
 		result.Subtitle = "Social"

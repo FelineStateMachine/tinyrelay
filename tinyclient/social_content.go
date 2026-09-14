@@ -36,6 +36,12 @@ func socialBodyWith(value any, blocks blockRenderer) template.HTML {
 		kind := plainString(m["kind"])
 		breaks = kind != "30023"
 	}
+	var supplemental []roomAttachment
+	for _, item := range attachments {
+		if !strings.Contains(content, item.URL) {
+			supplemental = append(supplemental, item)
+		}
+	}
 	nonce := rand.Text()
 	tokenFor := func(raw string) string { return nonce + socialMediaToken(raw) }
 	for _, item := range attachments {
@@ -60,6 +66,9 @@ func socialBodyWith(value any, blocks blockRenderer) template.HTML {
 		token := html.EscapeString(tokenFor(item.URL))
 		rendered = strings.ReplaceAll(rendered, "<p>"+token+"</p>", socialMediaFigure(item))
 		rendered = strings.ReplaceAll(rendered, token, socialMediaInline(item))
+	}
+	for _, item := range supplemental {
+		rendered += socialMediaFigure(item)
 	}
 	return template.HTML(socialNostrLinks(socialMediaDimensions(rendered, value)))
 }
@@ -244,15 +253,21 @@ func socialMediaInline(item roomAttachment) string {
 // Media metadata is preferred, while familiar file extensions keep older
 // clients' ordinary image and video links useful without a server fetch.
 func socialAttachments(row map[string]any) []roomAttachment {
-	items := roomAttachments(row)
-	seen := map[string]bool{}
-	for i := range items {
-		if !strings.Contains(items[i].MIME, "/") {
-			items[i].MIME = socialMIME(items[i].URL, items[i].MIME)
-		}
-		seen[items[i].URL] = true
-	}
 	content := plainString(row["content"])
+	items := roomAttachmentsFromTags(roomTags(row))
+	filtered := items[:0]
+	seen := map[string]bool{}
+	for _, item := range items {
+		if seen[item.URL] || strings.Contains(content, item.URL) && !roomAttachmentURLVisible(content, item.URL) {
+			continue
+		}
+		if !strings.Contains(item.MIME, "/") {
+			item.MIME = socialMIME(item.URL, item.MIME)
+		}
+		seen[item.URL] = true
+		filtered = append(filtered, item)
+	}
+	items = filtered
 	replaceSocialOutsideCode(content, func(text string) string {
 		for _, match := range roomAttachmentReference.FindAllStringSubmatch(text, -1) {
 			raw := attachmentReferenceURL(match)

@@ -71,6 +71,65 @@ func TestSocialBrowseDoesNotExposeUnrelatedComments(t *testing.T) {
 	}
 }
 
+func TestSocialBrowseCategoriesFilterMediaAuthorsAndPages(t *testing.T) {
+	_, tenant := testTenant(t)
+	owner := tenant.Policy().Owner
+	authorSecret := strings.Repeat("1", 63) + "2"
+	otherSecret := strings.Repeat("3", 63) + "4"
+	photoOld := signedEvent(t, authorSecret, 1, 100, [][]string{{"imeta", "url https://files.example/old.jpg", "m image/jpeg"}}, "old photo")
+	note := signedEvent(t, authorSecret, 1, 200, nil, "plain note")
+	video := signedEvent(t, otherSecret, 1, 300, [][]string{{"imeta", "url https://files.example/clip.mp4", "m video/mp4"}}, "video")
+	photoNew := signedEvent(t, authorSecret, 30023, 400, [][]string{{"d", "photo"}, {"image", "https://files.example/new.png"}}, "new photo")
+	podcast := signedEvent(t, authorSecret, 30023, 500, [][]string{{"d", "podcast"}, {"imeta", "url https://files.example/episode.mp3", "m audio/mpeg"}}, "episode")
+	for _, row := range []event.Event{photoOld, note, video, photoNew, podcast} {
+		if _, err := tenant.store.Save(context.Background(), row, storage.SaveOptions{Now: row.CreatedAt, SearchMode: tenant.Policy().Features.Search}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, tc := range []struct {
+		name, kind string
+		want       []string
+	}{
+		{"photos", "photos", []string{photoNew.ID, photoOld.ID}},
+		{"videos", "videos", []string{video.ID}},
+		{"podcasts", "podcasts", []string{podcast.ID}},
+		{"posts", "posts", []string{podcast.ID, photoNew.ID}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			value, err := tenant.Execute(context.Background(), owner, "browsesocial", []json.RawMessage{rawJSON(map[string]any{"kind": tc.kind, "limit": 20})})
+			if err != nil {
+				t.Fatal(err)
+			}
+			items := value.(map[string]any)["items"].([]socialItem)
+			if len(items) != len(tc.want) {
+				t.Fatalf("items = %#v", items)
+			}
+			for i, want := range tc.want {
+				if items[i].ID != want {
+					t.Fatalf("item %d = %s, want %s", i, items[i].ID, want)
+				}
+			}
+		})
+	}
+	value, err := tenant.Execute(context.Background(), owner, "browsesocial", []json.RawMessage{rawJSON(map[string]any{"kind": "photos", "author": photoOld.PubKey, "limit": 1})})
+	if err != nil {
+		t.Fatal(err)
+	}
+	page := value.(map[string]any)
+	items := page["items"].([]socialItem)
+	if len(items) != 1 || items[0].ID != photoNew.ID || page["next_cursor"] == "" {
+		t.Fatalf("first author page = %#v", page)
+	}
+	value, err = tenant.Execute(context.Background(), owner, "browsesocial", []json.RawMessage{rawJSON(map[string]any{"kind": "photos", "author": photoOld.PubKey, "limit": 1, "cursor": page["next_cursor"]})})
+	if err != nil {
+		t.Fatal(err)
+	}
+	items = value.(map[string]any)["items"].([]socialItem)
+	if len(items) != 1 || items[0].ID != photoOld.ID {
+		t.Fatalf("second author page = %#v", items)
+	}
+}
+
 func TestSocialBrowseNIP10NIP22AndRevisionReactions(t *testing.T) {
 	_, tenant := testTenant(t)
 	owner := tenant.Policy().Owner

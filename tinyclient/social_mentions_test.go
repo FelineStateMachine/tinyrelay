@@ -22,7 +22,7 @@ func TestSocialNostrLinksRewritesKnownReferences(t *testing.T) {
 		ref  string
 		want string
 	}{
-		{"profile", "nostr:" + bech32("npub", pubkeyBytes), `<a href="/social?author=` + pubkey + `"><nostr-name pubkey="` + pubkey + `">` + shortID(pubkey) + `</nostr-name></a>`},
+		{"profile", "nostr:" + bech32("npub", pubkeyBytes), `<a href="/social/profile?author=` + pubkey + `"><nostr-name pubkey="` + pubkey + `">` + shortID(pubkey) + `</nostr-name></a>`},
 		{"event", "nostr:" + bech32("note", idBytes), `<a href="/e/` + id + `">Quoted post</a>`},
 		{"article", "nostr:" + bech32("naddr", naddrData), `<a href="/a/30023:` + pubkey + `:hello">Article</a>`},
 	}

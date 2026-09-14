@@ -15,6 +15,7 @@ then feature modules are loaded for the current page. */}}
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
 <meta name="apple-mobile-web-app-title" content="{{.Slug}}">
 <title>{{.Title}}</title>
+{{if or (and (eq .Tab "social") (eq (socialView .Query).Key "podcasts")) (eq .Tab "social-profile")}}<link rel="alternate" type="application/rss+xml" title="Podcasts" href="{{podcastFeedURL .Query}}">{{end}}
 <link rel="manifest" href="/manifest.webmanifest">
 <link rel="icon" href="/icon.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="/apple-touch-icon.png">
@@ -43,6 +44,7 @@ then feature modules are loaded for the current page. */}}
 {{else if eq .Tab "search"}}{{template "search" .}}
 {{else if eq .Tab "social"}}{{template "social" .}}
 {{else if eq .Tab "social-thread"}}{{template "social-thread" .}}
+{{else if eq .Tab "social-profile"}}{{template "social-profile" .}}
 {{else if eq .Tab "private"}}{{template "private" .}}
 {{else if eq .Tab "chat"}}{{template "chat" .}}
 {{else if eq .Tab "direct"}}{{template "direct" .}}
@@ -111,6 +113,9 @@ then feature modules are loaded for the current page. */}}
 <p>Private relay. Sign in with a Nostr signer to continue.</p>
 {{else if eq $kind "repo"}}<header><span><a href="/">{{.Slug}}</a>/<a href="/repos" title="{{.Query.Get "owner"}}">{{shortID (npub (.Query.Get "owner"))}}</a>/<b>{{.Query.Get "repo"}}</b></span></header>
 <nav>{{$v := repoView .Query}}<a href="{{repoURL .Query "home" ""}}"{{if eq $v "home"}} aria-current="page"{{end}}>/home</a><a href="{{repoURL .Query "tree" ""}}"{{if or (eq $v "tree") (eq $v "file")}} aria-current="page"{{end}}>/code</a><a href="{{repoURL .Query "history" ""}}"{{if or (eq $v "history") (eq $v "commit")}} aria-current="page"{{end}}>/history</a><a href="{{repoURL .Query "issues" ""}}"{{if or (eq $v "issues") (eq $v "issue")}} aria-current="page"{{end}}>/issues</a><a href="{{repoURL .Query "prs" ""}}"{{if or (eq $v "prs") (eq $v "pr")}} aria-current="page"{{end}}>/prs</a><a href="{{repoURL .Query "activity" ""}}"{{if eq $v "activity"}} aria-current="page"{{end}}>/activity</a></nav>
+{{else if eq $kind "social"}}<header><span><a href="/">{{.Slug}}</a>/<a href="/social"><b>social</b></a></span></header>
+<nav aria-label="Social">{{$view := socialView .Query}}{{range socialViews}}<a href="{{.URL}}"{{if and (eq $.Tab "social") (eq $view.Key .Key)}} aria-current="page"{{end}}>/{{.Key}}</a>{{end}}</nav>
+<nav aria-label="Social profile"><a href="/social/profile"{{if eq .Tab "social-profile"}} aria-current="page"{{end}}>/profile</a></nav>
 {{else if eq $kind "manage"}}<header><span><a href="/">{{.Slug}}</a>/<b>manage</b></span></header>
 {{range $group := navGroups manageItems}}<nav>{{range $item := $group}}<a href="{{$item.Href}}"{{if eq $item.Tab $.Tab}} aria-current="page"{{end}}>{{$item.Label}}</a>{{end}}</nav>{{end}}
 {{else if eq $kind "rooms"}}<header><span><a href="/">{{.Slug}}</a>/<a href="/chat"><b>chat</b></a></span></header>
@@ -122,7 +127,7 @@ then feature modules are loaded for the current page. */}}
 <p><a href="/chat#new-room">+ new room</a></p>
 {{else}}<header><span><a id="mark" href="/" title="{{.Slug}}"><i>t</i><i>i</i><i>n</i><i>y</i></a></span></header>
 {{range $group := navGroups relayItems}}<nav>{{range $item := $group}}<a href="{{$item.Href}}"{{if eq $item.Tab $.Tab}} aria-current="page"{{end}}>{{$item.Label}}</a>{{end}}</nav>{{end}}{{if .Actor}}<p id="personal-nav"><a href="/account"{{if eq .Tab "account"}} aria-current="page"{{end}}>account</a></p>{{end}}
-{{end}}<div id="mobile-actions">{{if .Actor}}<a href="/account">Account</a>{{end}}<page-link url="{{pageAddress .URL .Path .Query}}" title="Copy the page address"><button type="button">Copy page link</button></page-link></div><p id="rail-tools">{{if eq $kind "repo"}}<a href="/repos">&larr; all repositories</a>{{else if or (eq $kind "manage") (eq $kind "rooms")}}<a href="/">&larr; relay</a>{{end}}<button id="theme" type="button" aria-label="Switch theme">theme</button></p>{{end}}
+{{end}}<div id="mobile-actions">{{if .Actor}}<a href="/account">Account</a>{{end}}<page-link url="{{pageAddress .URL .Path .Query}}" title="Copy the page address"><button type="button">Copy page link</button></page-link></div><p id="rail-tools">{{if eq $kind "repo"}}<a href="/repos">&larr; all repositories</a>{{else if or (eq $kind "manage") (eq $kind "rooms") (eq $kind "social")}}<a href="/">&larr; relay</a>{{end}}<button id="theme" type="button" aria-label="Switch theme">theme</button></p>{{end}}
 
 {{/* The panel holds facts and filters for the current page. */}}
 {{define "panel"}}{{$kind := railKind .Tab}}{{if .Private}}{{template "panel-signin" .}}
@@ -131,7 +136,7 @@ then feature modules are loaded for the current page. */}}
 {{else if eq $kind "manage"}}{{template "panel-manage" .}}
 {{else if or (eq .Tab "chat") (eq .Tab "direct")}}{{template "panel-chat" .}}
 {{else if eq $kind "rooms"}}{{template "panel-rooms" .}}
-{{else if or (eq .Tab "social") (eq .Tab "social-thread")}}{{template "panel-social" .}}
+{{else if eq $kind "social"}}{{template "panel-social" .}}
 {{else if or (eq .Tab "inbox") (eq .Tab "outbox") (eq .Tab "search") (eq .Tab "articles")}}{{template "panel-feed" .}}
 {{else if eq .Tab "repos"}}{{template "panel-repos" .}}
 {{else if or (eq .Tab "files") (eq .Tab "file")}}{{template "panel-files" .}}

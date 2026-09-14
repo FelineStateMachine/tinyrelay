@@ -114,7 +114,7 @@ func TestSocialRespectsPagesFeature(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, path := range []string{"/social", "/social/" + strings.Repeat("b", 64), "/social.json", "/articles"} {
+	for _, path := range []string{"/social", "/social/" + strings.Repeat("b", 64), "/social.json", "/articles", "/social/profile", "/social/podcasts.rss"} {
 		r := httptest.NewRecorder()
 		a.ServeHTTP(r, httptest.NewRequest(http.MethodGet, path, nil))
 		if r.Code != http.StatusNotFound {

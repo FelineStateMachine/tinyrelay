@@ -1,0 +1,19 @@
+{{define "social-profile"}}<section id="social-profile">
+{{if .Error}}<p role="alert">{{.Error}}</p>
+{{else if not .View}}<header><h1>Social profile</h1><p>See someone’s profile and their posts in one place.</p></header>
+<form method="get" action="/social/profile"><label for="profile-author">Public key</label><input id="profile-author" name="author" placeholder="64 hex characters or npub" required><button>View profile</button></form>
+{{if not .Actor}}<p><a href="{{signinURL .Base .Path .Query}}">Sign in</a> to open your own profile.</p>{{end}}
+{{else}}{{$profile := asMap (index (asMap .Event) "profile")}}<header id="social-profile-head">
+{{with socialMediaURL (str (index $profile "banner"))}}<img id="social-profile-banner" src="{{.}}" alt="" loading="lazy" referrerpolicy="no-referrer">{{end}}
+<img id="social-profile-picture" src="{{with socialMediaURL (str (index $profile "picture"))}}{{.}}{{else}}{{avatarURL .View}}{{end}}" alt="" width="80" height="80" loading="lazy" referrerpolicy="no-referrer">
+<h1>{{or (str (index $profile "display_name")) (str (index $profile "name")) (shortID .View)}}</h1><p>{{template "nostrKey" .View}}</p>
+{{with str (index $profile "about")}}<p id="social-profile-about">{{.}}</p>{{end}}
+{{with socialMediaURL (str (index $profile "website"))}}<p><a href="{{.}}" rel="noopener noreferrer">{{.}}</a></p>{{end}}
+{{with str (index $profile "nip05")}}<p><small>NIP-05 {{.}}</small></p>{{end}}
+{{if eq .Actor .View}}<p><a href="/profile">Edit profile</a></p>{{end}}
+</header>
+<nav id="social-profile-views" aria-label="Profile posts">{{range socialViews}}{{$kind := .Key}}<a href="/social/profile?author={{urlquery $.View}}{{if ne $kind "feed"}}&amp;kind={{urlquery $kind}}{{end}}"{{if eq (socialView $.Query).Key $kind}} aria-current="page"{{end}}>{{if eq $kind "feed"}}All posts{{else}}{{.Label}}{{end}}</a>{{end}}</nav>
+{{if eq (socialView .Query).Key "podcasts"}}<p id="social-profile-subscribe"><a href="{{podcastFeedURL .Query}}">Subscribe with RSS</a></p>{{end}}
+{{template "socialFeed" .}}
+<form method="get" action="/social/profile"><label for="profile-author-again">View another profile</label><input id="profile-author-again" name="author" value="{{.View}}"><button>View</button></form>
+{{end}}</section>{{end}}

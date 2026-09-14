@@ -17,7 +17,7 @@ import (
 // templateFS holds every page template. page.html owns the shell and the
 // shared partials; the other files each define one group of tabs.
 //
-//go:embed page.html public.html manage.html browse.html repo.html collaboration.html wiki.html rooms.html social.html chat.html chat-activity.html
+//go:embed page.html public.html manage.html browse.html repo.html collaboration.html wiki.html rooms.html social.html social_profile.html chat.html chat-activity.html
 var templateFS embed.FS
 
 // styleCSS is inlined into every page so the UI needs no extra request and
@@ -163,6 +163,9 @@ func navGroups(items []navItem) [][]navItem {
 func railKind(tab string) string {
 	if tab == "repo" {
 		return "repo"
+	}
+	if tab == "social" || tab == "social-thread" || tab == "social-profile" {
+		return "social"
 	}
 	if tab == "chat" || tab == "direct" || tab == "rooms" || tab == "room" || tab == "thread" {
 		return "rooms"
@@ -323,6 +326,10 @@ func parseTemplateBase() (*template.Template, error) {
 		"socialReactionCount": socialReactionCount,
 		"socialReacted":       socialReacted,
 		"socialContext":       socialContext,
+		"socialViews":         socialViews,
+		"socialView":          socialView,
+		"socialFeedPage":      socialFeedPage,
+		"podcastFeedURL":      podcastFeedURL,
 		"socialQuery":         socialQuery,
 		"socialURL":           socialURL,
 		"socialThreadURL":     socialURL,
