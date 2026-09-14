@@ -66,7 +66,23 @@
       const allowed=[...fresh.content.querySelectorAll("chat-decision")].find(el=>el.getAttribute("event")===id && el.getAttribute("actor")===actor && el.getAttribute("pubkey")===author);
       if(!allowed) { host.schedule(); throw Error("This request is no longer waiting for your answer."); }
       let unsigned;
-      if(this.hasAttribute("question")) {
+      if(this.hasAttribute("native")) {
+        const selection=allowed.getAttribute("selection"),interaction=allowed.getAttribute("interaction");
+        if(!allowed.hasAttribute("native") || !["single","multiple","text"].includes(selection)) throw Error("This request changed. Refresh and try again.");
+        const field=form.elements.option;
+        const fields=field ? (field.length === undefined ? [field] : [...field]) : [];
+        const selected=fields.filter(input=>input.checked).map(input=>input.value);
+        const custom=(form.elements["custom-answer"]?.value || "").trim();
+        if(custom && (interaction !== "question" || !allowed.hasAttribute("freeform"))) throw Error("This request accepts options only.");
+        const freshOptions=[...(allowed.querySelectorAll?.('input[name="option"]') || [])].map(input=>input.value);
+        if(selected.some(value=>!freshOptions.includes(value))) { host.schedule(); throw Error("This request's options changed."); }
+        if(!selected.length && !custom) throw Error("Choose an option or write an answer.");
+        if(custom && selected.length) throw Error("Choose options or write your own answer, not both.");
+        if(!custom && (selection === "text" || (selection === "single" && selected.length !== 1))) throw Error("Choose one option.");
+        if(custom && custom.length > 8000) throw Error("Your answer is too long.");
+        const content=custom ? (selection === "text" ? custom : JSON.stringify({text:custom})) : (selection === "multiple" ? JSON.stringify(selected) : selected[0]);
+        unsigned={kind:1111,created_at:Math.floor(Date.now()/1000),tags:[["h",room],["E",id,"",author],["K",this.getAttribute("kind")],["P",author],["e",id,"",author],["k",this.getAttribute("kind")],["p",author]],content};
+      } else if(this.hasAttribute("question")) {
         const content=(form.elements.content?.value || "").trim(); if(!content) throw Error("Write an answer first.");
         unsigned={kind:1111,created_at:Math.floor(Date.now()/1000),tags:[["h",room],["E",id,"",author],["K",this.getAttribute("kind")],["P",author],["e",id,"",author],["k",this.getAttribute("kind")],["p",author]],content};
       } else {
@@ -75,7 +91,7 @@
         unsigned={kind:7,created_at:Math.floor(Date.now()/1000),tags:[["h",room],["e",id,"",author],["p",author],["k",this.getAttribute("kind")]],content:choice};
       }
       this.report("Signing…"); await tiny.signing.publish(unsigned);
-      this.report("Answer sent."); this.querySelectorAll("button,textarea").forEach(el=>el.disabled=true);
+      this.report("Answer sent."); this.querySelectorAll("button,input,textarea").forEach(el=>el.disabled=true);
       await host.refresh(true);
     }
   }

@@ -20,8 +20,13 @@ type chatActivityItem struct {
 	CreatedAt, Expires                                                    int64
 	Answer                                                                string
 	CanDecide, Question, Encrypted                                        bool
+	Native, Multiple                                                      bool
+	Freeform                                                              bool
+	Interaction                                                           string
+	Options                                                               []chatActivityOption
 	Result                                                                *chatActivityResult
 }
+type chatActivityOption struct{ ID, Label string }
 type chatActivityResult struct{ ID, Content string }
 type chatActivityPage struct {
 	Items                        []chatActivityItem
@@ -98,7 +103,20 @@ func chatActivityView(jobs, approvals any, actor, endpoint, room string) []chatA
 		}
 		answer := valueMap(item["answer"])
 		decision := plainString(answer["decision"])
-		items = append(items, chatActivityItem{Type: "approval", ID: id, Author: asker, Kind: plainString(item["kind"]), State: state, Title: truncateActivity(title, 150), Content: plainString(item["content"]), Answer: plainString(answer["content"]), Room: room, CreatedAt: unixSeconds(item["created_at"]), Expires: expires, CanDecide: can && state == "open", Question: plainString(item["type"]) == "question", Decision: decision})
+		row := chatActivityItem{Type: "approval", ID: id, Author: asker, Kind: plainString(item["kind"]), State: state, Title: truncateActivity(title, 150), Content: plainString(item["content"]), Answer: plainString(answer["content"]), Room: room, CreatedAt: unixSeconds(item["created_at"]), Expires: expires, CanDecide: can && state == "open", Question: plainString(item["type"]) == "question", Decision: decision}
+		rawOptions := collaborationSlice(item, "options")
+		if plainString(item["selection"]) != "" && (len(rawOptions) > 0 || eventHasTag(item, "tinyagent")) {
+			row.Native = true
+			row.Interaction = plainString(item["interaction"])
+			row.Question = row.Interaction == "question"
+			row.Multiple = plainString(item["selection"]) == "multiple"
+			row.Freeform = plainString(item["freeform"]) == "true" || plainString(item["selection"]) == "text"
+			for _, rawOption := range rawOptions {
+				option := valueMap(rawOption)
+				row.Options = append(row.Options, chatActivityOption{ID: plainString(option["id"]), Label: plainString(option["label"])})
+			}
+		}
+		items = append(items, row)
 	}
 	sort.SliceStable(items, func(i, j int) bool {
 		if items[i].CreatedAt == items[j].CreatedAt {
@@ -107,6 +125,15 @@ func chatActivityView(jobs, approvals any, actor, endpoint, room string) []chatA
 		return items[i].CreatedAt < items[j].CreatedAt
 	})
 	return items
+}
+
+func eventHasTag(item map[string]any, name string) bool {
+	for _, tag := range tagValues(item["event"], name) {
+		if tag == "1" {
+			return true
+		}
+	}
+	return false
 }
 func truncateActivity(value string, max int) string {
 	runes := []rune(value)
@@ -177,7 +204,7 @@ func (a *App) chatActivityHTTP(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	var body bytes.Buffer
 	if err := a.tmpl.ExecuteTemplate(&body, "chatActivityResponse", page); err != nil {
-		http.Error(w, "Activity rendering failed.", 500)
+		http.Error(w, "Activity rendering failed: "+err.Error(), 500)
 		return
 	}
 	_, _ = w.Write([]byte(injectBase(body.String(), requestPrefix(r))))

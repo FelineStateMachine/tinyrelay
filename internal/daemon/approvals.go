@@ -8,6 +8,7 @@ package daemon
 
 import (
 	"context"
+	"encoding/json"
 	"sort"
 	"strconv"
 	"strings"
@@ -23,8 +24,54 @@ const (
 	kindChatMessage = 9
 	kindThreadRoot  = 11
 	// approvalScan bounds how many stored events one listing walks.
-	approvalScan = 1000
+	approvalScan     = 1000
+	nativeMaxOptions = 12
 )
+
+type nativeOption struct {
+	ID    string `json:"id"`
+	Label string `json:"label"`
+}
+
+func nativeInteraction(e event.Event) ([]nativeOption, string, bool) {
+	interaction := event.Tag(e, "interaction")
+	if event.Tag(e, "tinyagent") != "1" || (interaction != "question" && interaction != "approval" && interaction != "confirmation") {
+		return nil, "", false
+	}
+	selection := event.Tag(e, "selection")
+	if selection != "single" && selection != "multiple" && selection != "text" {
+		return nil, "", false
+	}
+	freeform := event.Tag(e, "freeform") == "true"
+	if (interaction == "approval" || interaction == "confirmation") && (selection == "text" || freeform) {
+		return nil, "", false
+	}
+	if (interaction == "approval" || interaction == "confirmation") && selection != "single" {
+		return nil, "", false
+	}
+	options := make([]nativeOption, 0, nativeMaxOptions)
+	for _, tag := range e.Tags {
+		if len(tag) != 3 || tag[0] != "option" || len(tag[1]) == 0 || len(tag[1]) > 64 || len(tag[2]) == 0 || len(tag[2]) > 200 {
+			if len(tag) > 0 && tag[0] == "option" {
+				return nil, "", false
+			}
+			continue
+		}
+		for _, option := range options {
+			if option.ID == tag[1] {
+				return nil, "", false
+			}
+		}
+		options = append(options, nativeOption{ID: tag[1], Label: tag[2]})
+		if len(options) > nativeMaxOptions {
+			return nil, "", false
+		}
+	}
+	if selection == "text" {
+		return nil, selection, len(options) == 0
+	}
+	return options, selection, len(options) > 0
+}
 
 // approvalTypes is the bounded vocabulary of the request tag.
 var approvalTypes = []string{"approve", "decide", "question", "grant"}
@@ -37,22 +84,26 @@ const (
 
 // approvalItem is one request as the asked person sees it.
 type approvalItem struct {
-	ID         string                      `json:"id"`
-	Kind       int                         `json:"kind"`
-	Type       string                      `json:"type"`
-	Asker      string                      `json:"asker"`
-	Asked      []string                    `json:"asked"`
-	Subject    string                      `json:"subject,omitempty"`
-	Content    string                      `json:"content"`
-	CreatedAt  int64                       `json:"created_at"`
-	Expires    int64                       `json:"expires,omitempty"`
-	State      string                      `json:"state"`
-	Room       string                      `json:"room,omitempty"`
-	About      *approvalAbout              `json:"about,omitempty"`
-	Answer     *approvalAnswer             `json:"answer,omitempty"`
-	Event      event.Event                 `json:"event"`
-	Grant      *community.AgentGrantReview `json:"grant,omitempty"`
-	GrantError string                      `json:"grant_error,omitempty"`
+	ID          string                      `json:"id"`
+	Kind        int                         `json:"kind"`
+	Type        string                      `json:"type"`
+	Asker       string                      `json:"asker"`
+	Asked       []string                    `json:"asked"`
+	Subject     string                      `json:"subject,omitempty"`
+	Content     string                      `json:"content"`
+	CreatedAt   int64                       `json:"created_at"`
+	Expires     int64                       `json:"expires,omitempty"`
+	State       string                      `json:"state"`
+	Room        string                      `json:"room,omitempty"`
+	About       *approvalAbout              `json:"about,omitempty"`
+	Answer      *approvalAnswer             `json:"answer,omitempty"`
+	Event       event.Event                 `json:"event"`
+	Grant       *community.AgentGrantReview `json:"grant,omitempty"`
+	GrantError  string                      `json:"grant_error,omitempty"`
+	Options     []nativeOption              `json:"options,omitempty"`
+	Selection   string                      `json:"selection,omitempty"`
+	Freeform    bool                        `json:"freeform,omitempty"`
+	Interaction string                      `json:"interaction,omitempty"`
 }
 
 // approvalAbout is what the request refers to: a repository coordinate, an
@@ -81,6 +132,11 @@ func approvalRequest(e event.Event) (string, bool) {
 	if !containsInt(approvalKinds, e.Kind) {
 		return "", false
 	}
+	if event.Tag(e, "tinyagent") != "" {
+		if _, _, ok := nativeInteraction(e); !ok {
+			return "", false
+		}
+	}
 	kind := strings.ToLower(strings.TrimSpace(event.Tag(e, "request")))
 	if !containsString(approvalTypes, kind) || len(approvalAsked(e)) == 0 {
 		return "", false
@@ -98,6 +154,9 @@ func approvalAsked(e event.Event) []string {
 
 func approvalItemFrom(e event.Event, kind string, base string) approvalItem {
 	item := approvalItem{ID: e.ID, Kind: e.Kind, Type: kind, Asker: e.PubKey, Asked: approvalAsked(e), Subject: strings.TrimSpace(event.Tag(e, "subject")), Content: e.Content, CreatedAt: e.CreatedAt, Expires: event.Expiration(e), State: "open", Room: event.Tag(e, "h"), Event: e}
+	item.Options, item.Selection, _ = nativeInteraction(e)
+	item.Freeform = event.Tag(e, "freeform") == "true"
+	item.Interaction = event.Tag(e, "interaction")
 	item.About = approvalAboutFrom(e, base)
 	return item
 }
@@ -184,11 +243,80 @@ func (t *Tenant) approvalAnswers(ctx context.Context, items []approvalItem, now 
 		}
 		for _, id := range event.TagValues(row, "e") {
 			if asked[id] != nil && asked[id][row.PubKey] {
+				if item := approvalItemByID(items, id); item != nil && !nativeAnswerValid(*item, row) {
+					continue
+				}
 				answers[id] = append(answers[id], row)
 			}
 		}
 	}
 	return answers, nil
+}
+
+func approvalItemByID(items []approvalItem, id string) *approvalItem {
+	for i := range items {
+		if items[i].ID == id {
+			return &items[i]
+		}
+	}
+	return nil
+}
+
+func nativeAnswerValid(item approvalItem, answer event.Event) bool {
+	options, selection, ok := nativeInteraction(item.Event)
+	if !ok {
+		return true
+	}
+	if answer.Kind != kindComment || answer.CreatedAt < item.CreatedAt || item.Expires > 0 && answer.CreatedAt >= item.Expires || event.Tag(answer, "h") != event.Tag(item.Event, "h") || event.Tag(answer, "e") != item.ID || event.Tag(answer, "p") != item.Asker {
+		return false
+	}
+	if event.Tag(answer, "E") != item.ID || event.Tag(answer, "P") != item.Asker || event.Tag(answer, "K") != strconv.Itoa(item.Kind) || event.Tag(answer, "k") != strconv.Itoa(item.Kind) {
+		return false
+	}
+	if selection != "text" && item.Freeform && strings.HasPrefix(strings.TrimSpace(answer.Content), "{") {
+		var custom map[string]any
+		if json.Unmarshal([]byte(answer.Content), &custom) != nil || len(custom) != 1 {
+			return false
+		}
+		text, ok := custom["text"].(string)
+		return ok && len([]rune(strings.TrimSpace(text))) > 0 && len([]rune(text)) <= 8000
+	}
+	if selection == "text" {
+		return len([]rune(strings.TrimSpace(answer.Content))) > 0 && len([]rune(answer.Content)) <= 8000
+	}
+	if selection == "single" {
+		for _, option := range options {
+			if strings.TrimSpace(answer.Content) == option.ID {
+				return true
+			}
+		}
+		return false
+	}
+	var ids []string
+	if json.Unmarshal([]byte(answer.Content), &ids) != nil {
+		return false
+	}
+	if len(ids) == 0 || len(ids) > len(options) {
+		return false
+	}
+	seen := map[string]bool{}
+	for _, id := range ids {
+		if seen[id] {
+			return false
+		}
+		seen[id] = true
+		found := false
+		for _, option := range options {
+			if option.ID == id {
+				found = true
+				break
+			}
+		}
+		if !found {
+			return false
+		}
+	}
+	return true
 }
 
 // approvalSettle fills the answer and state of one request from its answers,
@@ -309,7 +437,11 @@ func (t *Tenant) approvalNotices(e event.Event, kind string) []pushNotice {
 		actions = []pushAction{{Action: "review", Title: "Review access"}}
 	}
 	var notices []pushNotice
+	_, _, native := nativeInteraction(e)
 	for _, recipient := range approvalAsked(e) {
+		if native && !containsString(event.TagValues(e, "mention"), recipient) {
+			continue
+		}
 		notices = append(notices, pushNotice{recipient: recipient, category: pushApprovals, body: body, url: base + "/approvals?id=" + e.ID, actions: actions})
 	}
 	return notices

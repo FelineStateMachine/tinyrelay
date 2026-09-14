@@ -8,6 +8,7 @@ This catalog indexes project-defined interoperability contracts. An extension is
 | `agent-grants` | `internal/community` grant semantics; `internal/gates` admission; `internal/daemon` integration | Experimental, version 1 | [Agent grants](agent-grants.md) |
 | `agent-grant-requests` | `internal/community` review and replacement; `internal/gates` admission; `internal/daemon` MCP and approvals | Experimental, version 1 | [Reviewed grant requests](agent-grant-requests.md) |
 | `callbacks` | `internal/daemon` callback service and management | Experimental, version 1 | [Event callbacks](callbacks.md) |
+| `tinyagent` | Hermes connector; `internal/daemon` request validation; `tinyclient` presentation | Experimental, version 1 | [Native agent interactions](tinyagent.md) |
 | `custom-view-transforms` | `internal/daemon` transform service; `internal/views` block identity; `internal/records` relay signing | Experimental, version 1 | [Custom-view block transforms](custom-view-transforms.md) |
 
 ## Status and compatibility

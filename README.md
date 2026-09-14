@@ -21,7 +21,7 @@ flowchart LR
 
 ## Components
 
-The repository contains four executables in one Go module:
+The repository contains five executables in one Go module:
 
 | Component | Build target | Role |
 | --- | --- | --- |
@@ -29,10 +29,13 @@ The repository contains four executables in one Go module:
 | `tiny` | `make build-tiny` | Combined host with the relay, Git hosting and browser interface. |
 | [`tinygit`](tinygit/README.md) | `make build-tinygit` | Standalone public Git host using signed repository metadata and refs. |
 | [`tinyclient`](tinyclient/README.md) | `make build-tinyclient` | Standalone frontend connected to the combined `tiny` backend. |
+| [`tinyagent`](tinyagent/README.md) | `make build-tinyagent` | Native Tiny connection for Hermes, with a signing helper and platform plugin. |
 
-`make build` writes all four binaries to `bin/`. Go builds embed the checked-in browser assets and do not require Node.js. The integrated `tiny` command, wire formats and existing tenant data remain compatible. Standalone components have narrower capabilities: tinygit does not start a relay or private-repository service, tinyclient needs a backend and tinyrelay serves the Nostr protocol without the web UI or Git services.
+`make build` writes all five binaries to `bin/`. Go builds embed the checked-in browser assets and do not require Node.js. The integrated `tiny` command, wire formats and existing tenant data remain compatible. Standalone components have narrower capabilities: tinygit does not start a relay or private-repository service, tinyclient needs a backend and tinyrelay serves the Nostr protocol without the web UI or Git services.
 
 Reusable `protocol/nostr` and `protocol/auth` packages supply wire values and proof verification without importing host services. Feature semantics and access policy remain separate. See [Architecture](docs/architecture.md), [Module boundaries and protocol contracts](docs/module-contracts.md) and the [extension catalog](docs/extensions/README.md) for ownership, supported profiles and remaining seams.
+
+Try the [disposable Hermes lab](labs/hermes/README.md) to exercise the `tiny` connection against unchanged mainline Hermes.
 
 ## Run locally
 

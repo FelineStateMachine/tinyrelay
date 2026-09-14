@@ -1,0 +1,126 @@
+name: tinyhermeslab
+
+x-tools: &tools
+  image: tinyagent-lab-tools
+  build:
+    context: ../..
+    dockerfile: labs/hermes/Dockerfile
+    target: tools
+
+services:
+  init:
+    <<: *tools
+    command: ["/lab/bootstrap.py", "init"]
+    volumes:
+      - public:/public
+      - operator:/operator
+      - hermes-home:/hermes-home
+      - tiny-data:/tiny-data
+    network_mode: none
+
+  tiny:
+    image: tinyagent-lab-tiny
+    build:
+      context: ../..
+      dockerfile: labs/hermes/Dockerfile
+      target: tiny
+    depends_on:
+      init:
+        condition: service_completed_successfully
+    ports:
+      - "127.0.0.1:${TINY_LAB_PORT:-18479}:7447"
+    networks: [default, browser]
+    volumes:
+      - public:/public:ro
+      - tiny-data:/data
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:7447/readyz', timeout=3).read()"]
+      interval: 3s
+      timeout: 5s
+      retries: 30
+
+  seed:
+    <<: *tools
+    command: ["/lab/bootstrap.py", "seed"]
+    depends_on:
+      tiny:
+        condition: service_healthy
+    volumes:
+      - public:/public:ro
+      - operator:/operator:ro
+
+  model:
+    image: tinyagent-lab-model
+    build:
+      context: ../..
+      dockerfile: labs/hermes/Dockerfile
+      target: model
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/healthz', timeout=3).read()"]
+      interval: 3s
+      timeout: 5s
+      retries: 20
+
+  hermes:
+    image: tinyagent-lab-hermes
+    build:
+      context: ../..
+      dockerfile: labs/hermes/Dockerfile
+      target: hermes
+    init: true
+    depends_on:
+      seed:
+        condition: service_completed_successfully
+      model:
+        condition: service_healthy
+    environment:
+      HERMES_HOME: /home/hermes/.hermes
+      TINY_CLI_PATH: /usr/local/bin/tinyagent
+      HERMES_DISABLE_LAZY_INSTALLS: "1"
+    volumes:
+      - hermes-home:/home/hermes/.hermes
+    stop_grace_period: 20s
+    healthcheck:
+      test: ["CMD", "python", "/lab/health_hermes.py"]
+      interval: 3s
+      timeout: 5s
+      retries: 30
+
+  check:
+    <<: *tools
+    profiles: [test]
+    command: ["/lab/smoke.py"]
+    depends_on:
+      hermes:
+        condition: service_healthy
+    volumes:
+      - public:/public:ro
+      - operator:/operator:ro
+
+  adapter-test:
+    profiles: [test]
+    build:
+      context: ../..
+      dockerfile: labs/hermes/Dockerfile
+      target: adapter-test
+    network_mode: none
+
+  operator:
+    <<: *tools
+    profiles: [tools]
+    entrypoint: ["python", "/lab/labctl.py"]
+    command: ["help"]
+    volumes:
+      - public:/public:ro
+      - operator:/operator:ro
+
+networks:
+  default:
+    internal: true
+  browser: {}
+
+volumes:
+  public:
+  operator:
+  hermes-home:
+  tiny-data:

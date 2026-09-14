@@ -1,0 +1,10 @@
+.git
+node_modules
+data
+bin
+output
+artifacts
+.playwright-cli
+**/__pycache__
+**/*.pyc
+.env*

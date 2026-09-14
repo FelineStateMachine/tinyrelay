@@ -1,0 +1,24 @@
+name: tinyagent
+label: Tiny
+kind: platform
+version: 0.1.0
+description: Native Tinyrelay gateway adapter for Hermes Agent
+author: Tinyrelay
+requires_env:
+  - name: TINY_RELAY_URL
+    description: Tinyrelay HTTP API origin
+    prompt: Tinyrelay URL
+    password: false
+  - name: TINY_PRIVATE_KEY
+    description: Tinyrelay signing key (hex)
+    prompt: Tiny private key
+    password: true
+optional_env:
+  - name: TINY_HOME_CHANNEL
+    description: Room used for standalone and cron delivery
+    prompt: Home room
+    password: false
+  - name: TINY_ALLOWED_USERS
+    description: Comma-separated operator public keys
+    prompt: Allowed users
+    password: false

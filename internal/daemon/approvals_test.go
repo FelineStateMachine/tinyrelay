@@ -16,6 +16,49 @@ const (
 	approvalOtherSecret = "6666666666666666666666666666666666666666666666666666666666666666"
 )
 
+func TestNativeInteractionValidatesChoicesAndSelection(t *testing.T) {
+	e := event.Event{Kind: kindChatMessage, ID: strings.Repeat("e", 64), PubKey: strings.Repeat("a", 64), Tags: [][]string{{"tinyagent", "1"}, {"interaction", "question"}, {"selection", "single"}, {"option", "continue", "Continue playing"}, {"option", "stop", "Stop here"}}}
+	options, selection, ok := nativeInteraction(e)
+	if !ok || selection != "single" || len(options) != 2 || options[0].ID != "continue" {
+		t.Fatalf("native interaction = %#v, %q, %v", options, selection, ok)
+	}
+	answerTags := [][]string{{"h", ""}, {"E", e.ID}, {"K", "9"}, {"P", e.PubKey}, {"e", e.ID}, {"k", "9"}, {"p", e.PubKey}}
+	if nativeAnswerValid(approvalItem{ID: e.ID, Kind: e.Kind, Asker: e.PubKey, Event: e}, event.Event{Kind: kindComment, Content: "other", Tags: answerTags}) {
+		t.Fatal("unknown native choice accepted")
+	}
+	multiple := e
+	multiple.Tags = append([][]string(nil), e.Tags[:2]...)
+	multiple.Tags = append(multiple.Tags, []string{"selection", "multiple"}, []string{"option", "a", "A"}, []string{"option", "b", "B"})
+	if !nativeAnswerValid(approvalItem{ID: e.ID, Kind: e.Kind, Asker: e.PubKey, Event: multiple}, event.Event{Kind: kindComment, Content: `["a","b"]`, Tags: answerTags}) {
+		t.Fatal("valid multiple choice rejected")
+	}
+	if nativeAnswerValid(approvalItem{ID: e.ID, Kind: e.Kind, Asker: e.PubKey, Event: multiple}, event.Event{Kind: kindComment, Content: `["a","a"]`, Tags: answerTags}) {
+		t.Fatal("duplicate multiple choice accepted")
+	}
+}
+
+func TestNativeApprovalNotificationsRequireExplicitMention(t *testing.T) {
+	_, tenant := testTenant(t)
+	owner := tenant.Policy().Owner
+	asker := wikiKey(t, approvalAskerSecret)
+	base := [][]string{{"request", "question"}, {"tinyagent", "1"}, {"interaction", "question"}, {"selection", "single"}, {"option", "yes", "Yes"}, {"p", owner}, {"h", tenant.meta.Name}}
+	request := event.Event{Kind: kindChatMessage, PubKey: asker, Tags: base, Content: "Choose"}
+	if notices := tenant.pushNotices(context.Background(), request); len(notices) != 0 {
+		t.Fatalf("unmentioned native request notified: %+v", notices)
+	}
+	request.Tags = append(request.Tags, []string{"mention", owner})
+	if notices := tenant.pushNotices(context.Background(), request); len(notices) != 1 || notices[0].category != pushApprovals {
+		t.Fatalf("mentioned native request notices: %+v", notices)
+	}
+}
+
+func TestMalformedNativeMarkerIsNotLegacyApproval(t *testing.T) {
+	e := event.Event{Kind: kindChatMessage, Tags: [][]string{{"tinyagent", "1"}, {"request", "approve"}, {"p", strings.Repeat("a", 64)}}}
+	if _, ok := approvalRequest(e); ok {
+		t.Fatal("malformed native request fell back to legacy approval")
+	}
+}
+
 func approvalCall(t *testing.T, tenant *Tenant, actor, method string, params map[string]any) (map[string]any, error) {
 	t.Helper()
 	raw, err := json.Marshal(params)
@@ -294,5 +337,46 @@ func TestApprovalRequestsWakeDevicesWithActionsAndCountOnBadge(t *testing.T) {
 	// visit; the older one is answered and gone from the badge.
 	if got := tenant.inboxUnread(ctx, owner); got != 2 {
 		t.Fatalf("unread after answering = %d", got)
+	}
+}
+
+func TestNativeFreeformAllowsBothOptionsAndCustomText(t *testing.T) {
+	for _, selection := range []string{"single", "multiple", "text"} {
+		t.Run(selection, func(t *testing.T) {
+			e := event.Event{Kind: 9, ID: strings.Repeat("a", 64), PubKey: strings.Repeat("b", 64), CreatedAt: 100,
+				Tags: [][]string{{"h", "lab"}, {"tinyagent", "1"}, {"interaction", "question"}, {"selection", selection}, {"freeform", "true"}, {"expiration", "200"}}}
+			if selection != "text" {
+				e.Tags = append(e.Tags, []string{"option", "c0", "Continue"})
+			}
+			item := approvalItemFrom(e, "question", "")
+			answer := event.Event{Kind: 1111, CreatedAt: 110, Tags: [][]string{{"h", "lab"}, {"e", e.ID}, {"E", e.ID}, {"p", e.PubKey}, {"P", e.PubKey}, {"k", "9"}, {"K", "9"}}}
+			valid := []string{`{"text":"custom"}`, "c0"}
+			invalid := []string{`{"text":"custom","extra":true}`, "unknown", `[]`}
+			if selection == "multiple" {
+				valid[1] = `["c0"]`
+				invalid = append(invalid, `["c0","c0"]`)
+			}
+			if selection == "text" {
+				valid = []string{"free text"}
+				invalid = []string{"", "  "}
+			}
+			for _, content := range valid {
+				answer.Content = content
+				if !nativeAnswerValid(item, answer) {
+					t.Errorf("valid answer rejected: %s", content)
+				}
+			}
+			for _, content := range invalid {
+				answer.Content = content
+				if nativeAnswerValid(item, answer) {
+					t.Errorf("invalid answer accepted: %s", content)
+				}
+			}
+			answer.Content = valid[0]
+			answer.CreatedAt = 200
+			if nativeAnswerValid(item, answer) {
+				t.Error("answer at expiration accepted")
+			}
+		})
 	}
 }

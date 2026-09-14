@@ -90,3 +90,47 @@ test("decision refuses a card that disappeared while it was being answered", asy
   await assert.rejects(decision.submit({elements: {}}), /no longer waiting/);
   assert.equal(host.scheduled, true);
 });
+
+function nativeForm(selection="single", interaction="question", freeform=true) {
+  const {definitions, document, template, published} = setup();
+  const host = new (definitions["chat-activity"])(); host.localName="chat-activity"; host.parent=document;
+  host.read=async()=>"fresh"; host.schedule=()=>{};
+  const allowed=new Node("chat-decision"), decision=new (definitions["chat-decision"])();
+  decision.localName="chat-decision"; decision.parent=host;
+  for(const el of [allowed,decision]) {
+    for(const [name,value] of [["event",request],["actor",actor],["pubkey",author],["room","room"],["kind","9"],["native",""],["selection",selection],["interaction",interaction]]) el.setAttribute(name,value);
+    if(interaction==="question")el.setAttribute("question","");
+    if(freeform)el.setAttribute("freeform","");
+    if(selection==="multiple")el.setAttribute("multiple","");
+  }
+  allowed.querySelectorAll=()=>selection==="text"?[]:[{value:"c0"},{value:"c1"}];
+  template.content={querySelectorAll:()=>[allowed]};
+  return {decision,allowed,published};
+}
+
+for(const [selection,form,expected] of [
+  ["single",{option:{value:"c0",checked:true}},"c0"],
+  ["multiple",{option:[{value:"c0",checked:true},{value:"c1",checked:true}]},'["c0","c1"]'],
+  ["single",{"custom-answer":{value:"custom reply"}},'{"text":"custom reply"}'],
+  ["text",{"custom-answer":{value:"plain reply"}},"plain reply"],
+]) test(`native ${selection} question submits the selected or custom answer`,async()=>{
+  const {decision,published}=nativeForm(selection);
+  await decision.submit({elements:form});
+  assert.equal(published.length,1); assert.equal(published[0].content,expected); assert.equal(published[0].kind,1111);
+});
+
+test("native approval accepts only an offered option",async()=>{
+  const {decision,published}=nativeForm("single","approval",false);
+  await assert.rejects(decision.submit({elements:{"custom-answer":{value:"yes"}}}),/options only/);
+  await assert.rejects(decision.submit({elements:{option:{value:"always",checked:true}}}),/options changed/);
+  await decision.submit({elements:{option:{value:"c0",checked:true}}});
+  assert.equal(published[0].content,"c0");
+});
+
+test("native decisions validate freeform and selection against the fresh card",async()=>{
+  const {decision,allowed,published}=nativeForm();
+  delete allowed.attributes.freeform;
+  await assert.rejects(decision.submit({elements:{"custom-answer":{value:"custom"}}}),/options only/);
+  await assert.rejects(decision.submit({elements:{option:[{value:"c0",checked:true},{value:"c1",checked:true}]}}),/one option/);
+  assert.equal(published.length,0);
+});

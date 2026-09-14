@@ -22,7 +22,7 @@ func (b *activityHTTPBackend) ReadChatActivity(_ context.Context, actor, room, r
 	if b.denied {
 		return nil, errors.New("private details that must stay hidden")
 	}
-	return map[string]any{"approvals": []any{map[string]any{"id": roomReply, "asker": roomAgent, "asked": []string{roomOwner}, "kind": 9, "state": "open", "subject": "Approve <script>bad()</script>", "content": "Review the preview"}}}, nil
+	return map[string]any{"approvals": []any{map[string]any{"id": roomReply, "asker": roomAgent, "asked": []string{roomOwner}, "kind": 9, "state": "open", "subject": "Approve <script>bad()</script>", "content": "Review the preview", "type": "question", "interaction": "approval", "selection": "single", "options": []any{map[string]any{"id": "yes", "label": "Yes"}, map[string]any{"id": "no", "label": "No"}}}}}, nil
 }
 
 func TestChatActivityEndpointScopesAndEscapesServerRenderedCards(t *testing.T) {
@@ -38,9 +38,9 @@ func TestChatActivityEndpointScopesAndEscapesServerRenderedCards(t *testing.T) {
 	app.ServeHTTP(res, req)
 	body := res.Body.String()
 	if res.Code != 200 || res.Header().Get("Cache-Control") != "private, no-store" || b.seenActor != roomOwner || b.seenRoom != "general" || b.seenRoot != roomThread {
-		t.Fatalf("request context: %d %v %#v", res.Code, res.Header(), b)
+		t.Fatalf("request context: %d %v %#v body=%s", res.Code, res.Header(), b, res.Body.String())
 	}
-	for _, want := range []string{`<chat-decision`, `href="/r/team/approvals?id=` + roomReply, `Approve &lt;script&gt;bad()&lt;/script&gt;`, `<noscript>`} {
+	for _, want := range []string{`<chat-decision`, `type="radio"`, `value="yes"`, `interaction="approval"`, `selection="single"`, `<strong>Approval request</strong>`, `href="/r/team/approvals?id=` + roomReply, `Approve &lt;script&gt;bad()&lt;/script&gt;`, `<noscript>`} {
 		if !strings.Contains(body, want) {
 			t.Errorf("missing %q in %s", want, body)
 		}

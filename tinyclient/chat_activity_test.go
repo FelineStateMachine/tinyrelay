@@ -56,3 +56,17 @@ func TestChatActivityPreservesAnsweredQuestion(t *testing.T) {
 		t.Fatalf("answered question = %#v", items)
 	}
 }
+
+func TestChatActivityViewCarriesNativeOptions(t *testing.T) {
+	actor := strings.Repeat("a", 64)
+	other := strings.Repeat("b", 64)
+	approvals := map[string]any{"items": []any{map[string]any{
+		"id": strings.Repeat("5", 64), "asker": other, "asked": []string{actor}, "kind": 9,
+		"type": "question", "state": "open", "selection": "multiple",
+		"options": []any{map[string]any{"id": "continue", "label": "Continue playing"}, map[string]any{"id": "stop", "label": "Stop here"}},
+	}}}
+	items := chatActivityView(nil, approvals, actor, "/chat/activity", "main")
+	if len(items) != 1 || !items[0].Native || !items[0].Multiple || len(items[0].Options) != 2 || items[0].Options[1].Label != "Stop here" {
+		t.Fatalf("native options = %#v", items)
+	}
+}
