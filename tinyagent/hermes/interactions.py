@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 import json
 import time
+from types import SimpleNamespace
 
 from gateway.platforms.base import SendResult
 
@@ -27,6 +28,28 @@ class Pending:
 
 
 class InteractionMixin:
+    async def send_exec_approval(self, chat_id, command, session_key, description="dangerous command",
+                                 metadata=None, allow_permanent=True, allow_session=True, smart_denied=False):
+        # Current Hermes centralizes prompt formatting; older releases call the same
+        # public adapter hook without providing that base implementation.
+        parent = getattr(super(), "send_exec_approval", None)
+        if parent is not None:
+            return await parent(chat_id=chat_id, command=command, session_key=session_key,
+                                description=description, metadata=metadata, allow_permanent=allow_permanent,
+                                allow_session=allow_session, smart_denied=smart_denied)
+        actions = [("Approve once", "once", "primary")]
+        if not smart_denied and allow_session:
+            actions.append(("Approve for session", "session", "secondary"))
+            if allow_permanent:
+                actions.append(("Always approve", "always", "secondary"))
+        actions.append(("Deny", "deny", "danger"))
+        text = f"Command approval required\n\n```\n{command}\n```\n\nReason: {description}"
+        if smart_denied:
+            text += "\n\nAn override applies to this operation only."
+        return await self._send_exec_approval_prompt(SimpleNamespace(
+            chat_id=chat_id, command=command, session_key=session_key, text=text,
+            metadata=metadata, actions=actions))
+
     def _assignee(self, session_key, metadata):
         return self._session_assignees.get(session_key) or (metadata or {}).get("user_id", "")
 

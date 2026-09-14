@@ -18,7 +18,7 @@ from pathlib import Path
 from typing import Any
 
 from gateway.config import Platform, PlatformConfig
-from gateway.platforms.base import BasePlatformAdapter, ExecApprovalPrompt, SendResult
+from gateway.platforms.base import BasePlatformAdapter, SendResult
 from gateway.platforms.event import MessageEvent, MessageType
 
 try:
@@ -71,6 +71,8 @@ class TinyAdapter(InteractionMixin, BasePlatformAdapter):
         home = extra.get("home_channel") or os.environ.get("TINY_HOME_CHANNEL", "")
         self.home_room = str(home).strip() or (self.rooms[0] if self.rooms else "")
         self.allowed = {x.strip().lower() for x in str(extra.get("allowed_users") or os.environ.get("TINY_ALLOWED_USERS", "")).split(",") if x.strip()}
+        require_mention = extra.get("require_mention", os.environ.get("TINY_REQUIRE_MENTION", "true"))
+        self.require_mention = str(require_mention).strip().lower() not in {"false", "0", "no", "off"}
         self.rpc: TinyRPC | None = None
         self.pubkey = ""
         self._subscription = "tinyagent"
@@ -138,7 +140,7 @@ class TinyAdapter(InteractionMixin, BasePlatformAdapter):
             rows = await self.rpc.query({"ids": [parent_id], "#h": [room], "limit": 1})
             parent = rows[0] if rows else None
         own_reply = bool(parent and parent.get("pubkey") == self.pubkey)
-        if not mentioned and not own_reply:
+        if self.require_mention and not mentioned and not own_reply:
             return
         event_id = str(event.get("id", ""))
         # Only thread kinds create a separate thread session. Kind 9 replies stay in the room.
@@ -290,7 +292,7 @@ def _env_enablement() -> dict | None:
         return None
     result = {"relay_url": relay}
     for env, key_name in (("TINY_HOME_CHANNEL", "home_channel"), ("TINY_ALLOWED_USERS", "allowed_users"),
-                           ("TINY_CLI_PATH", "cli_path")):
+                           ("TINY_CLI_PATH", "cli_path"), ("TINY_REQUIRE_MENTION", "require_mention")):
         if os.environ.get(env):
             result[key_name] = os.environ[env]
     return result

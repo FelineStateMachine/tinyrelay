@@ -14,6 +14,14 @@ requires_env:
     prompt: Tiny private key
     password: true
 optional_env:
+  - name: TINY_CHANNELS
+    description: Comma-separated rooms to monitor
+    prompt: Rooms
+    password: false
+  - name: TINY_REQUIRE_MENTION
+    description: Require an agent mention or reply to start a turn (true by default)
+    prompt: Require a mention
+    password: false
   - name: TINY_HOME_CHANNEL
     description: Room used for standalone and cron delivery
     prompt: Home room

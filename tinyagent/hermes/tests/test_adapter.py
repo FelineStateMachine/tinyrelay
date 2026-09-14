@@ -12,7 +12,6 @@ sys.path.insert(0, str(Path(__file__).parents[1]))
 from adapter import TinyAdapter
 from gateway.config import PlatformConfig
 from gateway.platform_registry import PlatformEntry, platform_registry
-from gateway.platforms.base import ExecApprovalPrompt
 from tools import approval, clarify_gateway, slash_confirm
 from tools.approval_gateway_wait import _ApprovalEntry
 
@@ -123,9 +122,8 @@ def test_approval_uses_exact_request_and_offered_scope(adapter):
         first = _ApprovalEntry({"command": "first", "request_id": "first-id"})
         second = _ApprovalEntry({"command": "second", "request_id": "second-id"})
         approval._gateway_queues["session"] = [first, second]
-        prompt = ExecApprovalPrompt("room", "session", "Allow second?", [("Once", "once", "primary"),
-                                     ("Deny", "deny", "danger")], "second", "description", False)
-        assert (await adapter._send_exec_approval_prompt(prompt)).success
+        assert (await adapter.send_exec_approval("room", "second", "session",
+                                                allow_permanent=False, allow_session=False)).success
         request = adapter.rpc.events[-1]
         await adapter._on_answer(response(request, "always"))
         assert not first.event.is_set() and not second.event.is_set()
@@ -243,3 +241,46 @@ def test_duplicate_callbacks_cannot_race_before_media_intake(adapter, monkeypatc
     async def run(): await asyncio.gather(adapter._on_event(event), adapter._on_event(event))
     asyncio.run(run())
     assert len(received) == 1
+
+
+@pytest.mark.parametrize('setting,expected', [('true', 0), ('false', 1), (False, 1), ('0', 1)])
+def test_room_message_trigger_respects_require_mention(adapter, setting, expected):
+    instance = TinyAdapter(PlatformConfig(enabled=True, extra={
+        'rooms': 'room', 'allowed_users': OWNER, 'require_mention': setting}))
+    instance.pubkey = BOT
+    instance.rpc = adapter.rpc
+    received = []
+    async def handle(message): received.append(message)
+    instance.handle_message = handle
+    async def run():
+        for author in (OWNER, OTHER):
+            await instance._on_event({'kind': 9, 'id': author, 'pubkey': author,
+                'created_at': int(time.time()), 'content': 'hello', 'tags': [['h', 'room']]})
+    asyncio.run(run())
+    assert len(received) == expected
+    assert all(message.source.user_id == OWNER for message in received)
+
+
+@pytest.mark.parametrize('legacy', [False, True])
+@pytest.mark.parametrize('session,permanent,smart,expected', [
+    (True, True, False, {'once', 'session', 'always', 'deny'}),
+    (True, False, False, {'once', 'session', 'deny'}),
+    (False, True, False, {'once', 'deny'}),
+    (True, True, True, {'once', 'deny'}),
+])
+def test_public_approval_hook_preserves_scopes_on_older_hermes(adapter, monkeypatch, legacy, session, permanent, smart, expected):
+    from gateway.platforms.base import BasePlatformAdapter
+    if legacy:
+        monkeypatch.delattr(BasePlatformAdapter, 'send_exec_approval', raising=False)
+    async def run():
+        entry = _ApprovalEntry({'command': 'safe preview', 'request_id': 'scoped-id'})
+        approval._gateway_queues['session'] = [entry]
+        result = await adapter.send_exec_approval('room', 'safe preview', 'session',
+            allow_session=session, allow_permanent=permanent, smart_denied=smart)
+        assert result.success
+        request = adapter.rpc.events[-1]
+        assert {t[1] for t in request['tags'] if t[0] == 'option'} == expected
+        assert not any(t[0] == 'mention' for t in request['tags'])
+        await adapter._on_answer(response(request, 'once'))
+        assert entry.event.is_set() and entry.result == 'once'
+    asyncio.run(run())

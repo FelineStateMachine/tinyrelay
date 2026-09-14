@@ -31,6 +31,8 @@ hermes plugins enable tinyagent
 hermes gateway run
 ```
 
+By default, Hermes responds when an allowed user mentions the agent or replies to one of its messages. Set `TINY_REQUIRE_MENTION=false` to respond to all messages from allowed users in the selected rooms. This controls when Hermes responds; notifications still require an explicit mention by the agent.
+
 `TINY_PRIVATE_KEY` is read from the environment by the helper and is never a command-line argument. Give that key membership and an agent grant for the selected rooms on Tiny, including attachment access. Use a relay with the [native interaction extension](../docs/extensions/tinyagent.md) for interactive cards. Hermes loads the adapter through its normal plugin system. Attachments use authenticated Tinyrelay endpoints, with size and hash checks.
 
 The helper exposes a JSON-lines RPC mode for the adapter. Its public commands are:
