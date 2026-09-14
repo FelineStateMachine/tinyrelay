@@ -1057,7 +1057,7 @@
   const pushCategories = [["messages", "private messages"], ["replies", "replies to you"], ["mentions", "mentions"], ["approvals", "requests for a decision"], ["relay", "relay notices"]];
   // Social follows NIP-10 notes, NIP-23 articles and NIP-22 comments.
   const socialValue = (form, name) => String(form?.elements?.[name]?.value || "").trim();
-  const socialDraftFields = ["title", "summary", "cover", "content", "tags", "media", "alt"];
+  const socialDraftFields = ["title", "summary", "cover", "website", "content", "tags", "media", "media-type", "alt"];
   const socialDraftKey = node => {
     const actor = node.getAttribute("actor");
     if (!isHex64(actor)) return "";
@@ -1068,6 +1068,10 @@
     let url; try { url = new URL(value); } catch { throw Error("Enter a valid HTTP or HTTPS URL."); }
     if (!["http:", "https:"].includes(url.protocol) || url.username || url.password) throw Error("Media URLs must use HTTP or HTTPS without credentials.");
     return url.href;
+  };
+  const socialAudioType = value => {
+    const path = (() => { try { return new URL(value).pathname.toLowerCase(); } catch { return ""; } })();
+    return path.endsWith(".mp3") ? "audio/mpeg" : path.endsWith(".m4a") || path.endsWith(".mp4") ? "audio/mp4" : path.endsWith(".aac") ? "audio/aac" : path.endsWith(".ogg") || path.endsWith(".oga") ? "audio/ogg" : path.endsWith(".opus") ? "audio/opus" : path.endsWith(".wav") ? "audio/wav" : path.endsWith(".flac") ? "audio/flac" : "";
   };
   const socialRelay = node => {
     const value = node.getAttribute("relay") || "";
@@ -1116,10 +1120,12 @@
       const mode = this.getAttribute("mode") || "note";
       if (mode === "article") return 30023;
       if (mode === "note") return 1;
+      if (mode === "podcast") return 54;
+      if (mode === "podcast-show") return 10154;
       if (mode !== "comment") throw Error("Choose a valid post format.");
       const parent = this.getAttribute("target-kind") || "1";
       if (parent === "1") return 1;
-      if (parent === "30023" || parent === "1111") return 1111;
+      if (["54", "30023", "1111"].includes(parent)) return 1111;
       throw Error("This post does not support replies here.");
     }
     replyTags(kind) {
@@ -1137,6 +1143,13 @@
       }
       const address = this.getAttribute("address") || "";
       const parentKind = this.getAttribute("target-kind") || "30023";
+      const rootKind = this.getAttribute("root-kind") || parentKind;
+      if (rootKind === "54") {
+        if (!isHex64(rootAuthor)) throw Error("The podcast address is incomplete. Reload the conversation.");
+        const tags = [["E", root, hint, rootAuthor], ["K", "54"], ["P", rootAuthor, hint]];
+        tags.push(["e", target, hint, author], ["k", parentKind], ["p", author, hint]);
+        return tags;
+      }
       if (!isHex64(rootAuthor) || !address.startsWith("30023:" + rootAuthor + ":") || !["30023", "1111"].includes(parentKind)) throw Error("The article address is incomplete. Reload the conversation.");
       const tags = [["A", address, hint], ["K", "30023"], ["P", rootAuthor, hint]];
       if (parentKind === "30023") tags.push(["a", address, hint]);
@@ -1145,14 +1158,36 @@
     }
     tags(form, kind) {
       const tags = this.getAttribute("mode") === "comment" ? this.replyTags(kind) : [];
+      if (kind === 30023 || kind === 54 || kind === 10154) {
+        if (!socialValue(form, "title")) throw Error(kind === 54 ? "Give your podcast episode a title." : kind === 10154 ? "Give your podcast show a title." : "Give your article a title.");
+      }
       if (kind === 30023) {
-        if (!socialValue(form, "title")) throw Error("Give your article a title.");
         this.articleID ||= crypto.randomUUID();
         this.publishedAt ||= unixNow();
         tags.push(["d", this.articleID], ["title", socialValue(form, "title")], ["published_at", String(this.publishedAt)]);
         if (socialValue(form, "summary")) tags.push(["summary", socialValue(form, "summary")]);
         const cover = socialHTTPURL(socialValue(form, "cover"));
         if (cover) tags.push(["image", cover]);
+      }
+      if (kind === 54) {
+        tags.push(["title", socialValue(form, "title")]);
+        if (socialValue(form, "summary")) tags.push(["description", socialValue(form, "summary")]);
+        const cover = socialHTTPURL(socialValue(form, "cover"));
+        if (cover) tags.push(["image", cover]);
+      }
+      if (kind === 10154) {
+        let original = [];
+        try { const parsed = JSON.parse(this.getAttribute("show-tags") || "[]"); if (Array.isArray(parsed)) original = parsed; } catch {}
+        const preserved = original.filter(tag => Array.isArray(tag) && !["title", "description", "image", "summary", "website"].includes(tag[0]));
+        const existingWebsites = original.filter(tag => Array.isArray(tag) && tag[0] === "website");
+        tags.push(...preserved);
+        tags.push(["title", socialValue(form, "title")]);
+        if (socialValue(form, "summary")) tags.push(["description", socialValue(form, "summary")]);
+        const cover = socialHTTPURL(socialValue(form, "cover"));
+        if (cover) tags.push(["image", cover]);
+        const website = socialHTTPURL(socialValue(form, "website"));
+        if (website) tags.push(["website", website], ...existingWebsites.slice(1));
+        else tags.push(...existingWebsites);
       }
       const topics = new Set(socialValue(form, "tags").split(",").map(value => value.trim().replace(/^#/, "").toLowerCase()).filter(Boolean));
       for (const topic of topics) tags.push(["t", topic]);
@@ -1161,7 +1196,8 @@
     async attachments(form) {
       const files = [...(form.elements["media-file"]?.files || [])];
       if (files.length > 10 || files.some(file => file.size > 256 * 1024 * 1024)) throw Error("Choose up to 10 attachments, each at most 256 MiB.");
-      if (files.some(file => !/^(image|video|audio)\//.test(file.type))) throw Error("Choose an image, video or audio file.");
+      const podcast = this.kind() === 54;
+      if (files.some(file => podcast ? !/^audio\//.test(file.type) : !/^(image|video|audio)\//.test(file.type))) throw Error(podcast ? "Choose an audio file." : "Choose an image, video or audio file.");
       this.mediaUploads ||= new WeakMap();
       const items = [];
       for (const file of files) {
@@ -1180,7 +1216,7 @@
         items.push({...item, alt: socialValue(form, "alt") || file.name});
       }
       const media = socialHTTPURL(socialValue(form, "media"));
-      if (media && !items.some(item => item.url === media)) items.push({url: media, alt: socialValue(form, "alt")});
+      if (media && !items.some(item => item.url === media)) items.push({url: media, type: socialValue(form, "media-type") || socialAudioType(media), alt: socialValue(form, "alt")});
       return items;
     }
     async preview() {
@@ -1198,13 +1234,19 @@
       this.sending = true;
       try {
         const kind = this.kind(), content = form.elements.content?.value || "";
-        if (!content.trim() && !(form.elements["media-file"]?.files?.length) && !socialValue(form, "media")) throw Error("Write something or attach media first.");
+        const podcast = kind === 54, show = kind === 10154;
+        if (!show && !content.trim() && !(form.elements["media-file"]?.files?.length) && !socialValue(form, "media")) throw Error("Write something or attach media first.");
         const tags = this.tags(form, kind);
         this.saveDraft();
         const attachments = await this.attachments(form);
-        const urls = attachments.map(item => item.url).filter(url => !content.includes(url));
-        const body = [content, ...urls].filter(Boolean).join("\n\n");
-        for (const item of attachments) tags.push(["imeta", "url " + item.url, ...(item.type ? ["m " + item.type] : []), ...(item.hash ? ["x " + item.hash, "size " + item.size] : []), ...(item.alt ? ["alt " + item.alt] : [])]);
+        if (podcast && (!attachments.length || attachments.some(item => item.type && !/^audio\//.test(item.type)))) throw Error("Add at least one audio track.");
+        const urls = podcast || show ? [] : attachments.map(item => item.url).filter(url => !content.includes(url));
+        const body = show ? "" : [content, ...urls].filter(Boolean).join("\n\n");
+        for (const item of attachments) {
+          const imeta = ["imeta", "url " + item.url, ...(item.type ? ["m " + item.type] : []), ...(item.hash ? ["x " + item.hash, "size " + item.size] : []), ...(item.alt ? ["alt " + item.alt] : [])];
+          if (podcast) tags.push(["audio", item.url, ...(item.type ? [item.type] : [])]);
+          tags.push(...(podcast || !show ? [imeta] : []));
+        }
         const fingerprint = JSON.stringify({kind, tags, content: body});
         if (this.prepared?.fingerprint !== fingerprint) this.prepared = {fingerprint, unsigned: {kind, created_at: unixNow(), tags, content: body}};
         this.report("Signing and publishing…");

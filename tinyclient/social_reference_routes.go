@@ -55,5 +55,5 @@ func socialThreadPost(value any) bool {
 	}
 	row := valueMap(post)
 	kind := int(unixSeconds(row["kind"]))
-	return kind == 1 || kind == 1111 || kind == 30023
+	return kind == 1 || kind == 54 || kind == 1111 || kind == 30023
 }

@@ -7,11 +7,12 @@ import (
 
 	"github.com/FelineStateMachine/tinyrelay/internal/community"
 	"github.com/FelineStateMachine/tinyrelay/internal/event"
-	gitrelay "github.com/FelineStateMachine/tinyrelay/tinygit"
+	"github.com/FelineStateMachine/tinyrelay/internal/podcasts"
 	"github.com/FelineStateMachine/tinyrelay/internal/policy"
 	"github.com/FelineStateMachine/tinyrelay/internal/replication"
 	"github.com/FelineStateMachine/tinyrelay/internal/sites"
 	"github.com/FelineStateMachine/tinyrelay/internal/storage"
+	gitrelay "github.com/FelineStateMachine/tinyrelay/tinygit"
 )
 
 // eventCommitter prepares the projections common to client publication and
@@ -39,6 +40,9 @@ func (c eventCommitter) prepare(ctx context.Context, e event.Event, origin repli
 	plan.options.SearchMode = c.policy.Features.Search
 	if e.Kind == 30023 {
 		plan.options.Intents = append(plan.options.Intents, storage.Intent{Kind: "view-publish", EventID: e.ID, Target: "articles", Payload: "{}"})
+	}
+	if e.Kind == podcasts.KindEpisode || e.Kind == podcasts.KindMetadata || e.Kind == podcasts.KindAuthored || e.Kind == event.KIND_DELETION {
+		plan.options.Intents = append(plan.options.Intents, storage.Intent{Kind: "view-publish", EventID: e.ID, Target: "podcasts", Payload: "{}"})
 	}
 	if e.Kind == event.KIND_AGENT_GRANT || e.Kind == event.KIND_DELETION {
 		plan.options.AddBeforeCommit(func(ctx context.Context, tx *sql.Tx) error {

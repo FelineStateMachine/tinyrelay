@@ -117,7 +117,7 @@ var remoteReadMethods = map[string]bool{
 	"browserooms": true, "browseroom": true, "browsethread": true,
 	"browseissues": true, "browseissue": true, "browsepulls": true, "browsepull": true,
 	"browseagent": true, "browsejobs": true, "browsejob": true,
-	"browsesocial": true, "browsesocialthread": true, "browsedirectmessages": true,
+	"browsesocial": true, "browsesocialthread": true, "browsepodcasts": true, "browsedirectmessages": true,
 }
 
 // RemoteOptions connects a standalone renderer to one relay tenant. PublicURL

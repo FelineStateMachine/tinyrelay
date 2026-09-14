@@ -141,7 +141,9 @@ func (t *Tenant) initServices(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	t.records, err = records.New(ctx, records.Config{Store: t.store, Community: t.community, Policy: t.Policy, RelayURL: t.RelayURL(), GroupID: t.meta.Name, OnGenerated: t.generatedRecord, DeliverNotification: t.deliverNotification, PushNotification: t.enqueuePush, SetPolicy: func(next policy.Policy) error { return t.applyPolicy(context.Background(), next) }})
+	t.records, err = records.New(ctx, records.Config{Store: t.store, Community: t.community, Policy: t.Policy, RelayURL: t.RelayURL(), GroupID: t.meta.Name, OnGenerated: t.generatedRecord, DeliverNotification: t.deliverNotification, PushNotification: t.enqueuePush, EventVisible: func(ctx context.Context, e event.Event, a policy.Access) bool {
+		return t.gate.CanSee(ctx, e, relay.Session{PubKeys: a.PubKeys, RelayURL: t.RelayURL()}, nil)
+	}, SetPolicy: func(next policy.Policy) error { return t.applyPolicy(context.Background(), next) }})
 	if err != nil {
 		return err
 	}

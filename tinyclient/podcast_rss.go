@@ -8,12 +8,16 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/FelineStateMachine/tinyrelay/internal/podcasts"
 )
 
 type podcastRSS struct {
 	XMLName xml.Name       `xml:"rss"`
 	Version string         `xml:"version,attr"`
 	Atom    string         `xml:"xmlns:atom,attr"`
+	ITunes  string         `xml:"xmlns:itunes,attr"`
+	Content string         `xml:"xmlns:content,attr"`
 	Channel podcastChannel `xml:"channel"`
 }
 
@@ -23,6 +27,8 @@ type podcastChannel struct {
 	Description string          `xml:"description"`
 	Self        podcastAtomLink `xml:"atom:link"`
 	Items       []podcastItem   `xml:"item"`
+	Author      string          `xml:"itunes:author,omitempty"`
+	Image       *podcastImage   `xml:"itunes:image,omitempty"`
 }
 
 type podcastAtomLink struct {
@@ -38,6 +44,15 @@ type podcastItem struct {
 	GUID        podcastGUID      `xml:"guid"`
 	PubDate     string           `xml:"pubDate,omitempty"`
 	Enclosure   podcastEnclosure `xml:"enclosure"`
+	Author      string           `xml:"itunes:author,omitempty"`
+	Subtitle    string           `xml:"itunes:subtitle,omitempty"`
+	Summary     string           `xml:"itunes:summary,omitempty"`
+	Content     string           `xml:"content:encoded,omitempty"`
+	Image       *podcastImage    `xml:"itunes:image,omitempty"`
+}
+
+type podcastImage struct {
+	Href string `xml:"href,attr"`
 }
 
 type podcastGUID struct {
@@ -51,7 +66,7 @@ type podcastEnclosure struct {
 	Type   string `xml:"type,attr"`
 }
 
-// podcastRSS exposes Social audio posts to conventional podcast readers.
+// podcastRSS renders the native podcast projection for conventional players.
 func (a *App) podcastRSS(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "private, no-store")
 	actor, err := a.resolveActor(r)
@@ -71,19 +86,21 @@ func (a *App) podcastRSS(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid social query", http.StatusBadRequest)
 		return
 	}
-	result, err := a.backend.Query(r.Context(), "browsesocial", []json.RawMessage{raw}, actor)
+	result, err := a.backend.Query(r.Context(), "browsepodcasts", []json.RawMessage{raw}, actor)
 	if err != nil {
 		http.Error(w, err.Error(), socialErrorStatus(err))
 		return
 	}
 	base := strings.TrimSuffix(a.backend.URL(), "/")
 	channel := podcastFeedChannel(base, a.backend.Slug(), query)
+	podcastChannelShow(&channel, valueMap(result)["show"])
+	channel.Author = channel.Title
 	for _, row := range browseRows(result) {
 		if item, ok := podcastFeedItem(base, valueMap(row)); ok {
 			channel.Items = append(channel.Items, item)
 		}
 	}
-	doc, err := xml.Marshal(podcastRSS{Version: "2.0", Atom: "http://www.w3.org/2005/Atom", Channel: channel})
+	doc, err := xml.Marshal(podcastRSS{Version: "2.0", Atom: "http://www.w3.org/2005/Atom", ITunes: "http://www.itunes.com/dtds/podcast-1.0.dtd", Content: "http://purl.org/rss/1.0/modules/content/", Channel: channel})
 	if err != nil {
 		http.Error(w, "could not encode feed", http.StatusInternalServerError)
 		return
@@ -92,6 +109,25 @@ func (a *App) podcastRSS(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Length", strconv.Itoa(len(xml.Header)+len(doc)))
 	if r.Method != http.MethodHead {
 		_, _ = w.Write(append([]byte(xml.Header), doc...))
+	}
+}
+
+func podcastChannelShow(channel *podcastChannel, value any) {
+	show := valueMap(value)
+	if title := plainString(show["title"]); title != "" {
+		channel.Title = title
+	}
+	if description := plainString(show["description"]); description != "" {
+		channel.Description = description
+	}
+	if image := socialMediaURL(plainString(show["image"])); image != "" {
+		channel.Image = &podcastImage{Href: image}
+	}
+	for _, raw := range stringValues(show["websites"]) {
+		if website := socialMediaURL(raw); website != "" {
+			channel.Link = website
+			break
+		}
 	}
 }
 
@@ -114,7 +150,7 @@ func podcastFeedChannel(base, slug string, query url.Values) podcastChannel {
 	channel := podcastChannel{
 		Title:       slug + " Podcasts",
 		Link:        base + "/social?kind=podcasts",
-		Description: "Audio posts shared on " + slug + ".",
+		Description: "Podcast episodes shared on " + slug + ".",
 		Self:        podcastAtomLink{Href: base + podcastFeedURL(query), Rel: "self", Type: "application/rss+xml"},
 	}
 	if author := query.Get("author"); author != "" {
@@ -125,30 +161,33 @@ func podcastFeedChannel(base, slug string, query url.Values) podcastChannel {
 }
 
 func podcastFeedItem(base string, row map[string]any) (podcastItem, bool) {
-	for _, audio := range socialAttachments(row) {
-		if !strings.HasPrefix(strings.ToLower(audio.MIME), "audio/") || socialMediaURL(audio.URL) == "" {
-			continue
-		}
-		itemURL := base + socialURL(row)
-		item := podcastItem{
-			Title:       podcastEpisodeTitle(row, audio.Name),
-			Link:        itemURL,
-			Description: plainString(row["content"]),
-			GUID:        podcastGUID{Value: plainString(row["id"]), IsPermaLink: "false"},
-			Enclosure:   podcastEnclosure{URL: audio.URL, Type: audio.MIME, Length: audio.Size},
-		}
-		if item.GUID.Value == "" {
-			item.GUID.Value = itemURL
-		}
-		if address := plainString(row["address"]); address != "" {
-			item.GUID.Value = address
-		}
-		if seconds := unixSeconds(row["created_at"]); seconds > 0 {
-			item.PubDate = time.Unix(seconds, 0).UTC().Format(time.RFC1123Z)
-		}
-		return item, true
+	episode, ok := podcasts.ParseEpisode(socialPodcastEvent(row))
+	if !ok {
+		return podcastItem{}, false
 	}
-	return podcastItem{}, false
+	audio := episode.Audio[0]
+	itemURL := base + socialURL(row)
+	description := episode.Description
+	if description == "" {
+		description = episode.Content
+	}
+	item := podcastItem{Title: episode.Title, Link: itemURL, Description: description, GUID: podcastGUID{Value: episode.ID, IsPermaLink: "false"}, Enclosure: podcastEnclosure{URL: audio.URL, Type: audio.MIME, Length: audio.Length}, Author: plainString(valueMap(row["podcast"])["title"]), Subtitle: description, Summary: description}
+	if episode.Content != "" {
+		item.Content = string(renderMarkdownWith(episode.Content, nil))
+	}
+	if episode.Image != "" {
+		item.Image = &podcastImage{Href: episode.Image}
+	}
+	if item.Title == "" {
+		item.Title = podcastEpisodeTitle(row, "")
+	}
+	if item.GUID.Value == "" {
+		item.GUID.Value = itemURL
+	}
+	if seconds := episode.CreatedAt; seconds > 0 {
+		item.PubDate = time.Unix(seconds, 0).UTC().Format(time.RFC1123Z)
+	}
+	return item, true
 }
 
 func podcastEpisodeTitle(row map[string]any, filename string) string {

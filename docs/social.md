@@ -2,7 +2,7 @@
 
 **Social** brings notes, longer posts and media into one chronological feed, with replies and reaction counts folded into each post. Use the Social navigation to browse Feed, Notes, Posts, Photos, Videos, Podcasts or Profile.
 
-Feed shows everything together. Notes collects short updates, while Posts collects long-form articles. Photos, Videos and Podcasts show posts with matching media attachments or links. A post can appear in more than one media view.
+Feed shows everything together. Notes collects short updates, while Posts collects long-form articles. Photos and Videos show posts with matching media. Podcasts collects native Nostr shows and episodes. An audio attachment on a note remains a note.
 
 ## Profiles
 
@@ -10,11 +10,21 @@ Choose **Profile** to see your own profile and posts. Select an author's name on
 
 You can read profiles without signing in when the relay allows public reads. Sign in to open your own profile or use **Edit profile** to change your name, picture and other details.
 
-## Podcast subscriptions
+## Podcasts
 
-Choose **Subscribe with RSS** in Podcasts to copy the feed address into a podcast app or RSS reader. Each profile also offers a feed for that person's audio posts. Episodes include an audio enclosure so readers can stream or download the recording.
+Podcasts follow [NIP-F4](https://github.com/nostr-protocol/nips/blob/master/F4.md). Each show has its own Nostr key. Sign in with that key, open **Podcasts**, then choose **Your podcast**. Use **Podcast details** to set the show's title, description, artwork and website. Use **Publish an episode** to upload audio or enter its URL, add a title and write show notes in Markdown.
 
-The relay-wide feed is `/social/podcasts.rss`. Add `?author=<pubkey>` to subscribe to one person. Public subscriptions work without signing in; private relays retain their normal access requirements.
+The show information is a replaceable kind 10154 event. Episodes are kind 54 events signed by the show key, with `title`, `description`, optional `image` and one or more `audio` tags. Each audio tag contains its URL and optional media type. Uploaded audio also includes NIP-92 metadata with its type, size and hash.
+
+A show's author credits appear when both sides agree: the show names the person in a `p` tag, and that person's [NIP-51](https://github.com/nostr-protocol/nips/blob/master/51.md) authored-podcasts list, kind 10064, names the show. Favorite-podcast lists use kind 10054. These lists can be published by other Nostr clients.
+
+### Listen in a podcast app
+
+Open a show's profile and choose **Subscribe with RSS**. Copy that address into your podcast app's option to add a show by URL. The feed exposes the same native episodes, with show details, artwork, show notes and audio enclosures. Episode IDs remain stable between refreshes.
+
+The feed for one show is `/social/podcasts.rss?author=<show-pubkey>`. The address also accepts an npub. `/social/podcasts.rss` combines the newest 100 episodes on the relay; a show feed contains that show's newest 100 episodes. Public feeds need no sign-in. Private relay feeds retain their normal access requirements, so a conventional player must support the relay's authentication to read them.
+
+The built-in `podcasts` [relay view](views.md) refreshes after show and episode publication. RSS is an XML presentation of the current native events: show edits appear on refresh, and deleted or expired episodes disappear. Audio streams from its published URL. For broad player support, use MP3 or M4A audio hosted with support for HEAD and byte-range requests. The relay's own file hosting supports both.
 
 ## Notes and articles
 
@@ -24,7 +34,7 @@ The web page supports writing either form, previewing article Markdown, and addi
 
 ## Conversations
 
-Replies to notes use kind 1 with the usual [NIP-10](https://github.com/nostr-protocol/nips/blob/master/10.md) thread references. Replies to articles use kind 1111 comments with [NIP-22](https://github.com/nostr-protocol/nips/blob/master/22.md): `A`, `K` and `P` identify the article address, while lowercase tags identify the immediate parent. Older kind 1 article replies remain readable when they carry an article `a` tag.
+Replies to notes use kind 1 with the usual [NIP-10](https://github.com/nostr-protocol/nips/blob/master/10.md) thread references. Articles and podcast episodes use kind 1111 comments with [NIP-22](https://github.com/nostr-protocol/nips/blob/master/22.md). Article roots use `A`, `K` and `P`; podcast episode roots use `E`, `K` and `P`. Lowercase tags identify the immediate parent. Older kind 1 article replies remain readable when they carry an article `a` tag.
 
 Open a post to see its conversation. Replies are folded into the post's count in the feed, while the thread view lists comments in order and shows reaction totals with the same author and profile information.
 
@@ -36,7 +46,7 @@ Reactions are kind 7 events following [NIP-25](https://github.com/nostr-protocol
 
 Attach images, video or audio from the composer, or paste a media URL. Uploaded media is stored through the relay's public Blossom file service and referenced in the event with [NIP-92](https://github.com/nostr-protocol/nips/blob/master/92.md) `imeta` tags. Alt text is included with the attachment metadata. Images, video and audio are shown inline when the browser can play them; unsupported media is offered as a direct link.
 
-Articles use Markdown with the relay's safe text renderer. Notes and comments remain plaintext, with line breaks and safe links preserved. Supported media references become native browser elements; unsafe HTML and unsupported link targets remain text.
+Articles and podcast show notes use Markdown with the relay's safe text renderer. Notes and comments remain plaintext, with line breaks and safe links preserved. Supported media references become native browser elements; unsafe HTML and unsupported link targets remain text.
 
 ## Routes and feeds
 
@@ -46,6 +56,6 @@ The browser keeps unfinished composer text as a local draft for the signed-in ac
 
 ## Relay template
 
-The **Social** tenant template enables member publishing for notes, comments, reactions and articles while keeping reads public. It also allows profiles and deletion events needed by common Nostr clients. Choose it when the relay should provide a shared publishing feed rather than an article-only site.
+The **Social** tenant template enables member publishing for notes, comments, reactions, articles and native podcasts while keeping reads public. It also allows profiles, podcast lists and deletion events. Existing relays with a custom kind allowlist must include 54, 10154, 10064 and 10054 to accept all podcast events.
 
 Add the relay directly to any Nostr client that supports NIP-01 subscriptions and the event kinds above. The same events can therefore be viewed in the relay, Jumble, Primal and other Nostr clients.

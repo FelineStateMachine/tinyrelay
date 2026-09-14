@@ -34,7 +34,7 @@ func socialBodyWith(value any, blocks blockRenderer) template.HTML {
 		content = plainString(m["content"])
 		attachments = socialAttachments(m)
 		kind := plainString(m["kind"])
-		breaks = kind != "30023"
+		breaks = kind != "30023" && kind != "54"
 	}
 	var supplemental []roomAttachment
 	for _, item := range attachments {

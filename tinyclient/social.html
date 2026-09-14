@@ -1,7 +1,8 @@
 {{define "social"}}{{$view := socialView .Query}}<section id="social">
 <header id="social-head"><h1>{{$view.Label}}</h1><p>{{$view.Summary}}</p>{{if eq $view.Key "podcasts"}}<p id="podcast-subscribe"><a href="{{podcastFeedURL .Query}}">Subscribe with RSS</a></p>{{end}}</header>
 {{if .Error}}{{template "alert" .Error}}{{else}}
-{{if .Actor}}{{template "socialComposer" .}}{{else}}<p data-social-welcome><a href="{{signinURL .Base .Path .Query}}">Sign in</a> to join the conversation.</p>{{end}}
+{{if eq $view.Key "podcasts"}}{{template "podcastShow" .}}{{end}}
+{{if .Actor}}{{if eq $view.Key "podcasts"}}{{template "podcastComposer" .}}{{else}}{{template "socialComposer" .}}{{end}}{{else}}<p data-social-welcome><a href="{{signinURL .Base .Path .Query}}">Sign in</a> to join the conversation.</p>{{end}}
 {{with .Query.Get "author"}}<p id="social-author-filter">Posts by {{template "nostrName" .}} <a href="/social/profile?author={{.}}">View profile →</a></p>{{end}}
 {{template "socialFeed" .}}
 {{end}}<noscript><p>Reading works without JavaScript. Publishing needs JavaScript and a connected signer.</p></noscript>
@@ -34,11 +35,19 @@
 {{if index $p "detail"}}<div data-article-content>{{socialBody $p}}</div>{{end}}
 {{with index $p "read_minutes"}}<small data-read-time>{{.}} min read{{if not (index $p "detail")}} <a href="{{socialURL $p}}">Read article →</a>{{end}}</small>{{end}}
 </article>
+{{else if eq (str (index $p "kind")) "54"}}{{$episode := podcastEpisode $p}}<article data-post-body="podcast">
+{{if index $p "detail"}}<h1>{{or $episode.Title "Untitled episode"}}</h1>{{else}}<h2><a href="{{socialURL $p}}">{{or $episode.Title "Untitled episode"}}</a></h2>{{end}}
+{{with $episode.Image}}<img data-podcast-cover src="{{.}}" alt="" loading="lazy" referrerpolicy="no-referrer">{{end}}
+{{with $episode.Description}}<p>{{.}}</p>{{end}}
+{{range $episode.Audio}}<audio controls preload="none" src="{{.URL}}"><a href="{{.URL}}">Download audio</a></audio>{{end}}
+{{if index $p "detail"}}<div data-article-content>{{podcastNotes $p}}</div>{{end}}
+<p data-podcast-subscribe><a href="/social/podcasts.rss?author={{index $p "pubkey"}}">Subscribe to this podcast</a></p>
+</article>
 {{else}}<article data-post-body="note">{{socialBody $p}}</article>{{end}}
 {{template "socialActions" $p}}
 </li>{{end}}
 
-{{define "socialByline"}}{{$p := asMap .}}<header data-social-byline><span data-social-avatar><nostr-avatar pubkey="{{index $p "pubkey"}}" aria-hidden="true">{{with socialMediaURL (str (index $p "author_picture"))}}<img src="{{.}}" alt="" loading="lazy" width="36" height="36" referrerpolicy="no-referrer">{{else}}<img src="{{avatarURL (str (index $p "pubkey"))}}" alt="" width="36" height="36" loading="lazy">{{end}}</nostr-avatar></span><span><a href="/social/profile?author={{str (index $p "pubkey")}}"><b>{{if index $p "author_name"}}{{str (index $p "author_name")}}{{else}}{{template "nostrName" (str (index $p "pubkey"))}}{{end}}</b></a> <a href="{{socialURL $p}}"><time datetime="{{datetime (index $p "created_at")}}">{{when (index $p "created_at")}}</time></a>{{if eq (str (index $p "kind")) "30023"}} <small>Article</small>{{end}}{{with index $p "parent_url"}}<small data-social-parent>↳ <a href="{{.}}">Replying{{if index $p "parent_author"}} to {{template "nostrName" (str (index $p "parent_author"))}}{{else}} to a post{{end}}</a></small>{{end}}</span></header>{{end}}
+{{define "socialByline"}}{{$p := asMap .}}<header data-social-byline><span data-social-avatar><nostr-avatar pubkey="{{index $p "pubkey"}}" aria-hidden="true">{{with socialMediaURL (str (index $p "author_picture"))}}<img src="{{.}}" alt="" loading="lazy" width="36" height="36" referrerpolicy="no-referrer">{{else}}<img src="{{avatarURL (str (index $p "pubkey"))}}" alt="" width="36" height="36" loading="lazy">{{end}}</nostr-avatar></span><span><a href="/social/profile?author={{str (index $p "pubkey")}}{{if eq (str (index $p "kind")) "54"}}&amp;kind=podcasts{{end}}"><b>{{if index $p "author_name"}}{{str (index $p "author_name")}}{{else}}{{template "nostrName" (str (index $p "pubkey"))}}{{end}}</b></a> <a href="{{socialURL $p}}"><time datetime="{{datetime (index $p "created_at")}}">{{when (index $p "created_at")}}</time></a>{{if eq (str (index $p "kind")) "30023"}} <small>Article</small>{{end}}{{with index $p "parent_url"}}<small data-social-parent>↳ <a href="{{.}}">Replying{{if index $p "parent_author"}} to {{template "nostrName" (str (index $p "parent_author"))}}{{else}} to a post{{end}}</a></small>{{end}}</span></header>{{end}}
 
 {{define "socialActions"}}{{$p := asMap .}}<footer data-social-actions>
 <a href="{{socialURL $p}}#reply">{{if index $p "reply_count"}}{{index $p "reply_count"}} {{if eq (str (index $p "reply_count")) "1"}}reply{{else}}replies{{end}}{{else}}Reply{{end}}</a>
@@ -60,6 +69,39 @@
 </social-compose>{{end}}
 
 {{define "socialMediaFields"}}<details data-post-options><summary>Attach media</summary><label>Images, video or audio <input type="file" name="media-file" accept="image/*,video/*,audio/*" multiple></label><label>Or paste a media URL <input name="media" type="url" placeholder="https://"></label><label>Description <input name="alt" maxlength="1000" placeholder="Describe the media for readers"></label><small>Attachments are published with your post.</small></details>{{end}}
+
+{{define "podcastShow"}}{{with index (asMap .Event) "show"}}{{$show := asMap .}}{{if index $show "id"}}<header id="podcast-show">
+{{with socialMediaURL (str (index $show "image"))}}<img src="{{.}}" alt="" width="96" height="96" loading="lazy" referrerpolicy="no-referrer">{{end}}
+<h2>{{or (str (index $show "title")) "Untitled podcast"}}</h2><p>{{str (index $show "description")}}</p>
+{{range index $show "websites"}}<p><a href="{{socialMediaURL (str .)}}" rel="noopener noreferrer">{{.}}</a></p>{{end}}
+{{with index $show "authors"}}<p>{{range .}}{{$author := asMap .}}<a href="/social/profile?author={{index $author "pubkey"}}">{{template "nostrName" (str (index $author "pubkey"))}}</a>{{with index $author "role"}} <small>{{.}}</small>{{end}} {{end}}</p>{{end}}
+</header>{{end}}{{end}}{{end}}
+
+{{define "podcastComposer"}}
+<p id="podcast-own"><a href="/social?kind=podcasts&amp;author={{.Actor}}">Your podcast</a></p>
+{{if or (not (.Query.Get "author")) (eq (.Query.Get "author") .Actor)}}
+<details id="podcast-publish"><summary>Publish an episode</summary>
+<p>Episodes publish under your connected podcast identity.</p>
+<social-compose mode="podcast" actor="{{.Actor}}" relay="{{wsURL .URL}}" refresh="/social?kind=podcasts&amp;author={{.Actor}}">
+<label>Episode title <input name="title" required maxlength="200"></label>
+<label>Description <input name="summary" maxlength="1000"></label>
+<label>Audio file <input type="file" name="media-file" accept="audio/*"></label>
+<label>Or use an audio URL <input name="media" type="url" placeholder="https://"></label>
+<label>Audio format <select name="media-type"><option value="">Detect from file or URL</option><option value="audio/mpeg">MP3</option><option value="audio/mp4">M4A</option><option value="audio/ogg">Ogg</option><option value="audio/wav">WAV</option><option value="audio/flac">FLAC</option></select></label>
+<label>Episode artwork URL <input name="cover" type="url" placeholder="https://"></label>
+<label>Show notes <textarea name="content" rows="6" maxlength="65000" placeholder="Links and notes for this episode. Markdown is supported."></textarea></label>
+<p data-compose-actions><button type="submit">Publish episode</button> <button type="button" data-preview>Preview notes</button></p><div data-preview-output hidden></div>
+</social-compose></details>
+{{if eq (.Query.Get "author") .Actor}}{{$show := asMap (index (asMap .Event) "show")}}
+<details id="podcast-settings"><summary>Podcast details</summary>
+<social-compose mode="podcast-show" actor="{{.Actor}}" relay="{{wsURL .URL}}" refresh="/social?kind=podcasts&amp;author={{.Actor}}" show-tags="{{json (index $show "tags")}}">
+<label>Podcast title <input name="title" value="{{index $show "title"}}" required maxlength="200"></label>
+<label>Description <textarea name="summary" rows="3" maxlength="4000">{{index $show "description"}}</textarea></label>
+<label>Artwork URL <input name="cover" type="url" value="{{index $show "image"}}" placeholder="https://"></label>
+<label>Website <input name="website" type="url" value="{{with index $show "websites"}}{{index . 0}}{{end}}" placeholder="https://"></label>
+<button type="submit">Save podcast details</button>
+</social-compose></details>{{end}}
+{{end}}{{end}}
 
 {{define "socialCommentComposer"}}{{$p := asMap .}}<social-compose id="reply" mode="comment" actor="{{index $p "viewer"}}" relay="{{index $p "relay"}}" target="{{index $p "id"}}" target-kind="{{index $p "kind"}}" target-pubkey="{{index $p "pubkey"}}" target-tags="{{json (index $p "tags")}}" address="{{or (str (index $p "root_address")) (str (index $p "address"))}}" root="{{or (str (index $p "root_id")) (str (index $p "id"))}}" root-pubkey="{{str (index $p "root_author")}}" root-kind="{{or (str (index $p "root_kind")) (str (index $p "kind"))}}" refresh="{{socialURL $p}}">
 <label>Reply <textarea name="content" rows="3" maxlength="20000" placeholder="Add to the conversation"></textarea></label>{{template "socialMediaFields" .}}<p data-compose-actions><button type="submit">Post reply</button> <button type="button" data-preview>Preview</button></p><div data-preview-output hidden></div>

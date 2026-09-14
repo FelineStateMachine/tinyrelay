@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/FelineStateMachine/tinyrelay/internal/event"
+	"github.com/FelineStateMachine/tinyrelay/internal/podcasts"
 	"github.com/FelineStateMachine/tinyrelay/internal/views"
 )
 
@@ -18,14 +19,19 @@ var socialMarkdownImage = regexp.MustCompile(`!\[[^\]]*\]\((https?://[^)\s]+)\)`
 // from NIP-92 metadata first, with URL extensions retained for older events.
 func socialCategoryMatches(row event.Event, category string) bool {
 	switch category {
-	case "", "all", "feed", "notes", "articles", "posts":
+	case "", "all", "feed":
 		return true
+	case "notes":
+		return row.Kind == 1
+	case "articles", "posts":
+		return row.Kind == 30023
 	case "photos":
 		return socialHasMedia(row, "image")
 	case "videos":
 		return socialHasMedia(row, "video")
 	case "podcasts":
-		return socialHasMedia(row, "audio")
+		_, ok := podcasts.ParseEpisode(row)
+		return ok
 	default:
 		return false
 	}

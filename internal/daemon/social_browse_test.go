@@ -81,7 +81,8 @@ func TestSocialBrowseCategoriesFilterMediaAuthorsAndPages(t *testing.T) {
 	video := signedEvent(t, otherSecret, 1, 300, [][]string{{"imeta", "url https://files.example/clip.mp4", "m video/mp4"}}, "video")
 	photoNew := signedEvent(t, authorSecret, 30023, 400, [][]string{{"d", "photo"}, {"image", "https://files.example/new.png"}}, "new photo")
 	podcast := signedEvent(t, authorSecret, 30023, 500, [][]string{{"d", "podcast"}, {"imeta", "url https://files.example/episode.mp3", "m audio/mpeg"}}, "episode")
-	for _, row := range []event.Event{photoOld, note, video, photoNew, podcast} {
+	native := signedEvent(t, authorSecret, 54, 600, [][]string{{"title", "Native episode"}, {"audio", "https://files.example/native.mp3", "audio/mpeg"}}, "Show notes")
+	for _, row := range []event.Event{photoOld, note, video, photoNew, podcast, native} {
 		if _, err := tenant.store.Save(context.Background(), row, storage.SaveOptions{Now: row.CreatedAt, SearchMode: tenant.Policy().Features.Search}); err != nil {
 			t.Fatal(err)
 		}
@@ -92,7 +93,7 @@ func TestSocialBrowseCategoriesFilterMediaAuthorsAndPages(t *testing.T) {
 	}{
 		{"photos", "photos", []string{photoNew.ID, photoOld.ID}},
 		{"videos", "videos", []string{video.ID}},
-		{"podcasts", "podcasts", []string{podcast.ID}},
+		{"podcasts", "podcasts", []string{native.ID}},
 		{"posts", "posts", []string{podcast.ID, photoNew.ID}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

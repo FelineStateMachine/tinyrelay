@@ -26,7 +26,7 @@ func effectiveViewTrigger(p policy.Policy, name string) string {
 }
 
 func defaultViewTrigger(name string) string {
-	return map[string]string{"profiles": "daily", "relays": "daily", "calendar": "hourly", "moderation": "daily", "articles": "write", "zaps": "hourly", "presence": "live"}[name]
+	return map[string]string{"profiles": "daily", "relays": "daily", "calendar": "hourly", "moderation": "daily", "articles": "write", "podcasts": "write", "zaps": "hourly", "presence": "live"}[name]
 }
 
 // viewAudience applies directory and relay read policy to a view.
@@ -124,7 +124,11 @@ func containsView(name string) bool {
 }
 
 func (s *Service) view(ctx context.Context, name string, caller policy.Access, now int64) (event.Event, error) {
-	rows, err := s.store.Query(ctx, event.Filter{}, storage.QueryOptions{Now: now, Access: storage.Access{All: true}, Limit: 0})
+	filter := event.Filter{}
+	if name == "podcasts" {
+		filter.Kinds = []int{54, 10154, 10064}
+	}
+	rows, err := s.store.Query(ctx, filter, storage.QueryOptions{Now: now, Access: storage.Access{All: true}, Limit: 0})
 	if err != nil {
 		return event.Event{}, err
 	}
@@ -141,12 +145,25 @@ func (s *Service) view(ctx context.Context, name string, caller policy.Access, n
 	} else if name == "relays" {
 		people, _ := s.viewPeople(ctx)
 		tags, content = fold(name, onlyAuthors(rows.Events, people), s.relayURL, now)
+	} else if name == "podcasts" {
+		visible := rows.Events[:0]
+		access := caller
+		if access.Owner && len(access.PubKeys) == 0 && s.policy().Owner != "" {
+			access.PubKeys = []string{s.policy().Owner}
+		}
+		for _, row := range rows.Events {
+			if policy.CanRead(s.policy(), row, access) && (s.eventVisible == nil || s.eventVisible(ctx, row, access)) {
+				visible = append(visible, row)
+			}
+		}
+		rows.Events = visible
+		tags, content = foldPodcasts(rows.Events)
 	} else {
 		tags, content = fold(name, rows.Events, s.relayURL, now)
 	}
 	trigger := s.policy().Views[name]
 	if trigger == "" {
-		trigger = map[string]string{"profiles": "daily", "relays": "daily", "calendar": "hourly", "moderation": "daily", "articles": "write", "zaps": "hourly"}[name]
+		trigger = map[string]string{"profiles": "daily", "relays": "daily", "calendar": "hourly", "moderation": "daily", "articles": "write", "podcasts": "write", "zaps": "hourly"}[name]
 	}
 	tags = append([][]string{{"-"}, {"d", "bind.ws/view/" + name}, {"trigger", trigger}}, tags...)
 	if viewStored(s.policy(), name) {
@@ -527,7 +544,7 @@ func (s *Service) MarkView(ctx context.Context, name string, now int64) error {
 func (s *Service) NextDue(ctx context.Context, now int64) (int64, error) {
 	p := s.policy()
 	next := int64(0)
-	periods := map[string]int64{"profiles": 86400, "relays": 86400, "calendar": 3600, "moderation": 86400, "articles": 86400, "zaps": 3600}
+	periods := map[string]int64{"profiles": 86400, "relays": 86400, "calendar": 3600, "moderation": 86400, "articles": 86400, "podcasts": 86400, "zaps": 3600}
 	for name, period := range periods {
 		mode := effectiveViewTrigger(p, name)
 		if mode == "off" || !viewStored(p, name) {
@@ -646,7 +663,7 @@ func (s *Service) ViewSummaries(ctx context.Context) ([]map[string]any, error) {
 		if name == "presence" {
 			choices = []string{"off"}
 		}
-		about := map[string]string{"profiles": "every member's newest profile in one record", "relays": "where the members are: the union of their relay lists", "calendar": "what is on: calendar events starting in the next 30 days, with RSVPs counted", "moderation": "this month's moderation counts, no ids", "articles": "the newest hundred articles, by address", "zaps": "zap totals for the top notes and authors here", "presence": "who is connected now and who wrote in the last 15 minutes"}[name]
+		about := map[string]string{"profiles": "every member's newest profile in one record", "relays": "where the members are: the union of their relay lists", "calendar": "what is on: calendar events starting in the next 30 days, with RSVPs counted", "moderation": "this month's moderation counts, no ids", "articles": "the newest hundred articles, by address", "podcasts": "the newest hundred NIP-F4 episodes and their shows", "zaps": "zap totals for the top notes and authors here", "presence": "who is connected now and who wrote in the last 15 minutes"}[name]
 		out = append(out, map[string]any{
 			"name": name, "about": about, "trigger": trigger, "default": defaultViewTrigger(name), "choices": choices,
 			"audience": viewAudience(p, name), "on": trigger != "off", "stored": viewStored(p, name),

@@ -507,6 +507,16 @@ social-compose input:not([type=file]),social-compose textarea{width:100%;box-siz
 #social-author-filter{font-size:13px;color:var(--muted);padding:14px 0;border-bottom:1px solid var(--line)}
 #social-author-filter a{margin-left:10px}
 #social-head #podcast-subscribe{margin-top:12px;font-size:13px}
+#podcast-show{padding:22px 0;border-bottom:1px solid var(--line);overflow-wrap:anywhere}
+#podcast-show>img{display:block;width:96px;height:96px;object-fit:cover;border-radius:8px}
+#podcast-show h2{margin:12px 0 6px}#podcast-show p{margin:6px 0}
+#podcast-publish,#podcast-settings{margin:12px 0;padding:12px 0;border-bottom:1px solid var(--line)}
+#podcast-publish>summary,#podcast-settings>summary{cursor:pointer;font-weight:600}
+[data-post-body=podcast]{font:15px/1.6 var(--sans);overflow-wrap:anywhere}
+[data-post-body=podcast] h1,[data-post-body=podcast] h2{font:600 24px/1.25 var(--sans);margin:10px 0}
+[data-post-body=podcast] audio{display:block;width:100%;max-width:520px;margin:14px 0}
+[data-podcast-cover]{display:block;width:100%;max-width:280px;max-height:280px;object-fit:cover;border-radius:8px;margin:12px 0}
+[data-podcast-subscribe]{font:13px var(--sans);margin:12px 0}
 #social-profile-head{padding-bottom:20px;border-bottom:1px solid var(--line);overflow-wrap:anywhere}
 #social-profile-head h1{font-size:28px;letter-spacing:-.5px;margin:14px 0 6px}
 #social-profile-head>p{max-width:60ch}
