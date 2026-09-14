@@ -372,6 +372,10 @@ func (t *Tenant) authorizeBlob(r *http.Request, action blob.Action) (string, err
 					err = errors.New("auth-required: remote upload token payload must hash an empty body")
 				}
 				pubkey = token.PubKey
+			} else if action == blob.ActionUpload && (r.Method == http.MethodPut || r.Method == http.MethodPatch) {
+				var token event.Event
+				token, err = t.auth.VerifyNIP98Deferred(r.Header.Get("Authorization"), t.requestURL(r), r.Method)
+				pubkey = token.PubKey
 			} else {
 				var keys []string
 				keys, err = t.auth.WhoAsks(r.Header.Get("Authorization"), t.requestURL(r), r.Method, body, string(action), hash)
@@ -547,7 +551,7 @@ func (t *Tenant) authorizeGit(ctx context.Context, r *http.Request, repo gitrela
 	e, ok := privateGitProof(r)
 	var err error
 	if !ok {
-		e, err = t.auth.VerifyNIP98(r.Header.Get("Authorization"), t.requestURL(r), r.Method, "")
+		e, err = t.auth.VerifyNIP98Deferred(r.Header.Get("Authorization"), t.requestURL(r), r.Method)
 		if err != nil {
 			return err
 		}

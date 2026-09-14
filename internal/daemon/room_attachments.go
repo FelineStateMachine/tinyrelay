@@ -243,7 +243,7 @@ func (t *Tenant) serveRoomMedia(w http.ResponseWriter, r *http.Request, hash str
 func (t *Tenant) uploadRoomAttachment(w http.ResponseWriter, r *http.Request, roomID string) {
 	// Authenticate and authorize before buffering file bytes. The payload
 	// binding is checked after reading, without consuming the proof twice.
-	token, err := t.auth.VerifyNIP98(r.Header.Get("Authorization"), t.requestURL(r), r.Method, "")
+	token, err := t.auth.VerifyNIP98Deferred(r.Header.Get("Authorization"), t.requestURL(r), r.Method)
 	if err != nil {
 		browseHTTPError(w, err)
 		return

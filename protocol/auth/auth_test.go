@@ -27,6 +27,29 @@ func TestNIP98ValidatesRequestAndRejectsReplay(t *testing.T) {
 	}
 }
 
+func TestNIP98DeferredAllowsPayloadUntilBodyIsMaterialized(t *testing.T) {
+	now := time.Unix(1_700_000_000, 0)
+	validator := NewValidator(func() time.Time { return now })
+	e := signedEvent(t, 27235, now.Unix(), "", [][]string{
+		{"u", "https://relay.example/api"},
+		{"method", "POST"},
+		{"payload", sha256Hex("body")},
+	})
+	header := token(t, e)
+	if _, err := validator.VerifyNIP98Deferred(header, "https://relay.example/api", "POST"); err != nil {
+		t.Fatalf("deferred verification: %v", err)
+	}
+	if err := validator.ValidateBlobPayload(header, sha256Hex("body")); err != nil {
+		t.Fatalf("validate streamed body: %v", err)
+	}
+	if err := validator.ValidateBlobPayload(header, sha256Hex("other")); err == nil {
+		t.Fatal("accepted a different streamed body")
+	}
+	if _, err := validator.VerifyNIP98Deferred(header, "https://relay.example/api", "POST"); err == nil || !strings.Contains(err.Error(), "replay") {
+		t.Fatalf("expected replay rejection, got %v", err)
+	}
+}
+
 func TestNIP98ExpiryAndPayload(t *testing.T) {
 	now := time.Unix(1_700_000_000, 0)
 	validator := NewValidator(func() time.Time { return now })
