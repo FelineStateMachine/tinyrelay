@@ -35,8 +35,9 @@ func NewValidator(now func() time.Time) *Validator {
 }
 
 // VerifyNIP98 validates a kind 27235 request proof against the exact URL,
-// method and body supplied by the caller. Successfully verified event IDs are
-// retained for the one-minute replay window.
+// method and body supplied by the caller. A payload tag must match even when
+// the body is empty. Successfully verified event IDs are retained for the
+// one-minute replay window.
 func (v *Validator) VerifyNIP98(header, rawURL, method, body string) (nostr.Event, error) {
 	return v.verifyNIP98(header, rawURL, method, body, true)
 }
@@ -69,7 +70,8 @@ func (v *Validator) verifyNIP98(header, rawURL, method, body string, checkPayloa
 	if strings.ToUpper(nostr.Tag(e, "method")) != strings.ToUpper(method) {
 		return nostr.Event{}, authError("token was signed for another method")
 	}
-	if checkPayload && body != "" && nostr.Tag(e, "payload") != hashBytes([]byte(body)) {
+	payload := nostr.Tag(e, "payload")
+	if checkPayload && (body != "" || payload != "") && payload != hashBytes([]byte(body)) {
 		return nostr.Event{}, authError("token payload hash does not match the body")
 	}
 	if err := v.mark(e.ID, now); err != nil {

@@ -18,7 +18,7 @@ import (
 // pack's size. GitRelay closes the replacement body on every request exit.
 func spoolGitPayload(r *http.Request, proof event.Event) error {
 	if r.Body == nil || r.Body == http.NoBody {
-		return nil
+		return validateGitPayloadHash(proof, emptyPayloadHash(), 0)
 	}
 	file, err := os.CreateTemp("", "tiny-git-authorized-*")
 	if err != nil {
@@ -36,17 +36,25 @@ func spoolGitPayload(r *http.Request, proof event.Event) error {
 	if err != nil {
 		return fmt.Errorf("read Git authorization payload: %w", err)
 	}
+	if err := validateGitPayloadHash(proof, hex.EncodeToString(hash.Sum(nil)), n); err != nil {
+		return err
+	}
 	if n == 0 {
 		return nil
-	}
-	if event.Tag(proof, "payload") != hex.EncodeToString(hash.Sum(nil)) {
-		return errors.New("auth-required: token payload hash does not match the body")
 	}
 	if _, err := file.Seek(0, io.SeekStart); err != nil {
 		return fmt.Errorf("rewind Git authorization payload: %w", err)
 	}
 	r.Body = &gitPayloadBody{File: file, original: r.Body}
 	keep = true
+	return nil
+}
+
+func validateGitPayloadHash(proof event.Event, actual string, size int64) error {
+	payload := event.Tag(proof, "payload")
+	if (size > 0 || payload != "") && payload != actual {
+		return errors.New("auth-required: token payload hash does not match the body")
+	}
 	return nil
 }
 

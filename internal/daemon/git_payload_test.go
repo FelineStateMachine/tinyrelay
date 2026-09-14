@@ -70,6 +70,31 @@ func TestGitAuthorizationRejectsMismatchedPayloadWithoutLeavingSpool(t *testing.
 	}
 }
 
+func TestGitAuthorizationValidatesEmptyPayload(t *testing.T) {
+	for _, bodyKind := range []string{"nil", "no body", "empty stream"} {
+		for _, payload := range []string{"", emptyPayloadHash(), strings.Repeat("a", 64)} {
+			t.Run(bodyKind+"/"+payload, func(t *testing.T) {
+				req := httptest.NewRequest(http.MethodPost, "http://relay.test/repo.git/git-receive-pack", nil)
+				switch bodyKind {
+				case "nil":
+					req.Body = nil
+				case "empty stream":
+					req.Body = io.NopCloser(strings.NewReader(""))
+				}
+				proof := event.Event{Tags: [][]string{}}
+				if payload != "" {
+					proof.Tags = append(proof.Tags, []string{"payload", payload})
+				}
+				err := spoolGitPayload(req, proof)
+				wantErr := payload != "" && payload != emptyPayloadHash()
+				if (err != nil) != wantErr {
+					t.Fatalf("validate empty payload: %v, want error=%v", err, wantErr)
+				}
+			})
+		}
+	}
+}
+
 type unreadGitBody struct{ read bool }
 
 func (b *unreadGitBody) Read([]byte) (int, error) {

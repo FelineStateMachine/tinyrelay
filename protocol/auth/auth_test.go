@@ -50,6 +50,34 @@ func TestNIP98DeferredAllowsPayloadUntilBodyIsMaterialized(t *testing.T) {
 	}
 }
 
+func TestNIP98PayloadMatchesRequestBody(t *testing.T) {
+	now := time.Unix(1_700_000_000, 0)
+	for _, tc := range []struct {
+		name, body, payload string
+		wantErr             bool
+	}{
+		{name: "empty without payload"},
+		{name: "empty with matching payload", payload: sha256Hex("")},
+		{name: "empty with wrong payload", payload: sha256Hex("body"), wantErr: true},
+		{name: "body without payload", body: "body", wantErr: true},
+		{name: "body with matching payload", body: "body", payload: sha256Hex("body")},
+		{name: "body with wrong payload", body: "body", payload: sha256Hex("other"), wantErr: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			validator := NewValidator(func() time.Time { return now })
+			tags := [][]string{{"u", "https://relay.example/api"}, {"method", "POST"}}
+			if tc.payload != "" {
+				tags = append(tags, []string{"payload", tc.payload})
+			}
+			e := signedEvent(t, 27235, now.Unix(), "", tags)
+			_, err := validator.VerifyNIP98(token(t, e), "https://relay.example/api", "POST", tc.body)
+			if (err != nil) != tc.wantErr || err != nil && !strings.Contains(err.Error(), "payload") {
+				t.Fatalf("verify payload: %v, want error=%v", err, tc.wantErr)
+			}
+		})
+	}
+}
+
 func TestNIP98ExpiryAndPayload(t *testing.T) {
 	now := time.Unix(1_700_000_000, 0)
 	validator := NewValidator(func() time.Time { return now })
