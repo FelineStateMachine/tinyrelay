@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/FelineStateMachine/tinyrelay/internal/event"
+	"github.com/FelineStateMachine/tinyrelay/internal/podcasts"
 	"github.com/FelineStateMachine/tinyrelay/internal/storage"
 )
 
@@ -53,6 +54,7 @@ type socialItem struct {
 	RootAddress   string           `json:"root_address,omitempty"`
 	ReadMinutes   int              `json:"read_minutes,omitempty"`
 	Event         event.Event      `json:"event"`
+	Podcast       *podcasts.Show   `json:"podcast,omitempty"`
 }
 
 type socialReaction struct {
@@ -63,7 +65,7 @@ type socialReaction struct {
 }
 
 func socialBrowseMethod(method string) bool {
-	return method == "browsesocial" || method == "browsesocialthread"
+	return method == "browsesocial" || method == "browsesocialthread" || method == "browsepodcasts"
 }
 
 func (t *Tenant) executeSocial(ctx context.Context, actor, method string, params []json.RawMessage) (any, error) {
@@ -84,6 +86,9 @@ func (t *Tenant) executeSocial(ctx context.Context, actor, method string, params
 	}
 	if method == "browsesocialthread" {
 		return t.browseSocialThread(ctx, actor, q)
+	}
+	if method == "browsepodcasts" || q.Kind == "podcasts" {
+		return t.browsePodcasts(ctx, actor, q)
 	}
 	return t.browseSocial(ctx, actor, q)
 }
@@ -108,14 +113,14 @@ func socialOlder(a, b event.Event) bool {
 }
 
 func (t *Tenant) browseSocial(ctx context.Context, actor string, q socialBrowseRequest) (any, error) {
-	kinds := []int{1, 30023}
+	kinds := []int{1, 30023, podcasts.KindEpisode}
 	switch q.Kind {
 	case "", "all", "feed":
 	case "notes":
 		kinds = []int{1}
 	case "articles", "posts":
 		kinds = []int{30023}
-	case "photos", "videos", "podcasts":
+	case "photos", "videos":
 	default:
 		return nil, errors.New("invalid: social kind")
 	}
@@ -160,10 +165,15 @@ func (t *Tenant) browseSocial(ctx context.Context, actor string, q socialBrowseR
 	if err != nil {
 		return nil, err
 	}
+	if err := t.decoratePodcastItems(ctx, actor, items); err != nil {
+		return nil, err
+	}
 	stats := map[string]int{"notes": 0, "articles": 0, "comments": 0}
 	for _, item := range items {
 		if item.Kind == 30023 {
 			stats["articles"]++
+		} else if item.Kind == podcasts.KindEpisode {
+			stats["podcasts"]++
 		} else {
 			stats["notes"]++
 		}
@@ -172,9 +182,160 @@ func (t *Tenant) browseSocial(ctx context.Context, actor string, q socialBrowseR
 	return map[string]any{"items": items, "next_cursor": next, "stats": stats}, nil
 }
 
+func (t *Tenant) decoratePodcastItems(ctx context.Context, actor string, items []socialItem) error {
+	authors := make([]string, 0)
+	seen := map[string]bool{}
+	for _, item := range items {
+		if item.Kind == podcasts.KindEpisode && !seen[item.Pubkey] {
+			seen[item.Pubkey] = true
+			authors = append(authors, item.Pubkey)
+		}
+	}
+	if len(authors) == 0 {
+		return nil
+	}
+	shows, err := t.socialShows(ctx, actor, authors)
+	if err != nil {
+		return err
+	}
+	for i := range items {
+		if items[i].Kind != podcasts.KindEpisode {
+			continue
+		}
+		show := shows[items[i].Pubkey]
+		items[i].Podcast = &show
+		if show.Title != "" {
+			items[i].AuthorName, items[i].AuthorPicture = show.Title, show.Image
+		}
+	}
+	return nil
+}
+
+func (t *Tenant) browsePodcasts(ctx context.Context, actor string, q socialBrowseRequest) (any, error) {
+	cursor, err := parseCollaborationCursor(q.Cursor)
+	if err != nil {
+		return nil, err
+	}
+	filter := event.Filter{Kinds: []int{podcasts.KindEpisode}}
+	if q.Author != "" {
+		filter.Authors = []string{q.Author}
+	}
+	session := browseSession(t, actor)
+	next := ""
+	rows := make([]event.Event, 0, q.Limit)
+	for scan := 0; scan < 20 && len(rows) <= q.Limit; scan++ {
+		page, queryErr := t.store.Query(ctx, filter, storage.QueryOptions{Now: time.Now().Unix(), Access: storage.Access{PubKeys: session.PubKeys}, Limit: 100, Before: cursor})
+		if queryErr != nil {
+			return nil, queryErr
+		}
+		for _, row := range page.Events {
+			cursor = &storage.EventCursor{CreatedAt: row.CreatedAt, ID: row.ID}
+			if t.gate.CanSee(ctx, row, session, &filter) {
+				if _, ok := podcasts.ParseEpisode(row); ok && socialMatches(row, q.Query) {
+					rows = append(rows, row)
+				}
+			}
+			if len(rows) > q.Limit {
+				break
+			}
+		}
+		if len(rows) > q.Limit {
+			next = socialCursor(rows[q.Limit-1])
+			rows = rows[:q.Limit]
+			break
+		}
+		if !page.More || len(page.Events) == 0 {
+			break
+		}
+		if scan == 19 && cursor != nil {
+			next = collaborationCursor(collaborationItem{CreatedAt: cursor.CreatedAt, ID: cursor.ID})
+		}
+	}
+	items, err := t.socialItems(ctx, actor, rows)
+	if err != nil {
+		return nil, err
+	}
+	keys := make([]string, 0, len(rows))
+	seen := map[string]bool{}
+	for _, row := range rows {
+		if !seen[row.PubKey] {
+			seen[row.PubKey] = true
+			keys = append(keys, row.PubKey)
+		}
+	}
+	if q.Author != "" && !seen[q.Author] {
+		keys = append(keys, q.Author)
+	}
+	shows, err := t.socialShows(ctx, actor, keys)
+	if err != nil {
+		return nil, err
+	}
+	for i := range items {
+		show := shows[items[i].Pubkey]
+		items[i].Podcast = &show
+		if show.Title != "" {
+			items[i].AuthorName, items[i].AuthorPicture = show.Title, show.Image
+		}
+	}
+	result := map[string]any{"items": items, "next_cursor": next, "shows": shows}
+	if q.Author != "" {
+		show := shows[q.Author]
+		result["show"] = show
+	}
+	return result, nil
+}
+
+func (t *Tenant) socialShows(ctx context.Context, actor string, authors []string) (map[string]podcasts.Show, error) {
+	if len(authors) == 0 {
+		return map[string]podcasts.Show{}, nil
+	}
+	metadataFilter := event.Filter{Kinds: []int{podcasts.KindMetadata}, Authors: authors}
+	metadata, err := t.socialEvents(ctx, actor, []event.Filter{metadataFilter})
+	if err != nil {
+		return nil, err
+	}
+	declared := map[string]bool{}
+	for _, row := range metadata {
+		for _, tag := range row.Tags {
+			if len(tag) > 1 && tag[0] == "p" {
+				declared[tag[1]] = true
+			}
+		}
+	}
+	if len(declared) == 0 {
+		shows := podcasts.Shows(metadata)
+		for _, author := range authors {
+			if _, ok := shows[author]; !ok {
+				shows[author] = podcasts.Show{Pubkey: author}
+			}
+		}
+		return shows, nil
+	}
+	authorKeys := make([]string, 0, len(declared))
+	for key := range declared {
+		authorKeys = append(authorKeys, key)
+	}
+	authored, err := t.socialEvents(ctx, actor, []event.Filter{{Kinds: []int{podcasts.KindAuthored}, Authors: authorKeys}})
+	if err != nil {
+		return nil, err
+	}
+	rows := append(metadata, authored...)
+	shows := podcasts.Shows(rows)
+	for _, author := range authors {
+		if _, ok := shows[author]; !ok {
+			shows[author] = podcasts.Show{Pubkey: author}
+		}
+	}
+	return shows, nil
+}
+
 func socialFeedRoot(row event.Event) bool {
 	if row.Kind == 30023 {
 		return true
+	}
+	if row.Kind == podcasts.KindEpisode {
+		_, ok := podcasts.ParseEpisode(row)
+		return ok && event.Tag(row, "h") == ""
 	}
 	if row.Kind != 1 || event.Tag(row, "h") != "" {
 		return false
@@ -184,7 +345,7 @@ func socialFeedRoot(row event.Event) bool {
 }
 func socialMatches(row event.Event, query string) bool {
 	needle := strings.ToLower(strings.TrimSpace(query))
-	return needle == "" || strings.Contains(strings.ToLower(row.Content+" "+event.Tag(row, "title")+" "+event.Tag(row, "summary")), needle)
+	return needle == "" || strings.Contains(strings.ToLower(row.Content+" "+event.Tag(row, "title")+" "+event.Tag(row, "summary")+" "+event.Tag(row, "description")), needle)
 }
 
 // socialEvents scans only the requested references and applies the same per-event
@@ -267,6 +428,9 @@ func (t *Tenant) socialItems(ctx context.Context, actor string, rows []event.Eve
 	}
 	for i := range items {
 		items[i].AuthorName, items[i].AuthorPicture = names[items[i].Pubkey][0], names[items[i].Pubkey][1]
+	}
+	if err := t.decoratePodcastItems(ctx, actor, items); err != nil {
+		return nil, err
 	}
 	return items, nil
 }
@@ -477,14 +641,20 @@ func socialCommentFor(comment, post event.Event) bool {
 	if comment.Kind == 1 && post.Kind == 1 {
 		return ref.parent == post.ID || ref.root == post.ID
 	}
+	if post.Kind == podcasts.KindEpisode {
+		if comment.Kind != 1111 {
+			return false
+		}
+		return ref.rootKind == podcasts.KindEpisode && ref.root == post.ID
+	}
 	if post.Kind == 30023 {
 		address := socialAddress(post)
 		if comment.Kind == 1111 {
-			return ref.rootKind == 30023 && (ref.rootAddress == address || ref.root == post.ID)
+			return ref.rootKind == post.Kind && ((address != "" && ref.rootAddress == address) || ref.root == post.ID)
 		}
 		// Older long-form clients used kind 1 with an article a tag. Read these
 		// comments for compatibility, but new comments always use NIP-22.
-		return comment.Kind == 1 && ref.rootAddress == address
+		return comment.Kind == 1 && address != "" && ref.rootAddress == address
 	}
 	if post.Kind == 1111 {
 		return comment.Kind == 1111 && ref.parent == post.ID && ref.parentKind == 1111
@@ -493,6 +663,9 @@ func socialCommentFor(comment, post event.Event) bool {
 }
 func socialItemFrom(row event.Event) socialItem {
 	item := socialItem{ID: row.ID, Kind: row.Kind, Author: row.PubKey, Pubkey: row.PubKey, Tags: row.Tags, CreatedAt: row.CreatedAt, Content: row.Content, Title: event.Tag(row, "title"), Summary: event.Tag(row, "summary"), Image: event.Tag(row, "image"), Event: row, Address: socialAddress(row)}
+	if item.Kind == podcasts.KindEpisode && item.Summary == "" {
+		item.Summary = event.Tag(row, "description")
+	}
 	item.ReadPath = "/social/" + row.ID
 	if item.Address != "" {
 		item.ReadPath = "/social?address=" + url.QueryEscape(item.Address)
@@ -531,10 +704,15 @@ func (t *Tenant) socialPost(ctx context.Context, actor, identifier string) (even
 	if err != nil {
 		return event.Event{}, err
 	}
-	if len(rows) != 1 || (rows[0].Kind != 1 && rows[0].Kind != 30023 && rows[0].Kind != 1111) || event.Tag(rows[0], "h") != "" {
+	if len(rows) != 1 || (rows[0].Kind != 1 && rows[0].Kind != 30023 && rows[0].Kind != podcasts.KindEpisode && rows[0].Kind != 1111) || event.Tag(rows[0], "h") != "" {
 		return event.Event{}, errors.New("not found: social post")
 	}
-	if rows[0].Kind == 1111 && socialReference(rows[0]).rootKind != 30023 {
+	if rows[0].Kind == podcasts.KindEpisode {
+		if _, ok := podcasts.ParseEpisode(rows[0]); !ok {
+			return event.Event{}, errors.New("not found: podcast episode")
+		}
+	}
+	if rows[0].Kind == 1111 && socialReference(rows[0]).rootKind != 30023 && socialReference(rows[0]).rootKind != podcasts.KindEpisode {
 		return event.Event{}, errors.New("not found: social comment")
 	}
 	return rows[0], nil

@@ -21,8 +21,12 @@ func TestSocialCategoriesRespectMediaMetadataAndURLs(t *testing.T) {
 			row: event.Event{Kind: 1, Tags: [][]string{{"imeta", "url https://cdn.example/audio.mp3", "m image/jpeg"}}}, want: true,
 		},
 		{
-			name: "mime wins over extension", category: "podcasts",
-			row: event.Event{Kind: 1, Tags: [][]string{{"imeta", "url https://cdn.example/photo.jpg", "m audio/mpeg"}}}, want: true,
+			name: "audio note remains a note", category: "podcasts",
+			row: event.Event{Kind: 1, Tags: [][]string{{"imeta", "url https://cdn.example/photo.jpg", "m audio/mpeg"}}}, want: false,
+		},
+		{
+			name: "native F4 audio", category: "podcasts",
+			row: event.Event{Kind: 54, Tags: [][]string{{"audio", "https://cdn.example/episode", "audio/mpeg"}}}, want: true,
 		},
 		{
 			name: "metadata URL does not regain extension family", category: "podcasts",

@@ -13,7 +13,7 @@ func socialViews() []socialViewItem {
 		{"posts", "Posts", "Stories, essays and longer reads.", "/social?kind=posts"},
 		{"photos", "Photos", "Pictures and the stories behind them.", "/social?kind=photos"},
 		{"videos", "Videos", "Clips and films shared in posts.", "/social?kind=videos"},
-		{"podcasts", "Podcasts", "Episodes and audio shared in posts.", "/social?kind=podcasts"},
+		{"podcasts", "Podcasts", "Shows and episodes, ready for your favorite player.", "/social?kind=podcasts"},
 	}
 }
 

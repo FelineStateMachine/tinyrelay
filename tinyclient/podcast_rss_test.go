@@ -43,8 +43,8 @@ func TestPodcastRSSPageBuildsAudioEnclosures(t *testing.T) {
 	b := &podcastRSSBackend{
 		fakeBackend: fakeBackend{policy: policy.Defaults(author)},
 		result: map[string]any{"items": []any{
-			map[string]any{"id": strings.Repeat("b", 64), "kind": 1, "title": `A & <episode>`, "content": "A description https://cdn.example/audio.mp3?a=1&b=2", "created_at": 1700000000, "tags": [][]string{{"imeta", "url https://cdn.example/audio.mp3?a=1&b=2", "m audio/mpeg", "size 42"}, {"imeta", "url https://cdn.example/photo.jpg", "m image/jpeg"}}},
-			map[string]any{"id": strings.Repeat("c", 64), "kind": 30023, "content": "no audio", "tags": [][]string{{"imeta", "url https://cdn.example/photo.jpg", "m image/jpeg"}}},
+			map[string]any{"id": strings.Repeat("b", 64), "pubkey": strings.Repeat("a", 64), "kind": 54, "title": `A & <episode>`, "content": "A description", "created_at": 1700000000, "tags": [][]string{{"audio", "https://cdn.example/audio.mp3?a=1&b=2"}, {"imeta", "url https://cdn.example/audio.mp3?a=1&b=2", "m audio/mpeg", "size 42"}, {"imeta", "url https://cdn.example/photo.jpg", "m image/jpeg"}}},
+			map[string]any{"id": strings.Repeat("c", 64), "kind": 1, "content": "no audio", "tags": [][]string{{"imeta", "url https://cdn.example/photo.jpg", "m image/jpeg"}}},
 		}},
 	}
 	a := &App{backend: b}
@@ -74,8 +74,8 @@ func TestPodcastRSSPageUsesUnknownLengthAndPropagatesErrors(t *testing.T) {
 		fakeBackend: fakeBackend{policy: policy.Defaults(strings.Repeat("a", 64))},
 		result: map[string]any{
 			"items": []any{map[string]any{
-				"id": "episode", "content": "no body reference",
-				"tags": [][]string{{"imeta", "url https://cdn.example/episode.ogg", "m audio/ogg"}},
+				"id": "episode", "pubkey": strings.Repeat("a", 64), "content": "no body reference", "kind": 54,
+				"tags": [][]string{{"audio", "https://cdn.example/episode.ogg", "audio/ogg"}},
 			}},
 		},
 	}
@@ -123,16 +123,15 @@ func TestPodcastRSSRouteNormalizesSubscriptionAndSupportsHead(t *testing.T) {
 	}
 }
 
-func TestPodcastArticleGUIDSurvivesAnEdit(t *testing.T) {
-	address := "30023:" + strings.Repeat("a", 64) + ":episode"
-	row := map[string]any{"id": "first", "address": address, "kind": 30023, "content": "Episode one", "tags": [][]string{{"imeta", "url https://cdn.example/episode", "m audio/mpeg", "size 100"}}}
+func TestPodcastNativeEpisodeUsesEventGUID(t *testing.T) {
+	row := map[string]any{"id": "episode-id", "pubkey": strings.Repeat("a", 64), "kind": 54, "content": "Episode one", "tags": [][]string{{"audio", "https://cdn.example/episode", "audio/mpeg", "100"}}}
 	first, ok := podcastFeedItem("https://relay.example", row)
 	if !ok {
 		t.Fatal("episode omitted")
 	}
-	row["id"] = "second"
+	row["id"] = "changed-row-id"
 	second, ok := podcastFeedItem("https://relay.example", row)
-	if !ok || first.GUID != second.GUID || second.GUID.Value != address || second.Title != "Episode one" {
+	if !ok || first.GUID.Value != "episode-id" || second.GUID.Value != "changed-row-id" || second.Title != "Episode one" {
 		t.Fatalf("edited episode identity: %#v %#v", first, second)
 	}
 }

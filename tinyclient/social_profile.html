@@ -10,7 +10,7 @@
 {{with str (index $profile "about")}}<p id="social-profile-about">{{.}}</p>{{end}}
 {{with socialMediaURL (str (index $profile "website"))}}<p><a href="{{.}}" rel="noopener noreferrer">{{.}}</a></p>{{end}}
 {{with str (index $profile "nip05")}}<p><small>NIP-05 {{.}}</small></p>{{end}}
-{{if eq .Actor .View}}<p><a href="/profile">Edit profile</a></p>{{end}}
+{{if eq .Actor .View}}<p>{{if eq (socialView .Query).Key "podcasts"}}<a href="/social?kind=podcasts&amp;author={{.Actor}}">Manage podcast</a>{{else}}<a href="/profile">Edit profile</a>{{end}}</p>{{end}}
 </header>
 <nav id="social-profile-views" aria-label="Profile posts">{{range socialViews}}{{$kind := .Key}}<a href="/social/profile?author={{urlquery $.View}}{{if ne $kind "feed"}}&amp;kind={{urlquery $kind}}{{end}}"{{if eq (socialView $.Query).Key $kind}} aria-current="page"{{end}}>{{if eq $kind "feed"}}All posts{{else}}{{.Label}}{{end}}</a>{{end}}</nav>
 {{if eq (socialView .Query).Key "podcasts"}}<p id="social-profile-subscribe"><a href="{{podcastFeedURL .Query}}">Subscribe with RSS</a></p>{{end}}

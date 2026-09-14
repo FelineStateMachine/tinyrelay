@@ -111,7 +111,7 @@ func (a *App) socialPreviewPage(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Invalid preview.", http.StatusBadRequest)
 		return
 	}
-	if decoder.Decode(new(any)) != io.EOF || (input.Kind != 1 && input.Kind != 30023 && input.Kind != 1111) {
+	if decoder.Decode(new(any)) != io.EOF || (input.Kind != 1 && input.Kind != 54 && input.Kind != 30023 && input.Kind != 1111) {
 		http.Error(w, "Invalid preview.", http.StatusBadRequest)
 		return
 	}

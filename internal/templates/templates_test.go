@@ -23,7 +23,7 @@ func TestCatalogShapeAndTemplateApplication(t *testing.T) {
 	if social.Owner != "owner" || social.Writes != "allowlist" || social.Reads != "open" {
 		t.Fatalf("social policy: %#v", social)
 	}
-	for _, kind := range []int{0, 1, 5, 6, 7, 1111, 30023} {
+	for _, kind := range []int{0, 1, 5, 6, 7, 54, 1111, 30023, 10054, 10064, 10154} {
 		if !containsKind(social.AllowedKinds, kind) {
 			t.Fatalf("social does not allow kind %d: %#v", kind, social.AllowedKinds)
 		}

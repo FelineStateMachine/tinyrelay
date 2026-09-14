@@ -116,3 +116,38 @@ test("legacy replies omit an unknown optional root author rather than misattribu
   await s.component.submit(s.form);
   assert.deepEqual(s.tags(),[["e",root,hint,"root"],["e",parent,hint,"reply",parentAuthor],["p",parentAuthor,hint]]);
 });
+
+test("podcast episodes publish native kind 54 audio and imeta tags", async()=>{
+  const file={name:"episode.mp3",type:"audio/mpeg",size:3,arrayBuffer:async()=>new Uint8Array([1,2,3]).buffer};
+  const s=setup({mode:"podcast"},{title:"Episode",summary:"Show notes",cover:"https://cdn.test/cover.jpg",content:"Notes", "media-file":{files:[file]}});
+  await s.component.submit(s.form);
+  assert.equal(s.signed[0].kind,54);assert.equal(s.signed[0].content,"Notes");
+  assert.ok(s.tags().some(t=>t[0]==="audio"&&t[1]==="https://relay.test/file.jpg"&&t[2]==="audio/mpeg"));
+  assert.ok(s.tags().some(t=>t[0]==="imeta"&&t.includes("m audio/mpeg")));
+});
+
+test("podcast retry reuses the same signed event and keeps audio URLs out of notes", async()=>{
+  const s=setup({mode:"podcast"},{title:"Episode",content:"Notes",media:"https://cdn.test/episode.mp3"},{fail:1});
+  await assert.rejects(s.component.submit(s.form),/interrupted/);await s.component.submit(s.form);
+  assert.equal(s.signed.length,1);assert.equal(s.calls.length,2);assert.equal(s.calls[0].body,s.calls[1].body);assert.equal(s.signed[0].content,"Notes");
+});
+
+test("new podcast shows tolerate null metadata and preserve existing tags and websites", async()=>{
+  const tags=[["p",parentAuthor],["website","https://old.example/one"],["website","https://old.example/two"],["custom","keep"]];
+  const s=setup({mode:"podcast-show","show-tags":JSON.stringify(tags)},{title:"Series",website:"https://new.example"});
+  await s.component.submit(s.form);assert.equal(s.signed[0].kind,10154);
+  assert.deepEqual(s.tags(),[["p",parentAuthor],["custom","keep"],["title","Series"],["website","https://new.example/"],["website","https://old.example/two"]]);
+  const fresh=setup({mode:"podcast-show","show-tags":"null"},{title:"Fresh"});await fresh.component.submit(fresh.form);assert.equal(fresh.signed[0].kind,10154);assert.ok(!fresh.tags().some(t=>t[0]==="d"));
+});
+
+test("podcast requires audio and rejects non-audio attachments", async()=>{
+  const missing=setup({mode:"podcast"},{title:"Episode",content:"Notes"});await assert.rejects(missing.component.submit(missing.form),/audio track/);assert.equal(missing.signed.length,0);
+  const image=setup({mode:"podcast"},{title:"Episode",content:"Notes",media:"https://cdn.test/image.jpg","media-type":"image/jpeg"});await assert.rejects(image.component.submit(image.form),/audio track/);assert.equal(image.signed.length,0);
+});
+
+test("direct and nested podcast replies use NIP-22 root and parent tags", async()=>{
+  const direct=setup({mode:"comment",target:root,"target-kind":"54","target-pubkey":author},{content:"Reply"});await direct.component.submit(direct.form);
+  assert.equal(direct.signed[0].kind,1111);assert.deepEqual(direct.tags(),[["E",root,hint,author],["K","54"],["P",author,hint],["e",root,hint,author],["k","54"],["p",author,hint]]);
+  const nested=setup({mode:"comment",target:parent,"target-kind":"1111","target-pubkey":parentAuthor,root,"root-kind":"54","root-pubkey":author},{content:"Nested"});await nested.component.submit(nested.form);
+  assert.deepEqual(nested.tags(),[["E",root,hint,author],["K","54"],["P",author,hint],["e",parent,hint,parentAuthor],["k","1111"],["p",parentAuthor,hint]]);
+});

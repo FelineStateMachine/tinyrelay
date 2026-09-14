@@ -33,6 +33,10 @@ type Config struct {
 	// device delivery. The gift wrap itself is opaque to the relay once sealed.
 	PushNotification func(context.Context, string, string, string, string) error
 	OnTransfer       func(context.Context, string, string) error
+	// EventVisible optionally applies the host relay's live visibility rules
+	// while building the podcast view. Other built-in views retain their
+	// existing projection behavior.
+	EventVisible func(context.Context, event.Event, policy.Access) bool
 	// Community supplies membership and moderation projections through the
 	// CommunityReader boundary.
 	Community CommunityReader
@@ -62,6 +66,7 @@ type Service struct {
 	pushNotification    func(context.Context, string, string, string, string) error
 	onTransfer          func(context.Context, string, string) error
 	community           CommunityReader
+	eventVisible        func(context.Context, event.Event, policy.Access) bool
 	mu                  sync.Mutex
 }
 
@@ -106,7 +111,7 @@ func New(ctx context.Context, cfg Config) (*Service, error) {
 	if groupID == "" {
 		groupID = cfg.RelayURL
 	}
-	return &Service{store: cfg.Store, policy: cfg.Policy, setPolicy: cfg.SetPolicy, relayURL: cfg.RelayURL, groupID: groupID, secret: secret, onGenerated: cfg.OnGenerated, deliverNotification: cfg.DeliverNotification, pushNotification: cfg.PushNotification, onTransfer: cfg.OnTransfer, community: cfg.Community}, nil
+	return &Service{store: cfg.Store, policy: cfg.Policy, setPolicy: cfg.SetPolicy, relayURL: cfg.RelayURL, groupID: groupID, secret: secret, onGenerated: cfg.OnGenerated, deliverNotification: cfg.DeliverNotification, pushNotification: cfg.PushNotification, onTransfer: cfg.OnTransfer, community: cfg.Community, eventVisible: cfg.EventVisible}, nil
 }
 
 var roleOrder = []string{"owner", "moderator", "member", "agent"}
@@ -128,7 +133,7 @@ type ViewRun struct {
 	Rows int   `json:"rows"`
 }
 
-var viewNames = []string{"profiles", "relays", "calendar", "moderation", "articles", "zaps", "presence"}
+var viewNames = []string{"profiles", "relays", "calendar", "moderation", "articles", "podcasts", "zaps", "presence"}
 
 func calendarStart(e event.Event) int64 {
 	s := event.Tag(e, "start")

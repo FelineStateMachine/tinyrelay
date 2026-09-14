@@ -291,6 +291,7 @@ func parseTemplates(a *App) (*template.Template, error) {
 	}
 	tmpl = tmpl.Funcs(template.FuncMap{
 		"socialBody":   a.socialBody,
+		"podcastNotes": a.podcastNotes,
 		"markdown":     a.markdown,
 		"chatMarkdown": a.chatMarkdown,
 		"wikiHTML":     a.wikiHTML,
@@ -330,6 +331,9 @@ func parseTemplateBase() (*template.Template, error) {
 		"socialView":          socialView,
 		"socialFeedPage":      socialFeedPage,
 		"podcastFeedURL":      podcastFeedURL,
+		"podcastEpisode":      podcastEpisode,
+		"podcastNotes":        func(any) template.HTML { return "" },
+		"podcastProfile":      podcastProfile,
 		"socialQuery":         socialQuery,
 		"socialURL":           socialURL,
 		"socialThreadURL":     socialURL,

@@ -4,6 +4,8 @@ A custom view currently provides a block transform: it renders fenced code block
 
 Block transforms can support diagrams, charts or other code-based images. They do not define event lists, aggregate reports or alternate presentations of whole events. The built-in views listed by `listviews` produce signed summaries separately. See the [reusable view proposal](view-definitions.md) for a shared definition covering these uses.
 
+The built-in `podcasts` view summarizes native NIP-F4 show metadata and episodes in a signed relay record. It refreshes after matching writes and deletions, and readers can use the same current events through the Social podcast RSS feed.
+
 A relay with no block transforms keeps showing code. The source remains available beneath each image. If an image fails to load, the page opens its source when JavaScript is available; without JavaScript, open **Source** to read it.
 
 The [custom-view transform contract](extensions/custom-view-transforms.md) defines this project extension, its wire exchange, artifact records and audited limits. It is not a general event-transform standard.

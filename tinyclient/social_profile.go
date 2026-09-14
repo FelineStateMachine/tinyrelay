@@ -81,7 +81,8 @@ func (a *App) socialProfilePage(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(socialErrorStatus(feedErr))
 	}
 	data.Event = map[string]any{
-		"profile":     valueMap(profile)["profile"],
+		"profile":     podcastProfile(valueMap(profile)["profile"], valueMap(feed)["show"]),
+		"show":        valueMap(feed)["show"],
 		"pubkey":      canonical,
 		"next_cursor": valueMap(feed)["next_cursor"],
 	}

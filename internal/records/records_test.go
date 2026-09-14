@@ -137,7 +137,7 @@ func TestViewAudienceAndMemberFoldAreNotStored(t *testing.T) {
 	p := policy.Defaults(owner)
 	p.DirectoryPublic = false
 	p.Reads = "open"
-	p.Views = map[string]string{"profiles": "daily", "relays": "off", "calendar": "daily", "moderation": "off", "articles": "off", "zaps": "off", "presence": "off"}
+	p.Views = map[string]string{"profiles": "daily", "relays": "off", "calendar": "daily", "moderation": "off", "articles": "off", "podcasts": "off", "zaps": "off", "presence": "off"}
 	generated := []event.Event{}
 	r, err := New(ctx, Config{Community: emptyCommunityReader{}, Store: s, Policy: func() policy.Policy { return p }, RelayURL: "wss://relay.example", OnGenerated: func(context.Context, event.Event) error {
 		generated = append(generated, event.Event{})
@@ -195,7 +195,7 @@ func TestHourlyViewFingerprintSkipsUnchangedRun(t *testing.T) {
 	s, ctx := testStore(t)
 	owner := "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 	p := policy.Defaults(owner)
-	p.Views = map[string]string{"profiles": "off", "relays": "off", "calendar": "hourly", "moderation": "off", "articles": "off", "zaps": "off", "presence": "off"}
+	p.Views = map[string]string{"profiles": "off", "relays": "off", "calendar": "hourly", "moderation": "off", "articles": "off", "podcasts": "off", "zaps": "off", "presence": "off"}
 	generated := 0
 	r, err := New(ctx, Config{Community: emptyCommunityReader{}, Store: s, Policy: func() policy.Policy { return p }, OnGenerated: func(context.Context, event.Event) error {
 		generated++
@@ -226,7 +226,7 @@ func TestDefaultArticleWriteTriggerCoalescesDurably(t *testing.T) {
 	s, ctx := testStore(t)
 	owner := "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 	p := policy.Defaults(owner)
-	for _, name := range []string{"profiles", "relays", "calendar", "moderation", "zaps", "presence"} {
+	for _, name := range []string{"profiles", "relays", "calendar", "moderation", "podcasts", "zaps", "presence"} {
 		p.Views[name] = "off"
 	}
 	generated := 0

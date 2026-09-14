@@ -109,7 +109,7 @@ func appendSuccessionLog(ctx context.Context, st *storage.Store, entry successio
 }
 
 func (s *Service) tickViews(ctx context.Context, p policy.Policy, now int64) error {
-	defaults := map[string]int64{"profiles": 86400, "relays": 86400, "calendar": 3600, "moderation": 86400, "articles": 86400, "zaps": 3600}
+	defaults := map[string]int64{"profiles": 86400, "relays": 86400, "calendar": 3600, "moderation": 86400, "articles": 86400, "podcasts": 86400, "zaps": 3600}
 	for name, period := range defaults {
 		mode := effectiveViewTrigger(p, name)
 		if mode == "off" || !viewStored(p, name) {
