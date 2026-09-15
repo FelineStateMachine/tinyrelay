@@ -1830,9 +1830,11 @@
       if (routeChanged) {
         document.getElementById("nav-menu")?.removeAttribute("open");
         document.getElementById("context-menu")?.removeAttribute("open");
+        // A room timeline opens at its newest message; every other route at the top.
         const content = document.querySelector("#content");
-        if (content) content.scrollTop = 0;
-        if (typeof window.scrollTo === "function") window.scrollTo(0, 0);
+        const timeline = document.getElementById("messages");
+        if (content) content.scrollTop = timeline ? content.scrollHeight : 0;
+        if (typeof window.scrollTo === "function") window.scrollTo(0, timeline ? document.documentElement.scrollHeight : 0);
         content?.focus({preventScroll: true});
       } else {
         const focus = focusID && document.getElementById(focusID);

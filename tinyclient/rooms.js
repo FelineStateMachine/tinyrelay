@@ -754,7 +754,9 @@
  // reactions update their targets. It reconnects with backoff.
  class RoomLive extends HTMLElement {
    static get observedAttributes() { return ["room", "root"]; }
-   connectedCallback() { this.open(); roomScroll(); }
+   // The timeline opens at its newest message: once now, once after layout
+   // and once more after avatars and fonts have settled the heights.
+   connectedCallback() { this.open(); roomScroll(); requestAnimationFrame(roomScroll); window.addEventListener("load", roomScroll, {once: true}); }
    disconnectedCallback() { this.close(); }
    attributeChangedCallback() { if (this.isConnected) { this.close(); this.open(); } }
 
