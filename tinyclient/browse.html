@@ -53,7 +53,7 @@
 </table></details>{{if .Actor}}<details id="manage-file"><summary>Manage file</summary><rpc-form method="deleteblob"><input type="hidden" name="param" value="{{$hash}}"><button data-danger>Delete file</button></rpc-form></details>{{end}}</section>
 {{end}}{{end}}
 
-{{define "approvals"}}<section>
+{{define "approvals"}}<section id="approvals">
 <h1>Approvals</h1>
 {{if not .Actor}}<p><a href="{{signinURL .Base .Path .Query}}">Sign in</a> to see the requests addressed to your key.</p>
 {{else if .Error}}{{template "alert" .Error}}
@@ -77,7 +77,6 @@
 
 {{define "sites"}}<section>
 <h1>Sites</h1>
-<p>Static sites published to this relay as signed manifests. Each site is served on its own host.</p>
 {{if .Error}}{{template "alert" .Error}}
 {{else if .Feed}}<table id="rows">
 <thead><tr><th>author</th><th>site</th><th>updated</th></tr></thead>
