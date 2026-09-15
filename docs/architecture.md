@@ -51,7 +51,7 @@ Consumers declare interfaces around the operations they need. `records.Community
 
 Client publication and imported events use the shared event persistence and projection path. Each entry point applies its admission rules and protocol actions. Signed repository state stays pending until its referenced Git objects are available; promotion makes it visible and plans its optional follow-up work.
 
-Callbacks and custom views are optional. A planning intent commits with an accepted event and captures its eligible registrations or failed local lookups. Recovery rechecks the source and current registrations, with at most three worker attempts and a 15-minute age limit. Stable child intent IDs preserve completed work. Remote delivery and transforms have their own retry policies. See [callbacks](agents.md#retries-and-pauses) and [custom views](views.md#failures).
+Callbacks and custom views are optional. A planning intent commits with an accepted event and captures its eligible registrations or failed local lookups. Recovery rechecks the source and current registrations, with at most three worker attempts and a 15-minute age limit. Stable child intent IDs preserve completed work. Remote delivery and transforms have their own retry policies. See [callbacks](agent-access.md#retries-and-pauses) and [custom views](views.md#failures).
 
 ## Browser boundaries
 

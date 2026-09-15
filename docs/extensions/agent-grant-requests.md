@@ -8,7 +8,7 @@
 | Owner | `internal/community` request parsing, patching and replacement validation; `internal/gates` admission/privacy; `internal/daemon` MCP preparation, approvals and history. |
 | Wire | Agent-signed kind `1111` with `request=grant`; operator-signed kind `30392` replacement. |
 
-The [catalog's audit baseline and transport rules](README.md) apply. [NIP-22](https://github.com/nostr-protocol/nips/blob/master/22.md) supplies the kind 1111 comment/reference foundation; [NIP-25](https://github.com/nostr-protocol/nips/blob/master/25.md) supplies kind 7 reactions; NIP-01 and NIP-40 supply signed event and expiration foundations. The `grant` request type, JSON patch, provenance and authority rules are project additions to those foundations. No upstream revision or full NIP-22 conformance audit is asserted. This is not the general-purpose approval convention or upstream delegation. See [Agent identities](../agents.md#requesting-additional-access) for the workflow.
+The [catalog's audit baseline and transport rules](README.md) apply. [NIP-22](https://github.com/nostr-protocol/nips/blob/master/22.md) supplies the kind 1111 comment/reference foundation; [NIP-25](https://github.com/nostr-protocol/nips/blob/master/25.md) supplies kind 7 reactions; NIP-01 and NIP-40 supply signed event and expiration foundations. The `grant` request type, JSON patch, provenance and authority rules are project additions to those foundations. No upstream revision or full NIP-22 conformance audit is asserted. This is not the general-purpose approval convention or upstream delegation. See [Agent identities](../agent-access.md#requesting-additional-access) for the workflow.
 
 ## Request envelope
 

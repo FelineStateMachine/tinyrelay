@@ -16,11 +16,11 @@ Four tools cover the wiki. `tiny.list_wiki` lists pages with their shown version
 
 ## Approvals
 
-Three tools cover requests for a decision. `tiny.list_approvals` lists the requests addressed to the signed-in person with each one's asker, subject, expiry, state and answer, plus counts of open, answered and expired requests; `state` narrows the list to `open`, `answered`, `expired` or `all`. `tiny.read_approval` returns one request by event id with every reaction and reply from the people asked. `tiny.open_approvals` opens the Approvals page, focused on one request when `id` is given. Answering stays a manual step: the person approves, denies or replies with their own signer. To make a request, publish an event as described in [Asking a person](agents.md#asking-a-person).
+Three tools cover requests for a decision. `tiny.list_approvals` lists the requests addressed to the signed-in person with each one's asker, subject, expiry, state and answer, plus counts of open, answered and expired requests; `state` narrows the list to `open`, `answered`, `expired` or `all`. `tiny.read_approval` returns one request by event id with every reaction and reply from the people asked. `tiny.open_approvals` opens the Approvals page, focused on one request when `id` is given. Answering stays a manual step: the person approves, denies or replies with their own signer. To make a request, publish an event as described in [Asking a person](agent-access.md#asking-a-person).
 
 ## Long tasks
 
-Two tools follow [long tasks](agents.md#long-tasks). `tiny.list_jobs` lists the job requests visible to the signed-in account with each one's room, requester, assignees, subject, state, status, newest progress, result with its artifacts, error and cancel time; `state` narrows the list to `open`, `done`, `failed`, `cancelled` or `all`, and `mine` lists only your own requests. `tiny.read_job` returns one request by event id with its answers, oldest first. Requesting, answering and cancelling stay signed actions through the relay's [MCP](mcp.md#long-tasks) tools or a relay connection.
+Two tools follow [long tasks](agent-access.md#long-tasks). `tiny.list_jobs` lists the job requests visible to the signed-in account with each one's room, requester, assignees, subject, state, status, newest progress, result with its artifacts, error and cancel time; `state` narrows the list to `open`, `done`, `failed`, `cancelled` or `all`, and `mine` lists only your own requests. `tiny.read_job` returns one request by event id with its answers, oldest first. Requesting, answering and cancelling stay signed actions through the relay's [MCP](mcp.md#long-tasks) tools or a relay connection.
 
 Choose **Sign in** in the footer, or follow a sign-in link on a protected page, and connect your Nostr signer. Reading protected information uses your browser session. Management actions request a signature and follow your account permissions. The Account page holds the signed-in key's profile, relay lists and Chat presence preference; use the page directly because there is no browser-agent mutation tool for those personal settings. A queued backup or job has not finished until its status says so.
 
@@ -30,7 +30,7 @@ Read the current policy or connection list before changing settings. Job interva
 
 ## Agents
 
-The owner and moderators can also manage [agent grants](agents.md) through the browser agent:
+The owner and moderators can also manage [agent grants](agent-access.md) through the browser agent:
 
 | Tool | What it does |
 | --- | --- |
@@ -54,7 +54,7 @@ The owner and moderators review [access requests](membership.md#access-requests)
 
 Each decision requests a signature and is recorded in the audit log.
 
-Four more tools manage [callbacks](agents.md#callbacks), the URLs an agent registers to be woken by new events:
+Four more tools manage [callbacks](agent-access.md#callbacks), the URLs an agent registers to be woken by new events:
 
 | Tool | What it does |
 | --- | --- |

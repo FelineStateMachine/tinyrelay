@@ -8,7 +8,7 @@
 | Owner | `internal/community` parses grants and owns their effective state; `internal/gates` enforces admission; `internal/daemon` binds management, storage and feature authority. |
 | Wire | Kind `30392`; address `30392:<operator pubkey>:<agent pubkey>`. |
 
-The [catalog's audit baseline and transport rules](README.md) apply. Foundations are [NIP-01](https://github.com/nostr-protocol/nips/blob/master/01.md) signed/addressable events, [NIP-09](https://github.com/nostr-protocol/nips/blob/master/09.md) deletion, [NIP-40](https://github.com/nostr-protocol/nips/blob/master/40.md) expiration, and NIP-86/NIP-98 management. Kind 30392, its grant tags, the agent role and the management methods below are project conventions, not an upstream delegation standard. No upstream revision or complete conformance audit is asserted. The user guide is [Agent identities](../agents.md).
+The [catalog's audit baseline and transport rules](README.md) apply. Foundations are [NIP-01](https://github.com/nostr-protocol/nips/blob/master/01.md) signed/addressable events, [NIP-09](https://github.com/nostr-protocol/nips/blob/master/09.md) deletion, [NIP-40](https://github.com/nostr-protocol/nips/blob/master/40.md) expiration, and NIP-86/NIP-98 management. Kind 30392, its grant tags, the agent role and the management methods below are project conventions, not an upstream delegation standard. No upstream revision or complete conformance audit is asserted. The user guide is [Agent identities](../agent-access.md).
 
 ## Event fields
 

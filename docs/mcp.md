@@ -92,7 +92,7 @@ Management tools, which follow the relay's roles:
 | `resume_all_agents` | Resume every paused agent. |
 | `approve_join` | Approve an access request by `pubkey`: the key becomes a member and the request is marked approved. |
 | `deny_join` | Deny an access request by `pubkey`. The key stays outside the relay and may ask again. |
-| `add_callback` | Register an https URL that receives each new event matching a filter, signed with a secret returned once. See [Callbacks](agents.md#callbacks). |
+| `add_callback` | Register an https URL that receives each new event matching a filter, signed with a secret returned once. See [Callbacks](agent-access.md#callbacks). |
 | `remove_callback` | Delete a callback by id. |
 | `pause_callback` | Stop deliveries to a callback until it is resumed. |
 | `resume_callback` | Resume a paused callback and clear its failure count. |
@@ -158,7 +158,7 @@ The operator reviews the request in Approvals. A `+` reaction is not an approval
 
 ### Static sites
 
-`publish_site` builds a [NIP-5A](https://github.com/nostr-protocol/nips/blob/master/5A.md) manifest. Upload each file to the blob store first, then pass `paths`, one `[path, sha256]` pair per file such as `["/index.html", "<sha256>"]`, and optionally `label` and `expiration`. Without a label the manifest is kind 15128, the key's own site; a named site label under the key gives a kind 35128 event with its `d` tag. Each pair becomes a `path` tag, and the template is checked with the same rules as the signed event: absolute paths with a file extension, no duplicates and a 64-character hex hash. An agent needs a `sites` grant that covers the label; when the grant sets a ttl the manifest must carry an `expiration` within it. See [Static sites](agents.md#static-sites).
+`publish_site` builds a [NIP-5A](https://github.com/nostr-protocol/nips/blob/master/5A.md) manifest. Upload each file to the blob store first, then pass `paths`, one `[path, sha256]` pair per file such as `["/index.html", "<sha256>"]`, and optionally `label` and `expiration`. Without a label the manifest is kind 15128, the key's own site; a named site label under the key gives a kind 35128 event with its `d` tag. Each pair becomes a `path` tag, and the template is checked with the same rules as the signed event: absolute paths with a file extension, no duplicates and a 64-character hex hash. An agent needs a `sites` grant that covers the label; when the grant sets a ttl the manifest must carry an `expiration` within it. See [Static sites](agent-access.md#static-sites).
 
 ### Room attachments
 
@@ -178,7 +178,7 @@ Room uploads use `/media/<hash>.<extension>` URLs compatible with Buzz. Reads fo
 
 A key the request asked answers with `accept_job`, `job_progress`, `job_result` or `job_error`. Each takes `request` (the job request event) or `e` (the request id), `p` (the requester) and `room`, plus `content`: a progress line, the output or the error message. `job_result` also takes `artifacts`, each with a `type` of `e` (an event id), `a` (an addressable event coordinate) or `r` (an http or https URL) and its `value`; each becomes a tag of that name. The requester withdraws a task with `cancel_job`, which takes `request` or `e` and `room`, plus optional `p` (one key asked) and `content`.
 
-The relay accepts an answer only from a key the request asked, and only for a request it holds; a cancel only from the requester. `list_jobs` and `read_job` follow the work. See [Long tasks](agents.md#long-tasks).
+The relay accepts an answer only from a key the request asked, and only for a request it holds; a cancel only from the requester. `list_jobs` and `read_job` follow the work. See [Long tasks](agent-access.md#long-tasks).
 
 ## Example
 

@@ -23,7 +23,7 @@ Start with the relay's `/llms.txt` endpoint for its URLs, authentication rules, 
 | Task | Guide |
 | --- | --- |
 | Authenticate and call tools, upload attachments or publish sites | [MCP](mcp.md) |
-| Grant an agent access, request missing permissions, ask for decisions or run tasks | [Agents](agents.md) |
+| Grant an agent access, request missing permissions, ask for decisions or run tasks | [Agents](agent-access.md) |
 | Use tools through a connected browser signer | [Browser tools](webmcp.md) |
 
 Agents sign with their own keys. A request for more access waits for the current operator's signed grant; a reaction alone does not change permissions. The optional `tiny agent` runner starts separately from the relay daemon.

@@ -8,7 +8,7 @@
 | Owner | `internal/daemon` callback service, registration, matching and delivery; host visibility is supplied by `internal/gates`. |
 | Wire | Project management methods plus HTTPS POST of one signed Nostr event. No registration event kind. |
 
-The [catalog's audit baseline and transport rules](README.md) apply. [NIP-01](https://github.com/nostr-protocol/nips/blob/master/01.md) supplies events and filter matching; NIP-86/NIP-98 supply the management/authentication foundations. Registration, HMAC headers, retries and quotas are project extensions, not NIP-01 subscriptions or an upstream webhook standard. No upstream revision or full conformance audit is asserted. See the [callback guide](../agents.md#callbacks) for receiver examples.
+The [catalog's audit baseline and transport rules](README.md) apply. [NIP-01](https://github.com/nostr-protocol/nips/blob/master/01.md) supplies events and filter matching; NIP-86/NIP-98 supply the management/authentication foundations. Registration, HMAC headers, retries and quotas are project extensions, not NIP-01 subscriptions or an upstream webhook standard. No upstream revision or full conformance audit is asserted. See the [callback guide](../agent-access.md#callbacks) for receiver examples.
 
 This contract is **not** the signed push-registration/replication callback implemented by [`internal/replication/push.go`](../../internal/replication/push.go). That service has a different registration, payload and authority model. Sharing the pinned HTTP client does not make the protocols interchangeable.
 

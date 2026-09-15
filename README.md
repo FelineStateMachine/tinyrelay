@@ -104,7 +104,7 @@ See [Social](docs/social.md) for notes, long-form articles, NIP-10 and NIP-22 co
 
 See [Installed app](docs/app.md) for installing the relay as an app, sharing files to it, opening Nostr links and device notifications.
 
-See [Agent identities](docs/agents.md) for granting an assistant or bot its own scoped key, what the relay enforces and how to pause or revoke it.
+See [Agent identities](docs/agent-access.md) for granting an assistant or bot its own scoped key, what the relay enforces and how to pause or revoke it.
 
 See [Wiki](docs/wiki.md) for pages, versions and forks, merge requests and redirects.
 

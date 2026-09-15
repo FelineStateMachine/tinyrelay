@@ -147,7 +147,7 @@ func (t *Tenant) llmsHTTP(w http.ResponseWriter, r *http.Request) {
 		"## Documentation",
 		"",
 		"- MCP: https://github.com/FelineStateMachine/tinyrelay/blob/main/docs/mcp.md",
-		"- Agents, grant requests, decisions, tasks and runner setup: https://github.com/FelineStateMachine/tinyrelay/blob/main/docs/agents.md",
+		"- Agents, grant requests, decisions, tasks and runner setup: https://github.com/FelineStateMachine/tinyrelay/blob/main/docs/agent-access.md",
 		"- Chat and direct-message interoperability: https://github.com/FelineStateMachine/tinyrelay/blob/main/docs/chat.md",
 		"- Social notes, articles and interactions: https://github.com/FelineStateMachine/tinyrelay/blob/main/docs/social.md",
 		"- Files, access, encryption and uploads: https://github.com/FelineStateMachine/tinyrelay/blob/main/docs/files-and-private-repositories.md",
