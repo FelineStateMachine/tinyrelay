@@ -756,7 +756,7 @@
    static get observedAttributes() { return ["room", "root"]; }
    // The timeline opens at its newest message: once now, once after layout
    // and once more after avatars and fonts have settled the heights.
-   connectedCallback() { this.open(); roomScroll(); requestAnimationFrame(roomScroll); window.addEventListener("load", roomScroll, {once: true}); }
+   connectedCallback() { this.open(); roomScroll(); globalThis.requestAnimationFrame?.(roomScroll); globalThis.addEventListener?.("load", roomScroll, {once: true}); }
    disconnectedCallback() { this.close(); }
    attributeChangedCallback() { if (this.isConnected) { this.close(); this.open(); } }
 
