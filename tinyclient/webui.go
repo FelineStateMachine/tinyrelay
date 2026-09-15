@@ -772,6 +772,12 @@ func (a *App) render(writer http.ResponseWriter, request *http.Request, data Pag
 		}
 		data.Event, data.Feed, data.Error = nil, nil, ""
 	}
+	if !data.Private && data.Actor != "" && railKind(data.Tab) == "manage" && !data.Owner && !a.readAdmitted(request.Context(), actor) {
+		// A signed-in key the relay does not admit gets a short notice instead
+		// of management forms that would only fail once signed.
+		data.Tab = "manage-restricted"
+		data.Event, data.Feed, data.Error = nil, nil, ""
+	}
 	writer.Header().Set("Cache-Control", "private, no-store")
 	writer.Header().Set("content-type", "text/html; charset=utf-8")
 	var rendered bytes.Buffer
@@ -820,6 +826,10 @@ func (a *App) qrImage(writer http.ResponseWriter, text string) {
 
 func (a *App) page(writer http.ResponseWriter, request *http.Request) {
 	tab := tabForPath(request.URL.Path)
+	if tab == "home" && strings.Trim(strings.TrimPrefix(request.URL.Path, pathPrefix(request.URL.Path)), "/") != "" {
+		http.NotFound(writer, request)
+		return
+	}
 	actor, err := a.resolveActor(request)
 	if err != nil {
 		actor = ""
@@ -1217,6 +1227,23 @@ func requestPrefix(request *http.Request) string {
 		return ""
 	}
 	return pathPrefix(request.URL.Path)
+}
+
+// readAdmitted reports whether the relay lets actor read at all: the private
+// service check when it is enabled, and the members-only read gate otherwise.
+func (a *App) readAdmitted(ctx context.Context, actor string) bool {
+	if reader, ok := a.backend.(PrivateReader); ok {
+		if err := reader.ReadAllowed(ctx, actor); err != nil {
+			return false
+		}
+	}
+	if a.backend.Policy().Reads != "members" {
+		return true
+	}
+	if _, err := a.backend.Query(ctx, "browserooms", []json.RawMessage{json.RawMessage(`{"limit":1}`)}, actor); err != nil {
+		return !restricted(err.Error()) && !authRequired(err.Error())
+	}
+	return true
 }
 
 func tabForPath(path string) string {
