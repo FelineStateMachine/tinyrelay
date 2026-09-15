@@ -4,7 +4,11 @@ The relay installs as an app from the browser menu on Android, iOS and desktop. 
 
 ## Mobile navigation
 
-The mobile header shows the current page or conversation. Chats show the room picture and name; replies show **Thread** above the room name. Use the back arrow to return to the parent page or conversation. Tap the title to open page details, including room members and settings. Tap **Menu** for navigation, your account and sign-out controls.
+The mobile header shows the current page or conversation. Chats show the room picture and name; replies show **Thread** above the room name. Use the back arrow to return to the parent page or conversation. Tap the title to open page details as a sheet from the bottom of the screen, including room members and settings. Tap **Menu** for navigation, your account and sign-out controls.
+
+## Square screens
+
+On unfolded foldables and tablets held upright, between 680 and 1023 pixels wide, the navigation rail stays open and the page header carries the page title and a **details** button. The details panel slides in from the right and closes when you tap outside it or press Escape. Wider screens show the rail, the page and the details panel side by side.
 
 ## Sharing to the relay
 
