@@ -236,17 +236,58 @@ func TestDiagnoseKeepsAuthorizationApartFromTransport(t *testing.T) {
 	if err != nil || report.Verdict != verdictOK || !report.Transport.OK || report.Transport.Check != "nip11" || report.Transport.Status != 401 {
 		t.Fatalf("private relay report %+v err %v", report, err)
 	}
-	// A relay that predates browsegrant still proves the signature works.
-	relay.rpcStatus, relay.rpcBody = http.StatusBadRequest, `{"error":"unsupported: browse operation"}`
-	report, err = runDiagnose(t, relay.base())
-	if err != nil || report.Verdict != verdictOK || !report.Authentication.OK || report.Authentication.Status != 400 || !strings.Contains(report.Advice, "does not answer browsegrant") {
-		t.Fatalf("old relay report %+v err %v", report, err)
+	// A relay that predates browsegrant still proves the signature works. It
+	// answers HTTP 400 with the unsupported-method error its dispatcher
+	// writes for a name it does not know.
+	for _, body := range []string{`{"error":"unsupported: unknown community method \"browsegrant\""}`, `{"error":"unsupported: browse operation"}`} {
+		relay.rpcStatus, relay.rpcBody = http.StatusBadRequest, body
+		report, err = runDiagnose(t, relay.base())
+		if err != nil || report.Verdict != verdictOK || !report.Authentication.OK || report.Authentication.Status != 400 || !strings.Contains(report.Advice, "does not answer browsegrant") {
+			t.Fatalf("old relay report %+v err %v", report, err)
+		}
 	}
 	// A 5xx on the signed call is transport, not authorization.
 	relay.rpcStatus, relay.rpcBody = http.StatusBadGateway, `upstream down`
 	report, err = runDiagnose(t, relay.base())
 	if exitStatus(err) != 3 || report.Verdict != verdictUnreachable || report.Authentication.Class != classTransport || !report.Transport.OK {
 		t.Fatalf("502 report %+v err %v", report, err)
+	}
+}
+
+// TestDiagnoseNeverReadsOtherClientErrorsAsOK is the review's loopback
+// probe: a 429 or a 400 that is not the unsupported-method error must not
+// be reported as a working signature on an old relay.
+func TestDiagnoseNeverReadsOtherClientErrorsAsOK(t *testing.T) {
+	_, pub := testKey(t)
+	relay := newDiagnoseRelay(t, "", pub)
+	cases := []struct {
+		name    string
+		status  int
+		body    string
+		class   string
+		verdict string
+		advice  string
+	}{
+		{"rate limited", http.StatusTooManyRequests, `{"error":"rate limited"}`, classRateLimited, verdictUnreachable, "rate-limited"},
+		{"invalid params", http.StatusBadRequest, `{"error":"invalid: rooms must be room ids"}`, classProtocol, verdictError, "HTTP 400"},
+		{"not found", http.StatusNotFound, `not here`, classProtocol, verdictError, "HTTP 404"},
+		{"plain 400", http.StatusBadRequest, ``, classProtocol, verdictError, "HTTP 400"},
+	}
+	for _, tc := range cases {
+		relay.rpcStatus, relay.rpcBody = tc.status, tc.body
+		report, err := runDiagnose(t, relay.base(), "--rooms", "build")
+		if exitStatus(err) != 3 || err == nil {
+			t.Fatalf("%s: exit %d err %v", tc.name, exitStatus(err), err)
+		}
+		if report.Verdict != tc.verdict || !report.Transport.OK || report.Authentication.OK || report.Authentication.Class != tc.class || report.Authentication.Status != tc.status {
+			t.Fatalf("%s: report %+v", tc.name, report)
+		}
+		if !strings.Contains(report.Advice, tc.advice) || strings.Contains(report.Advice, "does not answer browsegrant") {
+			t.Fatalf("%s: advice %q", tc.name, report.Advice)
+		}
+	}
+	if diagnoseExit(verdictError) != 3 {
+		t.Fatalf("error verdict exits %d", diagnoseExit(verdictError))
 	}
 }
 

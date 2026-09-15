@@ -35,9 +35,12 @@ const (
 	verdictNotMember    = "not-a-member"
 	verdictUnauthorized = "unauthorized"
 	verdictUnreachable  = "unreachable"
+	verdictError        = "error"
 
 	classTransport     = "transport"
 	classAuthorization = "authorization"
+	classRateLimited   = "rate-limited"
+	classProtocol      = "protocol"
 
 	diagnoseProbeTimeout = 10 * time.Second
 	diagnoseBodyLimit    = 1 << 20
@@ -121,7 +124,7 @@ func diagnoseExit(verdict string) int {
 	switch verdict {
 	case verdictOK:
 		return 0
-	case verdictUnreachable:
+	case verdictUnreachable, verdictError:
 		return 3
 	default:
 		return 2
@@ -247,6 +250,12 @@ func diagnose(ctx context.Context, c *client.Client, needs diagnoseNeeds) diagno
 				report.Verdict = verdictUnauthorized
 				report.Advice = "the relay refused the signed request (HTTP " + strconv.Itoa(check.Status) + "): check that TINY_PRIVATE_KEY is the agent key the relay expects and that --relay is the exact origin the relay serves (" + check.Error + ")"
 			}
+		case classRateLimited:
+			report.Verdict = verdictUnreachable
+			report.Advice = "the relay rate-limited the signed request (HTTP 429): retry later (" + check.Error + ")"
+		case classProtocol:
+			report.Verdict = verdictError
+			report.Advice = "the relay answered the signed browsegrant call with " + check.Error + " instead of a result: check that --relay is the exact origin the relay serves, with its tenant prefix, and that the relay is current"
 		default:
 			report.Verdict = verdictUnreachable
 			report.Advice = "the relay answered its health check but not a signed request: " + check.Error
@@ -347,7 +356,11 @@ func describeProbe(status int, err error) string {
 }
 
 // probeGrant makes the signed browsegrant call. A nil answer with an ok
-// check means the relay accepted the signature but has no such method.
+// check means the relay accepted the signature but has no such method: it
+// answered HTTP 400 with the unsupported-method error its dispatcher writes
+// for a name it does not know. 401 and 403 are authorization failures, 429
+// is rate limiting, 5xx is transport, and any other status is a protocol
+// error; none of those is read as a working signature.
 func probeGrant(ctx context.Context, c *client.Client, needs diagnoseNeeds) (*grantAnswer, diagnoseCheck) {
 	params := map[string]any{}
 	if len(needs.Rooms) > 0 {
@@ -373,15 +386,22 @@ func probeGrant(ctx context.Context, c *client.Client, needs diagnoseNeeds) (*gr
 	if message == "" {
 		message = strings.TrimSpace(string(data))
 	}
+	if message == "" {
+		message = http.StatusText(status)
+	}
 	switch {
 	case status == http.StatusUnauthorized || status == http.StatusForbidden:
 		return nil, diagnoseCheck{Status: status, Class: classAuthorization, Error: message}
+	case status == http.StatusTooManyRequests:
+		return nil, diagnoseCheck{Status: status, Class: classRateLimited, Error: message}
 	case status >= 500:
 		return nil, diagnoseCheck{Status: status, Class: classTransport, Error: "HTTP " + strconv.Itoa(status) + ": " + message}
-	case status/100 != 2:
-		// The signature was checked before the method was dispatched, so any
-		// other refusal is the relay not knowing browsegrant.
+	case status == http.StatusBadRequest && strings.HasPrefix(envelope.Error, "unsupported:"):
+		// The signature was checked before the method was dispatched, and
+		// the dispatcher did not know browsegrant.
 		return nil, diagnoseCheck{OK: true, Status: status, Error: message}
+	case status/100 != 2:
+		return nil, diagnoseCheck{Status: status, Class: classProtocol, Error: "HTTP " + strconv.Itoa(status) + ": " + message}
 	case envelope.Result == nil:
 		return nil, diagnoseCheck{Status: status, Class: classTransport, Error: "the relay returned an invalid browsegrant result"}
 	}
