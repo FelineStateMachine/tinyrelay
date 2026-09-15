@@ -146,6 +146,70 @@ var relayNav = []navItem{
 
 var manageNav = []navItem{{"/people", "/manage/people", "people", 0}, {"/agents", "/manage/agents", "agents", 0}, {"/moderation", "/manage/moderation", "moderation", 1}, {"/rules", "/manage/rules", "rules", 1}, {"/identity", "/manage/identity", "identity", 2}, {"/connect", "/manage/connect", "connect", 2}, {"/owner", "/manage/owner", "owner", 2}, {"/sync", "/manage/sync", "sync", 3}, {"/data", "/manage/data", "data", 3}, {"/views", "/manage/views", "views", 3}, {"/health", "/manage/health", "health", 4}}
 
+// friendlyError turns relay refusals into sentences; other errors pass through.
+func friendlyError(err string) string {
+	switch {
+	case strings.HasPrefix(err, "restricted: this relay is members-only"):
+		return "This relay is members-only. Ask the owner for an invite."
+	case strings.HasPrefix(err, "auth-required: this room is members-only"):
+		return "This room is members-only. Sign in to read it."
+	case err == "authentication required":
+		return "Sign in to see this."
+	case strings.HasPrefix(err, "auth-required:"):
+		rest := strings.TrimSpace(strings.TrimPrefix(err, "auth-required:"))
+		if rest == "" || !strings.Contains(rest, " ") {
+			return "Sign in to see this."
+		}
+		return strings.ToUpper(rest[:1]) + rest[1:] + "."
+	case strings.HasPrefix(err, "not found: "):
+		return "No such " + strings.TrimPrefix(err, "not found: ") + "."
+	}
+	return err
+}
+
+// authRequired reports a refusal that a sign-in would resolve.
+func authRequired(err string) bool {
+	return err == "authentication required" || strings.HasPrefix(err, "auth-required:")
+}
+
+// refName shows a symbolic head as its branch name and a commit as its short id.
+func refName(value any) string {
+	head := plainString(value)
+	if strings.HasPrefix(head, "ref: refs/heads/") {
+		return strings.TrimPrefix(head, "ref: refs/heads/")
+	}
+	if strings.HasPrefix(head, "ref: ") {
+		return strings.TrimPrefix(head, "ref: ")
+	}
+	return shortID(head)
+}
+
+// safeURL lets nostr: and web+nostr: links through the template sanitizer.
+func safeURL(value string) any {
+	if strings.HasPrefix(value, "nostr:") || strings.HasPrefix(value, "web+nostr:") {
+		return template.URL(value)
+	}
+	return value
+}
+
+// restricted reports a relay-level refusal so pages can hide forms that would fail.
+func restricted(err string) bool { return strings.HasPrefix(err, "restricted:") }
+
+// navGroupLabels names the rail groups by kind; an empty name leaves a group unlabeled.
+var navGroupLabels = map[string][]string{
+	"relay":  {"", "talk", "work", "relay"},
+	"manage": {"people", "policy", "relay", "data", "status"},
+}
+
+// navGroupLabel returns the label for group index i of a rail kind.
+func navGroupLabel(kind string, i int) string {
+	labels := navGroupLabels[kind]
+	if i < 0 || i >= len(labels) {
+		return ""
+	}
+	return labels[i]
+}
+
 // navGroups splits a rail list into its groups, in order.
 func navGroups(items []navItem) [][]navItem {
 	var groups [][]navItem
@@ -354,6 +418,12 @@ func parseTemplateBase() (*template.Template, error) {
 		"signinURL":           signinURL,
 		"railKind":            railKind,
 		"repoView":            repoView,
+		"navGroupLabel":       navGroupLabel,
+		"friendlyError":       friendlyError,
+		"restricted":          restricted,
+		"authRequired":        authRequired,
+		"refName":             refName,
+		"safeURL":             safeURL,
 		"relayItems":          func() []navItem { return relayNav },
 		"manageItems":         func() []navItem { return manageNav },
 		"navGroups":           navGroups,

@@ -227,6 +227,9 @@ func mobileTitle(path string, data PageData) string {
 	if strings.HasPrefix(path, "/social/") {
 		return "Social"
 	}
+	if strings.HasPrefix(path, "/invite/") {
+		return "Join"
+	}
 	if strings.HasPrefix(path, "/wiki/") {
 		return "Wiki"
 	}
