@@ -44,7 +44,7 @@ func TestProfilePagePrefillsTheFormAndOffersItFromHome(t *testing.T) {
 		`<textarea name="about" maxlength="2000">keeps &lt;cats&gt;</textarea>`,
 		`<input name="lud16" value="dami@wallet.example"`,
 		"wss://relay.one\nwss://relay.two\n</textarea>",
-		`<button>Sign and publish</button>`,
+		`<button data-primary>Sign and publish</button>`,
 		"Current profile published <time",
 	} {
 		if !strings.Contains(body, marker) {

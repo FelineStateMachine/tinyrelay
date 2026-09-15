@@ -6,18 +6,16 @@
 {{if .Policy.LanguageTags}}<tr><th>languages</th><td>{{join .Policy.LanguageTags ", "}}</td></tr>{{end}}
 {{if .Policy.RelayCountries}}<tr><th>countries</th><td>{{join .Policy.RelayCountries ", "}}</td></tr>{{end}}
 <tr><th>policies</th><td>{{if .Policy.PostingPolicy}}<a href="{{.Policy.PostingPolicy}}">posting</a> | {{end}}{{if .Policy.PrivacyPolicy}}<a href="{{.Policy.PrivacyPolicy}}">privacy</a> | {{end}}<a href="/terms">terms</a></td></tr>
-<tr><th>reads</th><td>{{.Policy.Reads}}</td></tr>
-<tr><th>writes</th><td>{{.Policy.Writes}}</td></tr>
 </table>
 {{if .Policy.Description}}<h2>About</h2>
 {{markdown .Policy.Description}}
 {{end}}{{if .Connections}}<h2>Connect</h2>
-<p>Open this relay in an app. Each card is a way in; sign in to see the ones made for members.</p>
+<p>Open this relay in an app.</p>
 {{range .Connections}}{{$c := asMap .}}<connect-card>
 <h3>{{str (index $c "title")}} <small>{{str (index $c "app")}}{{with str (index $c "where")}}, {{.}}{{end}}{{if ne (str (index $c "visibility")) "public"}} | {{str (index $c "visibility")}}{{end}}</small></h3>
 <p>{{str (index $c "about")}}</p>
 {{range index $c "inputs"}}{{$i := asMap .}}<label>{{str (index $i "Label")}} <input name="{{str (index $i "Name")}}" placeholder="{{str (index $i "Placeholder")}}" pattern="{{str (index $i "Pattern")}}"></label>
-{{end}}<p>{{range index $c "links"}}{{$l := asMap .}}{{if str (index $l "href")}}<a href="{{str (index $l "href")}}">{{str (index $l "label")}}</a> {{else}}<button type="button" data-copy="{{str (index $l "copy")}}">{{str (index $l "label")}}</button> {{end}}{{end}}{{if index $c "hidden"}}<small>sign in for {{str (index $c "hidden")}} more</small>{{end}}<output role="status"></output></p>
+{{end}}<p>{{range index $c "links"}}{{$l := asMap .}}{{if str (index $l "href")}}<a href="{{safeURL (str (index $l "href"))}}">{{str (index $l "label")}}</a> {{else}}<button type="button" data-copy="{{str (index $l "copy")}}">{{str (index $l "label")}}</button> {{end}}{{end}}{{if index $c "hidden"}}<small>sign in for {{str (index $c "hidden")}} more</small>{{end}}<output role="status"></output></p>
 {{with str (index $c "qr")}}<details><summary>QR code</summary><img src="/qr.svg?text={{urlquery .}}" alt="QR code" width="200" height="200"></details>{{end}}
 </connect-card>
 {{end}}{{end}}
@@ -38,22 +36,21 @@
 
 {{define "account"}}<section id="account">
 <h1>Account</h1>
-<p>Manage your profile, chat preferences and relay lists.</p>
 <table id="account-identity"><tbody><tr><th>signed in as</th><td>{{template "nostrName" .Actor}}</td></tr><tr><th>profile</th><td><a href="/profile">Edit your profile</a></td></tr></tbody></table>
 <h2>Chat preferences</h2>
 <chat-preferences actor="{{.Actor}}"><label><input type="checkbox" name="share_presence"{{if .SharePresence}} checked{{end}} disabled> Share presence and typing</label><p>Show when you are online or typing in chat.</p><output role="status"></output></chat-preferences><noscript><p>Changing preferences requires JavaScript and a connected signer.</p></noscript>
 <h2>Your relay lists</h2>
-<p>Choose where other Nostr clients find your notes, messages and files. Existing entries stay.</p>
+<p>Where other clients find your notes, messages and files.</p>
 <relay-lists relay="{{wsURL .URL}}" server="{{.URL}}" pubkey="{{.Actor}}">
 <table id="rows"><tbody>
-<tr data-kind="10002" data-tag="r"><td>Relay list <small>NIP-65</small></td><td>where clients read your notes and send you mentions</td><td><button type="button" name="check">check</button> <button type="button" name="add">add this relay</button></td></tr>
-<tr data-kind="10050" data-tag="relay"><td>DM inbox <small>NIP-17</small></td><td>where people send you private messages</td><td><button type="button" name="check">check</button> <button type="button" name="add">add this relay</button></td></tr>
-<tr data-kind="10007" data-tag="relay"><td>Search relays <small>NIP-51</small></td><td>where clients run your searches</td><td><button type="button" name="check">check</button> <button type="button" name="add">add this relay</button></td></tr>
-<tr data-kind="10063" data-tag="server" data-value="server"><td>Blossom servers <small>BUD-03</small></td><td>where clients upload and look for your files</td><td><button type="button" name="check">check</button> <button type="button" name="add">add this relay</button></td></tr>
+<tr data-kind="10002" data-tag="r"><td>Relay list <small>NIP-65</small></td><td>where clients read your notes and send you mentions</td><td><button type="button" name="check">Check</button> <button type="button" name="add">Add this relay</button></td></tr>
+<tr data-kind="10050" data-tag="relay"><td>DM inbox <small>NIP-17</small></td><td>where people send you private messages</td><td><button type="button" name="check">Check</button> <button type="button" name="add">Add this relay</button></td></tr>
+<tr data-kind="10007" data-tag="relay"><td>Search relays <small>NIP-51</small></td><td>where clients run your searches</td><td><button type="button" name="check">Check</button> <button type="button" name="add">Add this relay</button></td></tr>
+<tr data-kind="10063" data-tag="server" data-value="server"><td>Blossom servers <small>BUD-03</small></td><td>where clients upload and look for your files</td><td><button type="button" name="check">Check</button> <button type="button" name="add">Add this relay</button></td></tr>
 </tbody></table><output role="status"></output></relay-lists>
 </section>{{end}}
 
-{{define "signerControls"}}<p><button id="session-login" type="button">{{if .Actor}}Use connected signer{{else}}Sign in with connected signer{{end}}</button></p>
+{{define "signerControls"}}<p><button id="session-login" type="button" data-primary>{{if .Actor}}Use connected signer{{else}}Sign in with connected signer{{end}}</button></p>
 <h2>Phone signer</h2>
 <p>Scan the QR code with Amber and approve the connection and sign-in request. You will return to the page you opened.</p>
 <p><label><input type="checkbox" id="remember-signer"> Remember this device</label> <small>Keeps the phone signer connected after the app closes. Sign out to forget it.</small></p>
@@ -69,14 +66,12 @@
 
 {{define "inbox"}}<section>
 <h1>Inbox</h1>
-<p>Events addressed to this signed-in key, subject to the same private-event gates as websocket queries.</p>
 {{if .Error}}{{template "alert" .Error}}{{else}}{{template "eventList" .}}{{end}}
 </section>
 {{end}}
 
 {{define "outbox"}}<section>
 <h1>Outbox</h1>
-<p>Events authored by this signed-in key.</p>
 {{if .Error}}{{template "alert" .Error}}{{else}}{{template "eventList" .}}{{end}}
 </section>
 {{end}}
@@ -97,7 +92,6 @@
 
 {{define "articles"}}<section>
 <h1>Articles</h1>
-<p>Long-form NIP-23 events published on this relay.</p>
 {{if .Error}}{{template "alert" .Error}}{{else}}{{template "eventList" .}}{{end}}
 <p><a href="/feed.xml">Atom feed</a> | <a href="/articles.json">JSON feed</a></p>
 </section>
@@ -117,14 +111,14 @@
 {{end}}
 
 {{define "invite"}}<section>
-<h1>Join this relay</h1>
+<h1>Join {{or .Policy.Name .Slug}}</h1>
 <p>This invite is claimed with one signature from your Nostr signer. The relay never receives a private key.</p>
 {{if .Policy.JoinTerms}}<h2>Before you join</h2>
 <pre>{{.Policy.JoinTerms}}</pre>
 {{end}}<rpc-form method="claiminvite" action="/api/invites/claim" terms="{{.Policy.JoinTerms}}">
 <input type="hidden" name="param" value="{{.Invite}}">
 {{if .Policy.JoinTerms}}<label><input type="checkbox" name="termsAgreement" required> I agree to these relay terms.</label>
-{{end}}<button>Join relay</button>
+{{end}}<button data-primary>Join relay</button>
 </rpc-form>
 </section>
 {{end}}

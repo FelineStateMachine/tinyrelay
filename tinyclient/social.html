@@ -112,7 +112,6 @@
 {{define "panel-social"}}
 {{if eq .Tab "social-thread"}}<section><h4>Conversation</h4><p>Follow the discussion or add a reply of your own.</p><p><a href="/social">Back to feed</a></p></section>
 {{else if eq .Tab "social-profile"}}<section><h4>Profile</h4>{{if .View}}<p>This person’s posts, newest first.</p><p><a href="{{podcastFeedURL .Query}}">Subscribe to podcasts</a></p>{{else}}<p>Open your profile or look up another person.</p>{{end}}{{if .Actor}}<p><a href="/social/profile">Your profile</a></p>{{end}}<p><a href="/social">Browse the feed</a></p></section>
-{{else}}{{$view := socialView .Query}}<section><h4>{{$view.Label}}</h4><p>{{$view.Summary}}</p><p>Newest first. Replies and reactions stay with their posts.</p></section>
-<section><h4>Find a post</h4><form action="/social" method="get"><input type="hidden" name="kind" value="{{$view.Key}}"><label>Search <input name="q" type="search" value="{{.Query.Get "q"}}" placeholder="Words or a title"></label><label>Author <input name="author" value="{{.Query.Get "author"}}" placeholder="Public key"></label><button>Search</button> <a href="{{$view.URL}}">Clear</a></form></section>{{end}}
+{{else}}{{$view := socialView .Query}}<section><h4>Find a post</h4><form action="/social" method="get"><input type="hidden" name="kind" value="{{$view.Key}}"><label>Search <input name="q" type="search" value="{{.Query.Get "q"}}" placeholder="Words or a title"></label><label>Author <input name="author" value="{{.Query.Get "author"}}" placeholder="Public key"></label><button>Search</button> <a href="{{$view.URL}}">Clear</a></form></section>{{end}}
 <section><h4>Follow the feed</h4><p><a href="/social.xml">Atom</a> | <a href="/social.json">JSON Feed</a></p></section>
-{{if not .Actor}}<section><h4>Join in</h4><p><a href="{{signinURL .Base .Path .Query}}">Sign in</a> to post, reply and react.</p></section>{{end}}{{end}}
+{{end}}

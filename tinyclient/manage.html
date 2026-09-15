@@ -1,3 +1,10 @@
+{{define "manage-restricted"}}<section id="manage-restricted">
+<h1>Manage</h1>
+<p>Only the owner and moderators manage this relay.</p>
+<p><a href="/">Back to the relay</a></p>
+</section>
+{{end}}
+
 {{define "people"}}<section>
 <h1>People</h1>
 <h3>Members</h3>
@@ -7,12 +14,11 @@
 <label>Name <input name="member-name"></label>
 <label>Note <input name="member-note"></label>
 <label>Role <select name="member-role"><option value="member">Member</option><option value="moderator">Moderator</option></select></label>
-<button>Save member</button>
+<button data-primary>Save member</button>
 </rpc-form>
-<rpc-form method="removemember"><label>Pubkey <input name="param" required></label><button>Remove member</button></rpc-form>
-<rpc-form method="removesubtree"><label>Member pubkey <input name="param" required></label><button>Remove invite subtree</button></rpc-form>
+<rpc-form method="removemember"><label>Pubkey <input name="param" required></label><button data-danger>Remove member</button></rpc-form>
+<rpc-form method="removesubtree"><label>Member pubkey <input name="param" required></label><button data-danger>Remove invite subtree</button></rpc-form>
 {{if .Review}}<h3>Access requests</h3>
-<p><small>People who asked to join without an invite. Approving adds them as members.</small></p>
 {{with pendingRequests .Requests}}<table id="requests"><thead><tr><th>person</th><th>reason</th><th>asked</th><th></th></tr></thead><tbody>
 {{range .}}{{$r := asMap .}}{{$pk := str (index $r "pubkey")}}<tr><td>{{template "nostrName" $pk}}</td><td>{{with str (index $r "reason")}}{{.}}{{else}}<small>no reason given</small>{{end}}</td><td><time datetime="{{datetime (index $r "requested_at")}}">{{short (index $r "requested_at")}}</time></td><td><rpc-form method="approvejoin" refresh><input type="hidden" name="param" value="&quot;{{$pk}}&quot;"><button>Approve</button></rpc-form><rpc-form method="denyjoin" refresh><input type="hidden" name="param" value="&quot;{{$pk}}&quot;"><button>Deny</button></rpc-form></td></tr>
 {{end}}</tbody></table>{{else}}<p>No pending requests.</p>{{end}}
@@ -28,7 +34,7 @@
 <h3>Claims</h3>
 <rpc-form method="listclaims"><button>List claims</button></rpc-form>
 <rpc-form method="createclaim"><label>JSON claim <input name="param" value="{}"></label><button>Create claim</button></rpc-form>
-<rpc-form method="deleteclaim"><label>Claim code <input name="param" required></label><button>Delete claim</button></rpc-form>
+<rpc-form method="deleteclaim"><label>Claim code <input name="param" required></label><button data-danger>Delete claim</button></rpc-form>
 <h3>Lists</h3>
 <rpc-form method="listallowedpubkeys"><button>Allowed pubkeys</button></rpc-form>
 <rpc-form method="listbannedpubkeys"><button>Banned pubkeys</button></rpc-form>
@@ -37,10 +43,9 @@
 
 {{define "agents"}}<section>
 <h1>Agents</h1>
-<p>Agents are members with their own keys. Each one acts under a grant you sign, and stays the author of everything it does.</p>
 {{template "alert" .Error}}
 <table id="rows"><thead><tr><th>agent</th><th>scope</th><th>owner</th><th>state</th></tr></thead><tbody>
-{{range .Feed}}{{$a := asMap .}}{{$pk := str (index $a "pubkey")}}<tr><td><a href="#agent-{{$pk}}">{{agentLabel $a}}</a></td><td title="{{agentScope $a}}">{{agentScope $a}}</td><td>{{template "nostrName" (str (index $a "owner"))}}</td><td data-state="{{agentState $a}}">{{agentState $a}}{{with agentSince $a}} | {{.}}{{end}}</td></tr>
+{{range .Feed}}{{$a := asMap .}}{{$pk := str (index $a "pubkey")}}<tr><td><a href="#agent-{{$pk}}">{{agentLabel $a}}</a></td><td title="{{agentScope $a}}">{{agentScope $a}}</td><td>{{template "nostrName" (str (index $a "owner"))}}</td><td data-state="{{agentState $a}}"><status-badge kind="{{agentState $a}}">{{agentState $a}}</status-badge>{{with agentSince $a}} <small>{{.}}</small>{{end}}</td></tr>
 {{else}}<tr><td colspan="4">No agents yet. Sign a grant below to add one.</td></tr>
 {{end}}</tbody></table>
 {{range .Feed}}{{$a := asMap .}}{{$pk := str (index $a "pubkey")}}{{$state := agentState $a}}{{$scope := asMap (index $a "scope")}}
@@ -59,7 +64,7 @@
 {{with index $a "lastEvent"}}{{if when .}}<tr><th>last event</th><td><time datetime="{{datetime .}}">{{when .}}</time></td></tr>{{end}}{{end}}
 <tr><th>callbacks</th><td>{{range $c := callbacksFor $.Callbacks $pk}}{{$cm := asMap $c}}{{$cs := callbackState $c}}{{$cid := str (index $cm "id")}}<agent-callback data-state="{{$cs}}"><code>{{str (index $cm "host")}}</code> kinds {{callbackKinds $c}} | <span data-state="{{$cs}}" title="{{str (index $cm "lastStatus")}}">{{$cs}}</span>{{with index $cm "lastDelivery"}}{{if when .}} | delivered <time datetime="{{datetime .}}">{{when .}}</time>{{end}}{{end}} {{if eq $cs "paused"}}<rpc-form method="resumecallback" refresh><input type="hidden" name="param" value="&quot;{{$cid}}&quot;"><button>Resume</button></rpc-form>{{else}}<rpc-form method="pausecallback" refresh><input type="hidden" name="param" value="&quot;{{$cid}}&quot;"><button>Pause</button></rpc-form>{{end}}<rpc-form method="removecallback" refresh><input type="hidden" name="param" value="&quot;{{$cid}}&quot;"><button>Remove</button></rpc-form></agent-callback>{{else}}none{{end}}</td></tr>
 </table>
-<p>{{if eq $state "paused"}}<rpc-form method="resumeagent" refresh><input type="hidden" name="param" value="&quot;{{$pk}}&quot;"><button>Resume</button></rpc-form>{{else if eq $state "active"}}<rpc-form method="pauseagent" refresh><input type="hidden" name="param" value="&quot;{{$pk}}&quot;"><button>Pause</button></rpc-form>{{end}}{{if ne $state "revoked"}}<rpc-form method="revokeagent" refresh><input type="hidden" name="param" value="&quot;{{$pk}}&quot;"><button>Revoke</button></rpc-form>{{end}}<a href="/manage/agents?agent={{$pk}}">recent activity</a>{{if ne $state "revoked"}} <a href="/manage/agents?agent={{$pk}}&amp;edit={{$pk}}#grant">edit</a>{{end}}</p>
+<p>{{if eq $state "paused"}}<rpc-form method="resumeagent" refresh><input type="hidden" name="param" value="&quot;{{$pk}}&quot;"><button>Resume</button></rpc-form>{{else if eq $state "active"}}<rpc-form method="pauseagent" refresh><input type="hidden" name="param" value="&quot;{{$pk}}&quot;"><button>Pause</button></rpc-form>{{end}}{{if ne $state "revoked"}}<rpc-form method="revokeagent" refresh><input type="hidden" name="param" value="&quot;{{$pk}}&quot;"><button data-danger>Revoke</button></rpc-form>{{end}}<a href="/manage/agents?agent={{$pk}}">recent activity</a>{{if ne $state "revoked"}} <a href="/manage/agents?agent={{$pk}}&amp;edit={{$pk}}#grant">edit</a>{{end}}</p>
 </agent-card>
 {{end}}{{with asMap .Event}}{{$agent := asMap (index . "agent")}}
 <h3>Recent activity of {{agentLabel $agent}}</h3>
@@ -69,8 +74,8 @@
 {{else}}<p>No events from this agent yet.</p>
 {{end}}{{end}}
 {{$edit := agentByKey .Feed (.Query.Get "edit")}}{{$es := asMap (index (asMap $edit) "scope")}}<h3 id="grant">{{if $edit}}Replace the grant for {{agentLabel $edit}}{{else}}New agent{{end}}</h3>
-<p>{{if $edit}}The form holds the current grant. Signing it publishes a new kind 30392 event for the same key, which replaces the old grant at once.{{else}}The grant is a kind 30392 event signed by your key. The agent's own key signs everything it publishes.{{end}}</p>
-<agent-grant>
+{{if $edit}}<p>Signing publishes a replacement grant for the same key.</p>
+{{end}}<agent-grant>
 <label>Name <input name="name" maxlength="64" required placeholder="release-notes"{{with $edit}} value="{{agentLabel .}}"{{end}}></label>
 <label>Key <select name="key"><option value="generate">generate here, show once</option><option value="paste"{{if $edit}} selected{{end}}>paste a public key</option></select></label>
 <label>Public key <input name="pubkey" pattern="[0-9a-f]{64}" placeholder="64 hex characters"{{with $edit}} value="{{str (index (asMap .) "pubkey")}}"{{end}}></label>
@@ -81,7 +86,7 @@
 <label>Kinds <input name="kinds" placeholder="1, 1111, 1621"{{with $edit}} value="{{scopeList . "kinds"}}"{{end}}></label>
 <label>Rate per minute <input name="rate" type="number" min="1" max="600" value="{{if $edit}}{{str (index $es "rate")}}{{else}}60{{end}}"></label>
 <label>Expires <input name="expires" type="date" value="{{if $edit}}{{dateOf (index (asMap $edit) "expires")}}{{else}}{{dateAfter 90}}{{end}}" required></label>
-<button>{{if $edit}}Sign the replacement{{else}}Sign grant{{end}}</button>
+<button data-primary>{{if $edit}}Sign the replacement{{else}}Sign grant{{end}}</button>
 <noscript><p>Signing a grant needs JavaScript and a connected signer. You can also publish the kind 30392 event from any client.</p></noscript>
 </agent-grant>
 </section>
@@ -101,13 +106,13 @@
 <rpc-form method="searchevents"><label>JSON filter <input name="param" value="{}"></label><button>Search events</button></rpc-form>
 <rpc-form method="banevent"><label>Event ID <input name="param" required></label><button>Hide event</button></rpc-form>
 <rpc-form method="allowevent"><label>Event ID <input name="param" required></label><button>Allow event</button></rpc-form>
-<rpc-form method="deleteevent"><label>Event ID <input name="param" required></label><button>Delete event</button></rpc-form>
+<rpc-form method="deleteevent"><label>Event ID <input name="param" required></label><button data-danger>Delete event</button></rpc-form>
 <h3>Pins</h3>
 <rpc-form method="listpins"><button>List pins</button></rpc-form>
 <rpc-form method="pinevent"><label>Event ID or address <input name="param" required></label><button>Pin</button></rpc-form>
 <rpc-form method="unpinevent"><label>Event ID or address <input name="param" required></label><button>Unpin</button></rpc-form>
 <h3>Pubkeys</h3>
-<rpc-form method="banpubkey"><label>Pubkey <input name="param" required></label><button>Ban</button></rpc-form>
+<rpc-form method="banpubkey"><label>Pubkey <input name="param" required></label><button data-danger>Ban</button></rpc-form>
 </section>
 {{end}}
 
@@ -151,7 +156,7 @@
 <button>Save directory identity</button>
 </rpc-form>
 <h3>Ownership</h3>
-<rpc-form method="transferowner"><label>New owner pubkey <input name="param" required></label><button>Transfer ownership</button></rpc-form>
+<rpc-form method="transferowner"><label>New owner pubkey <input name="param" required></label><button data-danger>Transfer ownership</button></rpc-form>
 </section>
 {{end}}
 
@@ -195,7 +200,7 @@
 <h3>Files</h3>
 <signed-form action="/upload" method="PUT"><label>Upload file <input type="file" name="file" required></label><button>Upload</button></signed-form>
 <rpc-form method="listblobs"><button>List blobs</button></rpc-form>
-<rpc-form method="deleteblob"><label>Blob hash <input name="param" required></label><button>Delete blob</button></rpc-form>
+<rpc-form method="deleteblob"><label>Blob hash <input name="param" required></label><button data-danger>Delete blob</button></rpc-form>
 <rpc-form method="listsites"><button>List sites</button></rpc-form>
 <h3>Storage</h3>
 <rpc-form method="storagestats"><button>Storage stats</button></rpc-form>
@@ -208,14 +213,14 @@
 <rpc-form method="listdumps"><button>List dumps</button></rpc-form>
 <rpc-form method="dumpnow"><button>Write dump</button></rpc-form>
 <signed-form action="/dumps/" method="GET" download><label>Dump name <input name="name" required></label><button>Download dump</button></signed-form>
-<rpc-form method="deletedump"><label>Dump name <input name="param" required></label><button>Delete dump</button></rpc-form>
+<rpc-form method="deletedump"><label>Dump name <input name="param" required></label><button data-danger>Delete dump</button></rpc-form>
 <h3>Backups</h3>
 <rpc-form method="listbackups"><button>List backups</button></rpc-form>
 <rpc-form method="backupnow"><button>Create backup</button></rpc-form>
 <signed-form action="/backups/" method="GET" download><label>Backup name <input name="name" required></label><button>Download backup</button></signed-form>
 <signed-form action="/backups/preview" method="POST"><label>Backup archive <input type="file" name="file" accept=".backup.json,application/json" required></label><button>Preview backup</button></signed-form>
 <signed-form action="/backups/restore" method="POST"><label>Backup archive <input type="file" name="file" accept=".backup.json,application/json" required></label><button>Restore backup</button></signed-form>
-<rpc-form method="deletebackup"><label>Backup name <input name="param" required></label><button>Delete backup</button></rpc-form>
+<rpc-form method="deletebackup"><label>Backup name <input name="param" required></label><button data-danger>Delete backup</button></rpc-form>
 <h3>Import</h3>
 <signed-form action="/import" method="PUT"><label>Event JSONL <input type="file" name="file" accept=".jsonl,.json,application/json" required></label><button>Import events</button></signed-form>
 </section>
@@ -229,7 +234,7 @@
 <rpc-form method="listjobs"><button>List jobs</button></rpc-form>
 <rpc-form method="addjob"><label>JSON job <input name="param" value="{}"></label><button>Add job</button></rpc-form>
 <rpc-form method="runjob"><label>Job ID <input name="param" required></label><button>Run job</button></rpc-form>
-<rpc-form method="removejob"><label>Job ID <input name="param" required></label><button>Remove job</button></rpc-form>
+<rpc-form method="removejob"><label>Job ID <input name="param" required></label><button data-danger>Remove job</button></rpc-form>
 <h3>Pull and delivery</h3>
 <rpc-form method="pullfrom">
 <label>Relay URL <input name="param" type="url" required></label>

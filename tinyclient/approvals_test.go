@@ -65,12 +65,12 @@ func TestApprovalsPageRendersRequestsForTheOwner(t *testing.T) {
 		`<nostr-name pubkey="` + asker + `"`, "in repository tinyrelay", "expires <time",
 		"<p>Publish release notes 1.4</p>", "<p>Publish release notes 1.4 to the articles feed as drafted?</p>",
 		"<pre>about 30617:" + backend.policy.Owner + ":tinyrelay | kind 1621 dddddddddddd</pre>",
-		`<nostr-react event="` + strings.Repeat("1", 64) + `" pubkey="` + asker + `" kind="1111"><button name="reaction" value="+">Approve</button> <button name="reaction" value="-">Deny</button></nostr-react>`,
+		`<nostr-react event="` + strings.Repeat("1", 64) + `" pubkey="` + asker + `" kind="1111"><button name="reaction" value="+" data-primary>Approve</button> <button name="reaction" value="-" data-danger>Deny</button></nostr-react>`,
 		`<nostr-compose kind="1111" root="` + strings.Repeat("1", 64) + `" root-pubkey="` + asker + `" root-kind="1111" coordinate="30617:` + backend.policy.Owner + `:tinyrelay">`,
 		`<a href="/repo?owner=` + backend.policy.Owner + `&amp;repo=tinyrelay&amp;view=issue&amp;id=` + strings.Repeat("d", 64) + `">open</a>`,
 		`<approval-item id="approval-` + strings.Repeat("2", 64) + `" data-type="question"`, "in #build", `<a href="/e/` + strings.Repeat("2", 64) + `">open</a>`,
-		"<h3>Answered</h3>", `<tr id="approval-` + strings.Repeat("3", 64) + `" data-state="answered">`, "approved | <time", `data-state="expired"><td>`, "<td>expired</td>",
-		"<h4>Waiting</h4>", "<th>open</th><td>2</td>", "<th>oldest</th><td><time", "<h4>Devices</h4>", "<p><i></i>device 1 | approvals, mentions</p>", "Answers from the phone need the remembered signer.",
+		"<h3>Answered</h3>", `<tr id="approval-` + strings.Repeat("3", 64) + `" data-state="answered">`, `<status-badge kind="approved">approved</status-badge> <time`, `data-state="expired"><td>`, `<td><status-badge kind="expired">expired</status-badge></td>`,
+		"<h4>Waiting</h4>", "<th>open</th><td>2</td>", "<th>oldest</th><td><time", "<h4>Devices</h4>", "<p><i></i>device 1 | approvals, mentions</p>", "<p><i></i>device 1 | ",
 		`<a href="/approvals" aria-current="page">/approvals</a>`,
 	} {
 		if !strings.Contains(body, marker) {
@@ -134,7 +134,7 @@ func TestApprovalsPageAsksGuestsToSignIn(t *testing.T) {
 	if strings.Contains(body, "<approval-item") || strings.Contains(body, "auth-required") || strings.Contains(body, "role=\"alert\"") {
 		t.Fatalf("guest page leaks requests or the error:\n%s", body)
 	}
-	if !strings.Contains(body, "Sign in to see which devices are notified.") || !strings.Contains(body, "<th>open</th><td>0</td>") {
+	if !strings.Contains(body, "Sign in to see which devices are notified.") || strings.Contains(body, "<h4>Waiting</h4>") {
 		t.Fatalf("guest panel:\n%s", body)
 	}
 }

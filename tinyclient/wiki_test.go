@@ -264,7 +264,7 @@ func TestWikiGuestAccessFollowsTheReadsPolicy(t *testing.T) {
 	b := &wikiBackend{fakeBackend: fakeBackend{policy: members}, private: true}
 	for _, path := range []string{"/wiki", "/wiki/release-notes-1-4"} {
 		body := wikiGet(t, wikiApp(t, b, ""), path)
-		wantAll(t, path, body, `<p role="alert">auth-required: sign in to read this relay</p>`, `browsing as guest`)
+		wantAll(t, path, body, `<p role="alert">Sign in to read this relay.</p>`, `browsing as guest`)
 		wantNone(t, path, body, "<wiki-article>", "<merge-request>", "Release notes 1.4", "<wiki-compose")
 		body = wikiGet(t, wikiApp(t, b, wikiOther), path)
 		wantAll(t, path, body, "Release notes 1.4")

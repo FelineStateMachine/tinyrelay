@@ -96,9 +96,9 @@ func TestAgentsPageRendersTableCardsActivityAndGrantForm(t *testing.T) {
 		`<tr><th>sites</th><td><code>` + agentSite + `</code> 30 days encrypted<br><code>*</code></td></tr>`,
 		`<tr><th>sites</th><td>none</td></tr>`,
 		`<textarea name="sites" placeholder="npub1... ttl=30 encrypted&#10;* ttl=7"></textarea>`,
-		`<td data-state="active">active | `,
-		`<td data-state="paused">paused</td>`,
-		`<td data-state="revoked">revoked | `,
+		`<td data-state="active"><status-badge kind="active">active</status-badge> `,
+		`<td data-state="paused"><status-badge kind="paused">paused</status-badge></td>`,
+		`<td data-state="revoked"><status-badge kind="revoked">revoked</status-badge> `,
 		`<a href="#agent-` + agentRevoked + `">` + shortID(agentRevoked) + `</a>`,
 		`<agent-card id="agent-` + agentActive + `">`,
 		`<h3>hermes <small><span data-state="active">active</span> | signed by you | expires `,
@@ -107,7 +107,7 @@ func TestAgentsPageRendersTableCardsActivityAndGrantForm(t *testing.T) {
 		`<textarea name="repos" placeholder="owner pubkey:identifier:propose&#10;owner pubkey:identifier:read&#10;owner pubkey:identifier:maintain">`,
 		`<th>rate</th><td>60 events per minute</td>`,
 		`<rpc-form method="pauseagent" refresh><input type="hidden" name="param" value="&quot;` + agentActive + `&quot;"><button>Pause</button></rpc-form>`,
-		`<rpc-form method="revokeagent" refresh><input type="hidden" name="param" value="&quot;` + agentActive + `&quot;"><button>Revoke</button></rpc-form>`,
+		`<rpc-form method="revokeagent" refresh><input type="hidden" name="param" value="&quot;` + agentActive + `&quot;"><button data-danger>Revoke</button></rpc-form>`,
 		`<rpc-form method="resumeagent" refresh><input type="hidden" name="param" value="&quot;` + agentPaused + `&quot;"><button>Resume</button></rpc-form>`,
 		`<h3>Recent activity of hermes</h3>`,
 		`<ol id="events">`,
@@ -123,7 +123,7 @@ func TestAgentsPageRendersTableCardsActivityAndGrantForm(t *testing.T) {
 		`<agent-callback data-state="paused"><code>worker.example:8443</code> kinds 9 | <span data-state="paused" title="paused after 20 failures: HTTP 500">paused</span> <rpc-form method="resumecallback" refresh><input type="hidden" name="param" value="&quot;cb-paused&quot;"><button>Resume</button></rpc-form>`,
 		`<tr><th>callbacks</th><td>none</td></tr>`,
 		`<code>/mcp</code> 2026-07-28`,
-		`<rpc-form method="pauseallagents" refresh><button>Pause all agents</button></rpc-form>`,
+		`<rpc-form method="pauseallagents" refresh><button data-danger>Pause all agents</button></rpc-form>`,
 		`<rpc-form method="resumeallagents" refresh><button>Resume all agents</button></rpc-form>`,
 	} {
 		if !strings.Contains(body, want) {
@@ -247,7 +247,7 @@ func TestAgentsPageEditPrefillsTheGrantForm(t *testing.T) {
 		`<textarea name="sites" placeholder="npub1... ttl=30 encrypted&#10;* ttl=7">` + agentSite + ` ttl=30 encrypted
 *</textarea>`,
 		`placeholder="1, 1111, 1621" value="9, 1111, 1621">`,
-		`<button>Sign the replacement</button>`,
+		`<button data-primary>Sign the replacement</button>`,
 		`&amp;edit=` + agentActive + `#grant">edit</a>`,
 	} {
 		if !strings.Contains(body, marker) {

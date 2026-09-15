@@ -9,13 +9,13 @@ establishes the initial state. */}}
 {{else if .Feed}}<table id="rows">
 <thead><tr><th>room</th><th>access</th><th>members</th><th>last message</th></tr></thead>
 <tbody>
-{{range .Feed}}{{$r := asMap .}}{{$id := str (index $r "id")}}{{$picture := socialMediaURL (str (index $r "picture"))}}<tr><td><a href="/rooms/{{$id}}"><room-avatar picture="{{$picture}}" fallback="{{roomAvatarURL $.URL $id}}" aria-hidden="true"><img src="{{if $picture}}{{$picture}}{{else}}{{roomAvatarURL $.URL $id}}{{end}}" alt="" width="32" height="32" loading="lazy"></room-avatar>{{or (str (index $r "name")) $id}}</a></td><td>{{if eq (str (index $r "access")) "members"}}members only{{else}}open{{end}}{{with str (index $r "about")}} <small>{{.}}</small>{{end}}</td><td>{{str (index $r "members")}}</td><td>{{with index $r "last_message_at"}}<time datetime="{{datetime .}}">{{when .}}</time>{{else}}no messages{{end}}</td></tr>
+{{range .Feed}}{{$r := asMap .}}{{$id := str (index $r "id")}}{{$picture := socialMediaURL (str (index $r "picture"))}}<tr><td><a href="/rooms/{{$id}}"><room-avatar picture="{{$picture}}" fallback="{{roomAvatarURL $.URL $id}}" aria-hidden="true"><img src="{{if $picture}}{{$picture}}{{else}}{{roomAvatarURL $.URL $id}}{{end}}" alt="" width="32" height="32" loading="lazy"></room-avatar>{{or (str (index $r "name")) $id}}</a></td><td><status-badge kind="{{if eq (str (index $r "access")) "members"}}members{{else}}open{{end}}">{{if eq (str (index $r "access")) "members"}}members only{{else}}open{{end}}</status-badge>{{with str (index $r "about")}} <small>{{.}}</small>{{end}}</td><td>{{str (index $r "members")}}</td><td>{{with index $r "last_message_at"}}<time datetime="{{datetime .}}">{{when .}}</time>{{else}}no messages{{end}}</td></tr>
 {{end}}</tbody>
 </table>
 {{else}}<p>No rooms yet.</p>
 {{end}}{{with (asMap .Event).next_cursor}}<p id="pages"><a href="{{browsePageURL "/chat" $.Query "cursor" .}}">next page</a></p>
-{{end}}{{if .Actor}}<h2 id="new-room">New room</h2>
-<room-create><label>Name <input name="name" required maxlength="200" placeholder="build"></label><label>Id <input name="id" maxlength="64" pattern="[a-z0-9_-]{1,64}" placeholder="from the name"></label><label>Access <select name="access"><option value="open">open</option><option value="members">members only</option></select></label><label>About <textarea name="about" maxlength="2000"></textarea></label><button>Create room</button></room-create>
+{{end}}{{if and .Actor (not (restricted .Error))}}<h2 id="new-room">New room</h2>
+<room-create><label>Name <input name="name" required maxlength="200" placeholder="build"></label><label>Id <input name="id" maxlength="64" pattern="[a-z0-9_-]{1,64}" placeholder="from the name"></label><label>Access <select name="access"><option value="open">open</option><option value="members">members only</option></select></label><label>About <textarea name="about" maxlength="2000"></textarea></label><button data-primary>Create room</button></room-create>
 <noscript><p>Creating a room needs JavaScript and a connected signer.</p></noscript>
 {{else}}<p><a href="{{signinURL .Base .Path .Query}}">Sign in</a> to create a room.</p>
 {{end}}
@@ -27,7 +27,7 @@ establishes the initial state. */}}
 {{if not .Actor}}<p><a href="{{signinURL .Base .Path .Query}}">Sign in</a> to read this room.</p>{{end}}
 </section>
 {{else}}{{$data := asMap .Event}}{{$room := asMap (index $data "room")}}{{$id := str (index $room "id")}}{{$picture := socialMediaURL (str (index $room "picture"))}}<section id="room" data-viewer="{{.Actor}}">
-<h1><room-avatar picture="{{$picture}}" fallback="{{roomAvatarURL $.URL $id}}" aria-hidden="true"><img src="{{if $picture}}{{$picture}}{{else}}{{roomAvatarURL $.URL $id}}{{end}}" alt="" width="40" height="40" loading="lazy"></room-avatar>{{or (str (index $room "name")) $id}} <small>{{if eq (str (index $room "access")) "members"}}members only{{else}}open room{{end}}</small></h1>
+<h1><room-avatar picture="{{$picture}}" fallback="{{roomAvatarURL $.URL $id}}" aria-hidden="true"><img src="{{if $picture}}{{$picture}}{{else}}{{roomAvatarURL $.URL $id}}{{end}}" alt="" width="40" height="40" loading="lazy"></room-avatar>{{or (str (index $room "name")) $id}} <status-badge kind="{{if eq (str (index $room "access")) "members"}}members{{else}}open{{end}}">{{if eq (str (index $room "access")) "members"}}members only{{else}}open{{end}}</status-badge></h1>
 {{with str (index $room "about")}}<p>{{.}}</p>{{end}}
 {{with index $data "next_cursor"}}<p id="pages"><a href="/rooms/{{$id}}?cursor={{urlquery (str .)}}">load earlier</a></p>{{end}}
 {{if .Query.Get "cursor"}}<p id="newest"><a href="/rooms/{{$id}}">newest messages</a></p>{{end}}

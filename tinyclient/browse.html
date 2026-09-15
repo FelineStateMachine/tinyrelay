@@ -4,7 +4,7 @@
 {{else if .Feed}}<table id="rows">
 <thead><tr><th>owner</th><th>repository</th><th>head</th></tr></thead>
 <tbody>
-{{range .Feed}}{{$r := asMap .}}<tr><td>{{template "nostrKey" (str (index $r "owner"))}}</td><td><a href="/repo?owner={{urlquery (str (index $r "owner"))}}&repo={{urlquery (str (index $r "identifier"))}}&view=home">{{str (index $r "identifier")}}</a>{{if index $r "private"}} <small>private</small>{{end}}</td><td>{{shortID (index $r "head")}}</td></tr>
+{{range .Feed}}{{$r := asMap .}}<tr><td>{{template "nostrKey" (str (index $r "owner"))}}</td><td><a href="/repo?owner={{urlquery (str (index $r "owner"))}}&repo={{urlquery (str (index $r "identifier"))}}&view=home">{{str (index $r "identifier")}}</a>{{if index $r "private"}} <small>private</small>{{end}}</td><td>{{refName (index $r "head")}}</td></tr>
 {{end}}</tbody>
 </table>
 {{else}}<p>No repositories were reported.</p>
@@ -14,9 +14,9 @@
 
 {{define "files"}}{{$data := asMap .Event}}{{$view := or (str (index $data "view")) (.Query.Get "view") "library"}}<section id="file-library" data-pubkey="{{.Actor}}">
 <h1>Files</h1>
-<nav id="file-views" aria-label="File collections"><a href="/files"{{if eq $view "library"}} aria-current="page"{{end}}>My files</a><a href="/files?view=sites"{{if eq $view "sites"}} aria-current="page"{{end}}>Sites</a><a href="/files?view=rooms"{{if eq $view "rooms"}} aria-current="page"{{end}}>Rooms</a>{{if index $data "can_manage"}}<a href="/files?view=storage"{{if eq $view "storage"}} aria-current="page"{{end}}>Storage</a>{{end}}</nav>
-<p id="file-context">{{if eq $view "sites"}}Published assets, organized by site.{{else if eq $view "rooms"}}Attachments from rooms you can access.{{else if eq $view "storage"}}All stored files, newest first.{{else}}Your uploads, folders and files shared with relay members.{{end}}</p>
-<form method="get" action="/files" id="file-search"><input type="hidden" name="view" value="{{$view}}">{{with .Query.Get "path"}}<input type="hidden" name="path" value="{{.}}">{{end}}<label>Search <input name="q" value="{{.Query.Get "q"}}" placeholder="Name, type or hash" autocomplete="off"></label> <button>Search</button>{{if .Query.Get "q"}} <a href="{{browsePageURL "/files" .Query "q" ""}}">Clear</a>{{end}}</form>
+{{if not (authRequired .Error)}}<nav id="file-views" aria-label="File collections"><a href="/files"{{if eq $view "library"}} aria-current="page"{{end}}>My files</a><a href="/files?view=sites"{{if eq $view "sites"}} aria-current="page"{{end}}>Sites</a><a href="/files?view=rooms"{{if eq $view "rooms"}} aria-current="page"{{end}}>Rooms</a>{{if index $data "can_manage"}}<a href="/files?view=storage"{{if eq $view "storage"}} aria-current="page"{{end}}>Storage</a>{{end}}</nav>
+<p id="file-context">{{if eq $view "sites"}}Published assets, organized by site.{{else if eq $view "rooms"}}Attachments from rooms you can access.{{else if eq $view "storage"}}All stored files, newest first.{{end}}</p>
+<form method="get" action="/files" id="file-search"><input type="hidden" name="view" value="{{$view}}">{{with .Query.Get "path"}}<input type="hidden" name="path" value="{{.}}">{{end}}<label>Search <input name="q" value="{{.Query.Get "q"}}" placeholder="Name, type or hash" autocomplete="off"></label> <button>Search</button>{{if .Query.Get "q"}} <a href="{{browsePageURL "/files" .Query "q" ""}}">Clear</a>{{end}}</form>{{end}}
 {{with index $data "breadcrumbs"}}<nav id="file-breadcrumbs" aria-label="Folder path">{{range $i, $raw := .}}{{$crumb := asMap $raw}}{{if $i}} / {{end}}<a href="{{str (index $crumb "open")}}">{{str (index $crumb "name")}}</a>{{end}}</nav>{{end}}
 {{if .Error}}{{template "alert" .Error}}
 {{else if .Feed}}<table id="rows">
@@ -50,26 +50,25 @@
 <tr><th>size</th><td>{{fileSize (index $file "size")}}</td></tr>
 {{with index $file "blossom_uri"}}<tr><th>blossom</th><td><code>{{.}}</code></td></tr>{{end}}
 <tr><th>download</th><td><a fx-ignore href="/files/raw?hash={{urlquery (str (index $file "sha256"))}}">raw</a></td></tr>
-</table></details>{{if .Actor}}<details id="manage-file"><summary>Manage file</summary><rpc-form method="deleteblob"><input type="hidden" name="param" value="{{$hash}}"><button>Delete file</button></rpc-form></details>{{end}}</section>
+</table></details>{{if .Actor}}<details id="manage-file"><summary>Manage file</summary><rpc-form method="deleteblob"><input type="hidden" name="param" value="{{$hash}}"><button data-danger>Delete file</button></rpc-form></details>{{end}}</section>
 {{end}}{{end}}
 
 {{define "approvals"}}<section>
 <h1>Approvals</h1>
-<p>Requests that wait for your decision. Review requests, answer questions and approve proposed changes.</p>
 {{if not .Actor}}<p><a href="{{signinURL .Base .Path .Query}}">Sign in</a> to see the requests addressed to your key.</p>
 {{else if .Error}}{{template "alert" .Error}}
 {{else}}{{$open := approvalViews .Event .URL "open"}}{{$done := approvalViews .Event .URL "answered" "expired"}}{{if $open}}{{range $item := $open}}<approval-item id="approval-{{$item.ID}}" data-type="{{$item.Type}}" data-state="{{$item.State}}">
 <header>{{template "nostrKey" $item.Asker}} in {{$item.Where}} | <time datetime="{{datetime $item.CreatedAt}}">{{when $item.CreatedAt}}</time>{{if $item.Expires}} | expires <time datetime="{{datetime $item.Expires}}">{{when $item.Expires}}</time>{{end}}</header>
 <p>{{$item.Title}}</p>{{with $item.Body}}<p>{{.}}</p>{{end}}{{with $item.About}}<pre>{{.}}</pre>{{end}}
-{{with $item.Grant}}<agent-grant-request request="{{$item.ID}}" data-review="{{.Raw}}"{{if .Error}} data-stale="true"{{end}}><h4>Proposed grant change</h4><table><thead><tr><th>scope</th><th>current</th><th>proposed</th></tr></thead><tbody>{{range .Rows}}{{if ne .Before .After}}<tr><th>{{.Label}}</th><td>{{.Before}}</td><td>{{.After}}</td></tr>{{end}}{{end}}</tbody></table>{{with .Error}}<p role="alert">{{.}}</p>{{else}}<button type="button" data-grant-approve disabled>Approve and grant</button>{{end}}<button type="button" data-grant-deny disabled>Deny</button></agent-grant-request>{{end}}
-<footer>{{if and (ne $item.Type "question") (ne $item.Type "grant")}}<nostr-react event="{{$item.ID}}" pubkey="{{$item.Asker}}" kind="{{$item.Kind}}"><button name="reaction" value="+">{{if eq $item.Type "wiki-proposal"}}Accept{{else if eq $item.Type "wiki-merge"}}Accept{{else}}Approve{{end}}</button> <button name="reaction" value="-">{{if eq $item.Type "wiki-proposal"}}Reject{{else if eq $item.Type "wiki-merge"}}Reject{{else}}Deny{{end}}</button></nostr-react> {{end}}<details><summary>Reply</summary><nostr-compose kind="1111" root="{{$item.ID}}" root-pubkey="{{$item.Asker}}" root-kind="{{$item.Kind}}"{{with $item.Coordinate}} coordinate="{{.}}"{{end}}><label>Reply <textarea name="content" required></textarea></label><button>Sign and reply</button></nostr-compose></details> <a href="{{$item.Open}}">open</a></footer>
+{{with $item.Grant}}<agent-grant-request request="{{$item.ID}}" data-review="{{.Raw}}"{{if .Error}} data-stale="true"{{end}}><h4>Proposed grant change</h4><table><thead><tr><th>scope</th><th>current</th><th>proposed</th></tr></thead><tbody>{{range .Rows}}{{if ne .Before .After}}<tr><th>{{.Label}}</th><td>{{.Before}}</td><td>{{.After}}</td></tr>{{end}}{{end}}</tbody></table>{{with .Error}}<p role="alert">{{.}}</p>{{else}}<button type="button" data-grant-approve data-primary disabled>Approve and grant</button>{{end}}<button type="button" data-grant-deny data-danger disabled>Deny</button></agent-grant-request>{{end}}
+<footer>{{if and (ne $item.Type "question") (ne $item.Type "grant")}}<nostr-react event="{{$item.ID}}" pubkey="{{$item.Asker}}" kind="{{$item.Kind}}"><button name="reaction" value="+" data-primary>{{if eq $item.Type "wiki-proposal"}}Accept{{else if eq $item.Type "wiki-merge"}}Accept{{else}}Approve{{end}}</button> <button name="reaction" value="-" data-danger>{{if eq $item.Type "wiki-proposal"}}Reject{{else if eq $item.Type "wiki-merge"}}Reject{{else}}Deny{{end}}</button></nostr-react> {{end}}<details><summary>Reply</summary><nostr-compose kind="1111" root="{{$item.ID}}" root-pubkey="{{$item.Asker}}" root-kind="{{$item.Kind}}"{{with $item.Coordinate}} coordinate="{{.}}"{{end}}><label>Reply <textarea name="content" required></textarea></label><button>Sign and reply</button></nostr-compose></details> <a href="{{$item.Open}}">open</a></footer>
 </approval-item>
 {{end}}{{else}}<p>Nothing waits for your decision.</p>
 {{end}}{{if $done}}<h3>Answered</h3>
 <table id="rows">
 <thead><tr><th>asker</th><th>request</th><th>answer</th></tr></thead>
 <tbody>
-{{range $item := $done}}<tr id="approval-{{$item.ID}}" data-state="{{$item.State}}"><td>{{template "nostrName" $item.Asker}}</td><td><a href="{{$item.Open}}">{{$item.Title}}</a>{{if eq $item.Decision "replied"}}{{with $item.AnswerContent}} <small>{{.}}</small>{{end}}{{end}}</td><td>{{if eq $item.State "expired"}}expired{{else}}{{$item.Decision}} | <time datetime="{{datetime $item.AnsweredAt}}">{{when $item.AnsweredAt}}</time>{{end}}</td></tr>
+{{range $item := $done}}<tr id="approval-{{$item.ID}}" data-state="{{$item.State}}"><td>{{template "nostrName" $item.Asker}}</td><td><a href="{{$item.Open}}">{{$item.Title}}</a>{{if eq $item.Decision "replied"}}{{with $item.AnswerContent}} <small>{{.}}</small>{{end}}{{end}}</td><td>{{if eq $item.State "expired"}}<status-badge kind="expired">expired</status-badge>{{else}}<status-badge kind="{{$item.Decision}}">{{$item.Decision}}</status-badge> <time datetime="{{datetime $item.AnsweredAt}}">{{when $item.AnsweredAt}}</time>{{end}}</td></tr>
 {{end}}</tbody>
 </table>
 {{end}}{{with (asMap .Event).next_cursor}}<p id="pages"><a href="{{browsePageURL "/approvals" $.Query "cursor" .}}">next page</a></p>
@@ -105,7 +104,7 @@
 <label>Lightning address <input name="lud16" value="{{str (index $p "lud16")}}" placeholder="you@wallet.example"></label>
 <label>Also publish to <textarea name="relays" placeholder="wss://relay.example">{{range index $data "relays"}}{{.}}
 {{end}}</textarea></label>
-<button>Sign and publish</button>
+<button data-primary>Sign and publish</button>
 <noscript><p>Saving needs JavaScript and a connected signer. You can also publish a kind 0 event from any client with this relay in its list.</p></noscript>
 </profile-form>
 {{with index $data "event"}}{{$e := asMap .}}<p><small>Current profile published <time datetime="{{datetime (index $e "created_at")}}">{{when (index $e "created_at")}}</time>; fields this form does not show are kept as they are.</small></p>{{else}}<p><small>This relay holds no profile for your key yet.</small></p>{{end}}

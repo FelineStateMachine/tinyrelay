@@ -46,7 +46,7 @@
 <label>Name <input name="name" value="{{$d}}" required autocomplete="off" spellcheck="false"></label>
 <label>Summary <input name="summary" value="{{str (index $w.Version "summary")}}" autocomplete="off"></label>
 <label>Content <textarea name="content" rows="16" placeholder="Djot markup: # heading, *emphasis*, [[Page Name]]">{{str (index $w.Version "content")}}</textarea></label>
-<button name="action" value="publish">Publish</button>{{if and $w.Author (ne $w.Author .Actor)}} <button name="action" value="propose">Propose to {{shortID $w.Author}}</button>{{end}}
+<button name="action" value="publish" data-primary>Publish</button>{{if and $w.Author (ne $w.Author .Actor)}} <button name="action" value="propose">Propose to {{shortID $w.Author}}</button>{{end}}
 </wiki-compose><noscript><p>JavaScript and a connected signer are required to publish.</p></noscript>{{end}}
 
 {{/* wikiCompare shows the proposed version of a merge request above the current one. */}}
