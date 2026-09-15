@@ -97,11 +97,25 @@ test("repository storage reads pass the selected owner and repository", async ()
 
 test("navigation actually opens the selected repository without changing tenant", async () => {
   const {tools, sandbox} = await browser({path: "/r/work/tools"});
-  await tools.get("tiny.open_repository").execute({owner: "a".repeat(64), repo: "notes", path: "hello world.go", view: "file"});
+  const open = tools.get("tiny.open_repository");
+  const owner = "a".repeat(64);
+  await open.execute({owner, repo: "notes", path: "src/hello world.go", view: "file", ref: "refs/heads/main"});
   const url = new URL(sandbox.opened);
-  assert.equal(url.pathname, "/r/work/repo");
-  assert.equal(url.searchParams.get("path"), "hello world.go");
-  assert.equal(url.searchParams.get("view"), "file");
+  assert.equal(url.pathname, "/r/work/repos/" + owner + "/notes/file/src/hello%20world.go");
+  assert.equal(url.searchParams.get("ref"), "refs/heads/main");
+  const opened = async input => { await open.execute({owner, repo: "my notes", ...input}); return new URL(sandbox.opened).pathname + new URL(sandbox.opened).search; };
+  assert.equal(await opened({}), "/r/work/repos/" + owner + "/my%20notes");
+  assert.equal(await opened({view: "tree"}), "/r/work/repos/" + owner + "/my%20notes/tree");
+  assert.equal(await opened({view: "tree", path: "docs/caf\u00e9"}), "/r/work/repos/" + owner + "/my%20notes/tree/docs/caf%C3%A9");
+  assert.equal(await opened({view: "history"}), "/r/work/repos/" + owner + "/my%20notes/history");
+  assert.equal(await opened({view: "commit", id: "b".repeat(40)}), "/r/work/repos/" + owner + "/my%20notes/commit/" + "b".repeat(40));
+  assert.equal(await opened({view: "activity"}), "/r/work/repos/" + owner + "/my%20notes/activity");
+  assert.equal(await opened({view: "issues"}), "/r/work/repos/" + owner + "/my%20notes/issues");
+  assert.equal(await opened({view: "prs"}), "/r/work/repos/" + owner + "/my%20notes/prs");
+  assert.equal(await opened({view: "issue", id: "c".repeat(64)}), "/r/work/repos/" + owner + "/my%20notes/issues/" + "c".repeat(64));
+  assert.equal(await opened({view: "pr", id: "d".repeat(64)}), "/r/work/repos/" + owner + "/my%20notes/prs/" + "d".repeat(64));
+  await tools.get("tiny.open_file").execute({hash: "e".repeat(64)});
+  assert.equal(new URL(sandbox.opened).pathname, "/r/work/file/" + "e".repeat(64));
 });
 
 test("registration failures stay visible while other tools remain available", async () => {
@@ -170,9 +184,8 @@ test("approval tools list, read and open requests for a decision", async () => {
   assert.equal(new URL(sandbox.opened).pathname, "/r/work/approvals");
   await tools.get("tiny.open_approvals").execute({id: "c".repeat(64)});
   const opened = new URL(sandbox.opened);
-  assert.equal(opened.pathname, "/r/work/approvals");
-  assert.equal(opened.searchParams.get("id"), "c".repeat(64));
-  assert.equal(opened.searchParams.get("answer"), null);
+  assert.equal(opened.pathname, "/r/work/approvals/" + "c".repeat(64));
+  assert.equal(opened.search, "");
 });
 
 test("job tools list and read long tasks through the session", async () => {
@@ -331,8 +344,8 @@ test("wiki tools read pages and merge requests and open pages in the tenant", as
   assert.equal(new URL(sandbox.opened).pathname, "/r/work/wiki");
   await open.execute({d: "日本語 Article", merge: "c".repeat(64)});
   let opened = new URL(sandbox.opened);
-  assert.equal(opened.pathname, "/r/work/wiki/" + encodeURIComponent("日本語 Article"));
-  assert.equal(opened.searchParams.get("merge"), "c".repeat(64));
+  assert.equal(opened.pathname, "/r/work/wiki/" + encodeURIComponent("日本語 Article") + "/proposals/" + "c".repeat(64));
+  assert.equal(opened.search, "");
   await open.execute({d: "release-notes-1-4", edit: true, version: "b".repeat(64)});
   opened = new URL(sandbox.opened);
   assert.equal(opened.pathname, "/r/work/wiki/release-notes-1-4");

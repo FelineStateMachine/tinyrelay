@@ -131,12 +131,12 @@ const waitUntil = () => { let done; const event = {waitUntil(promise) { done = p
 test("push renders the relay's actions on the notification", async () => {
   const w = worker();
   const {event, finished} = waitUntil();
-  event.data = {json: () => ({title: "tiny", body: "hermes asks: Publish?", url: "https://tiny.example/approvals?id=" + request, tag: "tiny-approvals", badge: 1, actions: [{action: "approve", title: "Approve"}, {action: "deny", title: "Deny"}, {action: "reply", title: "Reply"}, {action: "bad action"}]})};
+  event.data = {json: () => ({title: "tiny", body: "hermes asks: Publish?", url: "https://tiny.example/approvals/" + request, tag: "tiny-approvals", badge: 1, actions: [{action: "approve", title: "Approve"}, {action: "deny", title: "Deny"}, {action: "reply", title: "Reply"}, {action: "bad action"}]})};
   w.handlers.push(event);
   await finished();
   assert.equal(w.shown.length, 1);
   assert.equal(JSON.stringify(w.shown[0].options.actions), JSON.stringify([{action: "approve", title: "Approve"}, {action: "deny", title: "Deny"}, {action: "reply", title: "Reply"}]));
-  assert.equal(w.shown[0].options.data.url, "https://tiny.example/approvals?id=" + request);
+  assert.equal(w.shown[0].options.data.url, "https://tiny.example/approvals/" + request);
   const plain = worker();
   const second = waitUntil();
   second.event.data = {json: () => ({title: "tiny", body: "Replied to you"})};
@@ -146,11 +146,11 @@ test("push renders the relay's actions on the notification", async () => {
 });
 
 test("a notification action opens the answer in the existing window, or a new one", async () => {
-  const url = "https://tiny.example/approvals?id=" + request;
+  const url = "https://tiny.example/approvals/" + request;
   const navigated = [];
   const open = {url: "https://tiny.example/inbox", navigate: async target => { navigated.push(target); return {focus() { navigated.push("focused"); }}; }};
   const existing = worker({windows: [open]});
-  for (const [action, expected] of [["approve", url + "&answer=approve"], ["deny", url + "&answer=deny"], ["reply", url + "&answer=reply"], ["", url], [undefined, url]]) {
+  for (const [action, expected] of [["approve", url + "?answer=approve"], ["deny", url + "?answer=deny"], ["reply", url + "?answer=reply"], ["", url], [undefined, url]]) {
     const {event, finished} = waitUntil();
     event.action = action;
     event.notification = {close() {}, data: {url}};

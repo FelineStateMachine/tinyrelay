@@ -31,10 +31,10 @@ function setup({path = "/r/test/files", actor = pubkey} = {}) {
   return {context, values, rows};
 }
 
-const link = () => `https://relay.test/r/test/file?hash=${hash}#key=${"c".repeat(64)}&iv=${"d".repeat(16)}&name=video.mp4&type=video%2Fmp4`;
+const link = () => `https://relay.test/r/test/file/${hash}#key=${"c".repeat(64)}&iv=${"d".repeat(16)}&name=video.mp4&type=video%2Fmp4`;
 
 test("saves encrypted metadata per tenant and account and restores it after reload", () => {
-  const first = setup({path: "/r/test/file?hash=" + hash});
+  const first = setup({path: "/r/test/file/" + hash});
   assert.equal(first.context.tiny.files.catalog.save({hash, link: link(), name: "video.mp4", type: "video/mp4", size: 104857600}, pubkey), true);
   assert.equal(first.context.tiny.files.catalog.get(hash, pubkey).name, "video.mp4");
   assert.equal(first.context.tiny.files.catalog.get(hash, "e".repeat(64)), null);
@@ -44,7 +44,9 @@ test("saves encrypted metadata per tenant and account and restores it after relo
 
 test("rejects unsafe links, names and cross-tenant links", () => {
   const {context} = setup();
-  assert.equal(context.tiny.files.catalog.save({hash, link: "https://evil.test/r/test/file?hash=" + hash + "#key=x", name: "x"}, pubkey), false);
+  assert.equal(context.tiny.files.catalog.save({hash, link: "https://evil.test/r/test/file/" + hash + "#key=x", name: "x"}, pubkey), false);
   assert.equal(context.tiny.files.catalog.save({hash, link: link(), name: "../secret"}, pubkey), false);
   assert.equal(context.tiny.files.catalog.save({hash, link: link().replace("/r/test/", "/r/other/"), name: "x"}, pubkey), false);
+  assert.equal(context.tiny.files.catalog.save({hash, link: link().replace("/file/" + hash, "/file?hash=" + hash), name: "x"}, pubkey), false);
+  assert.equal(context.tiny.files.catalog.save({hash, link: link().replace("/file/" + hash, "/file/" + "f".repeat(64)), name: "x"}, pubkey), false);
 });

@@ -145,9 +145,14 @@
     );
   }
 
+  // A stored file page is /file/{hash}; the hash is the last path segment.
+  const fileHash = url => {
+    const segment = (url.pathname.match(/\/file\/([^/]+)\/?$/) || [])[1] || "";
+    try { return decodeURIComponent(segment); } catch { return segment; }
+  };
+
   const shareURL = (reference, name, type) => {
-    const url = new URL(tiny.localPath("/file"), location.href);
-    url.searchParams.set("hash", reference.hash);
+    const url = new URL(tiny.localPath("/file/" + reference.hash), location.href);
     url.hash = new URLSearchParams({
       manifest: reference.hash,
       key: hex(reference.key),
@@ -304,8 +309,7 @@
             this.say("Background upload of " + info.name + " finished.");
             return tiny.navigate?.(location.href);
           }
-          const link = new URL(tiny.localPath("/file"), location.href);
-          link.search = "?hash=" + descriptor.sha256;
+          const link = new URL(tiny.localPath("/file/" + descriptor.sha256), location.href);
           link.hash = info.fragment;
           const params = new URLSearchParams(info.fragment);
           await this.remember(link.href, [{name: info.name, size: info.size || Math.max(0, descriptor.size - 16), type: params.get("type") || "application/octet-stream"}], false);
@@ -478,8 +482,8 @@
       }
     }
     async storePlain(files) {
-      const query = new URL(location.href).searchParams;
-      const parent = (!query.get("view") || query.get("view") === "library") ? query.get("path") || "" : "";
+      const current = new URL(location.href);
+      const parent = /(?:^|\/)files\/?$/.test(current.pathname) ? current.searchParams.get("path") || "" : "";
       const total = files.reduce((size, file) => size + file.size, 0);
       let sent = 0;
       for (const [index, file] of files.entries()) {
@@ -576,8 +580,7 @@
       }
       if (descriptor.sha256 !== hash) throw Error("Relay returned an unexpected hash.");
       this.pending = null;
-      const link = new URL(tiny.localPath("/file"), location.href);
-      link.search = "?hash=" + hash;
+      const link = new URL(tiny.localPath("/file/" + hash), location.href);
       link.hash = fragment;
       return link.href;
     }
@@ -607,7 +610,7 @@
     async remember(link, files, folder) {
       const url = new URL(link);
       const params = new URLSearchParams(url.hash.slice(1));
-      const hash = url.searchParams.get("hash");
+      const hash = fileHash(url);
       const name = params.get("name") || files[0].name;
       const type = params.get("type") || files[0].type || "application/octet-stream";
       const size = files.reduce((sum, file) => sum + file.size, 0);
@@ -764,8 +767,7 @@
         const item = element("li");
         if (link.t === 2 || link.t === 3) {
           const open = element("a", link.n + "/");
-          const url = new URL(tiny.localPath("/file"), location.href);
-          url.searchParams.set("hash", hex(link.h));
+          const url = new URL(tiny.localPath("/file/" + hex(link.h)), location.href);
           const fragment = new URLSearchParams({
             manifest: hex(link.h),
             node: String(link.t),

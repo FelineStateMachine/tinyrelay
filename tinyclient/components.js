@@ -1774,7 +1774,7 @@
       if (root && !(url.pathname === root || url.pathname.startsWith(root + "/"))) return null;
       return root ? url.pathname.slice(root.length) || "/" : url.pathname;
     };
-    const allowedRoute = path => /^(?:\/(?:inbox|approvals|profile|account|outbox|search|social|articles|private|chat|media|sites|marmot|grasp|terms|signin|connect|tools|repo|repos|file|files|wiki|rooms)?\/?|\/manage(?:\/(?:people|agents|moderation|rules|identity|connect|data|sync|views|health|owner|status))?\/?|\/(?:invite|e|a|wiki|social)\/.+|\/chat\/dm\/[0-9a-f]{64}|\/rooms\/[a-z0-9_-]{1,64}(?:\/thread\/[0-9a-f]{64})?\/?)$/.test(path || "");
+    const allowedRoute = path => /^(?:\/(?:inbox|approvals|profile|account|outbox|search|social|articles|private|chat|media|sites|marmot|grasp|terms|signin|connect|tools|repo|repos|file|files|wiki|rooms)?\/?|\/manage(?:\/(?:people|agents|moderation|rules|identity|connect|data|sync|views|health|owner|status))?\/?|\/manage\/agents\/[^/]+\/?|\/(?:invite|e|a|wiki|social)\/.+|\/repos\/[^/]+\/[^/]+(?:\/.*)?|\/file\/[0-9a-f]{64}\/?|\/files\/(?:sites|rooms|storage)\/?|\/approvals\/[0-9a-f]{64}\/?|\/chat\/dm\/[0-9a-f]{64}|\/rooms\/[a-z0-9_-]{1,64}(?:\/thread\/[0-9a-f]{64})?\/?)$/.test(path || "");
     let navigationSerial = 0, activeAbort;
     let renderedURL = location.href;
     const streams = new Set();

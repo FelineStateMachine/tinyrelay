@@ -157,30 +157,42 @@
     location.assign(url.href);
     return {opened: url.href};
   }
+  // Repository pages live at /repos/{owner}/{repo}/{view}...; every segment is
+  // percent-encoded except that "/" inside a repository file path stays a separator.
+  const segment = value => encodeURIComponent(String(value));
+  const filePath = value => String(value).split("/").filter(Boolean).map(segment).join("/");
   function repoURL(input) {
-    const params = new URLSearchParams();
-    for (const key of ["owner", "repo", "ref", "path", "view", "id"]) {
-      if (input[key] !== undefined) params.set(key, input[key]);
+    let path = "/repos/" + segment(input.owner) + "/" + segment(input.repo);
+    switch (input.view) {
+      case "tree": path += "/tree" + (input.path ? "/" + filePath(input.path) : ""); break;
+      case "file": path += "/file/" + filePath(input.path || ""); break;
+      case "history": path += "/history"; break;
+      case "commit": path += "/commit/" + segment(input.id || ""); break;
+      case "activity": path += "/activity"; break;
+      case "issues": path += "/issues"; break;
+      case "prs": path += "/prs"; break;
+      case "issue": path += "/issues/" + segment(input.id || ""); break;
+      case "pr": path += "/prs/" + segment(input.id || ""); break;
     }
-    return "/repo?" + params;
+    return input.ref !== undefined ? path + "?ref=" + encodeURIComponent(String(input.ref)) : path;
   }
   register("tiny.open_repository", "Open a repository in this tab for browsing code, history or activity.",
     object({...repository, id: hash, view: {type: "string", enum: ["tree", "file", "history", "commit", "activity", "issues", "prs", "issue", "pr"]}}, ["owner", "repo"]), {}, input => open(repoURL(input)));
   register("tiny.open_file", "Open a stored file by its SHA-256 hash in this tab. For repository source, use tiny.open_repository with view=file.",
-    object({hash}, ["hash"]), {}, input => open("/file?hash=" + encodeURIComponent(input.hash)));
+    object({hash}, ["hash"]), {}, input => open("/file/" + encodeURIComponent(input.hash)));
   register("tiny.open_status", "Open the relay health page in this tab: build versions, service status and browser tool readiness.", object(), {}, () => open("/manage/health"));
   register("tiny.open_files", "Open the Files page in this tab, where files and folders upload and shared items wait.", object(), {}, () => open("/files"));
   register("tiny.open_approvals", "Open the Approvals page in this tab, where requests for a decision wait. Pass id to focus one request; the person answers with a signed tap.",
-    object({id: hash}), {}, input => open("/approvals" + (input.id ? "?id=" + encodeURIComponent(input.id) : "")));
+    object({id: hash}), {}, input => open("/approvals" + (input.id ? "/" + encodeURIComponent(input.id) : "")));
   register("tiny.open_wiki_page", "Open a wiki page in this tab. Omit d for the page list. version opens one version by event id; merge opens the compare view for a merge request; edit opens the editor.",
     object({d: pageName, version: hash, merge: hash, edit: {type: "boolean"}}), {}, input => {
       if (!input.d) return open("/wiki");
       const params = new URLSearchParams();
       if (input.version) params.set("version", input.version);
-      if (input.merge) params.set("merge", input.merge);
       if (input.edit) params.set("edit", "1");
       const search = params.toString();
-      return open("/wiki/" + encodeURIComponent(input.d) + (search ? "?" + search : ""));
+      const page = "/wiki/" + encodeURIComponent(input.d) + (input.merge ? "/proposals/" + encodeURIComponent(input.merge) : "");
+      return open(page + (search ? "?" + search : ""));
     });
   register("tiny.open_room", "Open a chat room in this tab, or the rooms list when no id is given.",
     object({id: room}), {}, input => open(input.id ? "/rooms/" + encodeURIComponent(input.id) : "/rooms"));

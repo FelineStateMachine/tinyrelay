@@ -40,13 +40,14 @@
     value.isWellFormed?.() !== false && !/[\u0000/\\]/.test(value);
   const validPath = value => value === undefined ||
     (typeof value === "string" && value.length <= MAX_NAME && !/[\u0000\\]/.test(value));
+  // A stored file page is /file/{hash}; the hash is the last path segment.
+  const fileHash = url => (url.pathname.match(/(?:^|\/)file\/([^/]+)$/) || [])[1] || null;
   const validLink = (value, hash) => {
     if (typeof value !== "string") return false;
     try {
       const url = new URL(value, location.href);
-      const expected = new URL(globalThis.tiny?.localPath?.("/file") || "/file", location.href);
+      const expected = new URL((globalThis.tiny?.localPath?.("/file/") || "/file/") + hash, location.href);
       if (url.origin !== location.origin || url.pathname !== expected.pathname) return false;
-      if (url.searchParams.get("hash") !== hash && url.searchParams.get("sha") !== hash) return false;
       const params = new URLSearchParams(url.hash.slice(1));
       return Boolean((params.get("key") && params.get("iv")) ||
         (params.get("enc") === "chk-v1" && params.get("key")) ||
@@ -121,14 +122,13 @@
   };
   const restore = pubkey => {
     const current = new URL(location.href);
-    if (!/(?:^|\/)file$/.test(current.pathname)) return null;
-    const hash = current.searchParams.get("hash") || current.searchParams.get("sha");
+    const hash = fileHash(current);
     const fragment = new URLSearchParams(current.hash.slice(1));
     if (!HASH.test(hash || "") || fragment.get("key") || fragment.get("iv")) return null;
     const entry = entryFor(hash, pubkey);
     if (!entry) return null;
     const saved = new URL(entry.link);
-    if (saved.searchParams.get("hash") !== hash && saved.searchParams.get("sha") !== hash) return null;
+    if (fileHash(saved) !== hash) return null;
     history.replaceState?.(null, "", saved.pathname + saved.search + saved.hash);
     return entry;
   };

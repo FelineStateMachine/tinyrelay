@@ -159,7 +159,7 @@ test("nested folder components upload and decrypt large files without exposing k
 
 test("plain uploads retain names and folder paths within the current library folder", async () => {
   const {window, FileUpload} = load(true);
-  window.location.href = "https://relay.test/files?view=library&path=Projects";
+  window.location.href = "https://relay.test/files?path=Projects";
   const requests = [];
   window.tiny.signedFetch = async (target, method, bytes) => requests.push({target, method, bytes});
   const upload = new FileUpload();
@@ -172,7 +172,7 @@ test("plain uploads retain names and folder paths within the current library fol
   assert.equal(first.searchParams.get("path"), "Projects/Trip/photos/snow & sun.jpg");
   assert.equal(new URL(requests[1].target, window.location.href).searchParams.get("path"), "Projects/notes.txt");
   assert.equal(new TextDecoder().decode(requests[0].bytes), "image");
-  window.location.href = "https://relay.test/files?view=sites&path=weather";
+  window.location.href = "https://relay.test/files/sites?path=weather";
   await upload.storePlain([new File(["file"], "new.txt")]);
   assert.equal(new URL(requests[2].target, window.location.href).searchParams.get("path"), "new.txt");
 });
@@ -198,7 +198,7 @@ test("encrypted upload never touches the clipboard until Copy is pressed", async
   navigator.clipboard.writeText = async () => { copies++; throw Error("denied"); };
   const {upload, link, uploaded} = await sealedUpload(window, FileUpload, new File(["secret plaintext"], "secret.txt", {type: "text/plain"}));
   assert.notEqual(new TextDecoder().decode(uploaded()), "secret plaintext");
-  assert.match(link, /\/file\?hash=[0-9a-f]{64}#key=.*&iv=/);
+  assert.match(link, /\/file\/[0-9a-f]{64}#key=.*&iv=/);
   assert.equal(upload.querySelector("[data-share-url]").value, link);
   assert.equal(upload.querySelector("[data-share]").hidden, false);
   assert.equal(copies, 0);

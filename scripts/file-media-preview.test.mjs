@@ -50,7 +50,7 @@ const setup = () => {
   document.dispatchEvent = () => {};
   document.querySelectorAll = () => [];
   const customElements = {registry: {}, define(name, ctor) { this.registry[name] = ctor; }};
-  const location = {href: "https://relay.test/file?hash=cipher", origin: "https://relay.test", pathname: "/file", hash: ""};
+  const location = {href: "https://relay.test/r/test/file/cipher", origin: "https://relay.test", pathname: "/r/test/file/cipher", hash: ""};
   const window = {document, customElements, location, addEventListener: () => {}, tiny: {util: {}, blossom: {encryption: {}}}};
   class HTMLElement extends Node {}
   Object.assign(globalThis, {window, document, customElements, HTMLElement, location, Blob, URL, CustomEvent: class {}});

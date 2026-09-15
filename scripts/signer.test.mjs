@@ -116,13 +116,13 @@ test("return targets reject external addresses, tenant changes and sign-in loops
 });
 
 test("sign-in links carry private fragments only in the browser fragment", async () => {
-  const target = "/r/work/file?hash=abc#key=private-key&name=notes.txt";
+  const target = "/r/work/file/abc#key=private-key&name=notes.txt";
   const {sandbox, documentEvents} = await page({href: "https://tiny.example" + target});
   const attrs = new Map([["fx-action", "/r/work/signin"]]);
   const link = {href: "https://tiny.example/r/work/signin", hasAttribute: name => attrs.has(name), setAttribute: (name,value) => attrs.set(name,value)};
   documentEvents.get("click")({target: {closest: () => link}});
   const login = new URL(link.href, sandbox.location.href);
-  assert.equal(login.searchParams.get("next"), "/r/work/file?hash=abc");
+  assert.equal(login.searchParams.get("next"), "/r/work/file/abc");
   assert.equal(login.search.includes("private-key"), false);
   assert.equal(new URLSearchParams(login.hash.slice(1)).get("return"), target);
   assert.equal(attrs.get("fx-action"), link.href);

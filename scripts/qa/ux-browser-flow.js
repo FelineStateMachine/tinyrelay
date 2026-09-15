@@ -22,7 +22,7 @@ async page => {
   await page.evaluate(() => { window.__uxMarker = 'preserved'; });
   await run('repository navigation preserves document and ref filters', async () => {
     await page.getByRole('link', {name:'ux-edge-repo',exact:true}).click();
-    await page.waitForURL('**/repo?**');
+    await page.waitForURL('**/repos/*/*');
     await clickNav('/code');
     await page.locator('#ref-select').selectOption('refs/heads/feature/café');
     await page.locator('#panel form').getByRole('button', {name:'go',exact:true}).click();
