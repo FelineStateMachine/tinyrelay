@@ -174,3 +174,91 @@ test("a notification action opens the answer in the existing window, or a new on
   await odd.finished();
   assert.equal(fresh.opened.at(-1), url);
 });
+
+// A Tiny agent interaction on the Approvals page is answered by the
+// chat-decision element from chat-activity.js. Its host there is an inert
+// chat-activity whose endpoint is the page itself: read() re-fetches
+// /approvals to confirm the request still waits for this account, and without
+// a Fixi action the host neither polls nor swaps, so refresh() returns at once.
+const activitySource = fs.readFileSync("tinyclient/chat-activity.js", "utf8");
+const owner = "c".repeat(64);
+class Element {
+  constructor(tag = "div") { this.localName = tag; this.childNodes = []; this.attributes = {}; this.parent = null; this.listeners = {}; }
+  get isConnected() { return Boolean(this.parent); }
+  append(...items) { for (const item of items) { if (item instanceof Element) item.parent = this; this.childNodes.push(item); } }
+  replaceChildren(...items) { this.childNodes = []; this.append(...items); }
+  setAttribute(name, value) { this.attributes[name] = String(value); }
+  getAttribute(name) { return this.attributes[name] ?? null; }
+  hasAttribute(name) { return Object.hasOwn(this.attributes, name); }
+  querySelectorAll() { return []; }
+  contains(node) { return node === this || this.childNodes.some(child => child instanceof Element && child.contains(node)); }
+  closest(selector) { return selector === this.localName ? this : this.parent?.closest(selector) || null; }
+  dispatchEvent(event) { this.listeners[event.type]?.(event); return true; }
+  addEventListener(name, fn) { this.listeners[name] = fn; }
+  removeEventListener(name) { delete this.listeners[name]; }
+}
+
+// approvalsPage renders the host and decision as the approvals template does
+// for one native request, with the page fetch answered by `listing`: the
+// chat-decision elements the re-read page still carries.
+function approvalsPage({selection = "single", interaction = "approval", freeform = false, listing = null} = {}) {
+  const document = new Element("document"); document.hidden = false; document.activeElement = null;
+  const definitions = {}, fetched = [], published = [];
+  const signer = {getPublicKey: async () => owner};
+  const tiny = {signer: () => signer, localPath: path => "/r/team" + path, signing: {publish: async event => { published.push(event); return event; }},
+    ui: {FormElement: class extends Element { report(message) { this.message = message; } connectedCallback() { this.form = {}; } }}};
+  const template = new Element("template");
+  document.createElement = tag => tag === "template" ? template : new Element(tag);
+  const sandbox = {document, HTMLElement: Element, customElements: {define: (name, ctor) => definitions[name] = ctor}, tiny,
+    location: {href: "https://tiny.example/r/team/approvals", origin: "https://tiny.example"}, URL, AbortController, setInterval: () => 1, clearInterval() {}, setTimeout, clearTimeout, queueMicrotask,
+    CustomEvent: class { constructor(type, options) { this.type = type; Object.assign(this, options); } }, morph() {},
+    fetch: async (url, options) => { fetched.push({url: String(url), options}); return {ok: true, text: async () => "<html><body><section id=approvals></section></body></html>"}; }, Date, JSON, Error};
+  vm.runInNewContext(activitySource, sandbox);
+  const host = new (definitions["chat-activity"])(); host.localName = "chat-activity"; host.parent = document;
+  host.setAttribute("endpoint", "/approvals"); host.setAttribute("room", "build"); host.setAttribute("actor", owner);
+  const attributes = [["event", request], ["pubkey", asker], ["kind", "9"], ["room", "build"], ["actor", owner], ["expires", "0"], ["interaction", interaction], ["selection", selection], ["native", ""]];
+  if (freeform) attributes.push(["freeform", ""]);
+  if (interaction === "question") attributes.push(["question", ""]);
+  if (selection === "multiple") attributes.push(["multiple", ""]);
+  const decision = new (definitions["chat-decision"])(); decision.localName = "chat-decision";
+  const fresh = new Element("chat-decision");
+  for (const [name, value] of attributes) { decision.setAttribute(name, value); fresh.setAttribute(name, value); }
+  fresh.querySelectorAll = () => selection === "text" ? [] : [{value: "yes"}, {value: "no"}];
+  host.append(decision); host.connectedCallback();
+  template.content = {querySelectorAll: name => name === "chat-decision" ? (listing ?? [fresh]) : []};
+  return {host, decision, fetched, published};
+}
+
+test("a native answer from the Approvals page re-reads the page and publishes the room-tagged NIP-22 answer", async () => {
+  const page = approvalsPage();
+  await page.decision.submit({elements: {option: {value: "yes", checked: true}}});
+  assert.equal(page.fetched.length, 1);
+  assert.equal(page.fetched[0].url, "https://tiny.example/r/team/approvals");
+  assert.equal(page.fetched[0].options.credentials, "same-origin");
+  assert.equal(page.fetched[0].options.cache, "no-store");
+  assert.equal(page.published.length, 1);
+  const event = page.published[0];
+  assert.equal(event.kind, 1111);
+  assert.equal(event.content, "yes");
+  assert.deepEqual(JSON.parse(JSON.stringify(event.tags)), [["h", "build"], ["E", request, "", asker], ["K", "9"], ["P", asker], ["e", request, "", asker], ["k", "9"], ["p", asker]]);
+  assert.equal(page.decision.message, "Answer sent.");
+  // The inert host has no Fixi action: nothing polls the page after the answer.
+  assert.equal(page.host.__fixi, undefined);
+  assert.equal(page.host.loading, undefined);
+});
+
+test("a multiple-choice question with free text publishes the combined answer from the Approvals page", async () => {
+  const page = approvalsPage({selection: "multiple", interaction: "question", freeform: true});
+  await page.decision.submit({elements: {option: [{value: "yes", checked: true}, {value: "no", checked: true}], "custom-answer": {value: " Both hold. "}}});
+  assert.equal(page.published[0].content, '{"choices":["yes","no"],"text":"Both hold."}');
+  const text = approvalsPage({selection: "text", interaction: "question", freeform: true});
+  await text.decision.submit({elements: {"custom-answer": {value: "main"}}});
+  assert.equal(text.published[0].content, "main");
+});
+
+test("a request the re-read Approvals page no longer lists is not answered", async () => {
+  const page = approvalsPage({listing: []});
+  await assert.rejects(page.decision.submit({elements: {option: {value: "yes", checked: true}}}), /no longer waiting/);
+  assert.equal(page.published.length, 0);
+  page.host.disconnectedCallback();
+});

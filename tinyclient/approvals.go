@@ -25,6 +25,16 @@ type approvalView struct {
 	AnsweredAt              int64
 	AnswerContent           string
 	Grant                   *grantRequestView
+	// Room is the h tag of a room request; the answer to a native
+	// interaction must carry it.
+	Room string
+	// Native marks a Tiny agent interaction, answered with the choices the
+	// room card offers: Options as radio or checkbox inputs by Selection, a
+	// free-text answer when Freeform, and only text when Selection is text.
+	// Question is set for a question request or interaction.
+	Native, Multiple, Freeform, Question bool
+	Interaction, Selection               string
+	Options                              []chatActivityOption
 }
 
 type grantRequestView struct {
@@ -87,9 +97,26 @@ func approvalViewFrom(item map[string]any, base string) approvalView {
 	}
 	if room := plainString(item["room"]); room != "" {
 		view.Where = "#" + room
+		view.Room = room
 	}
 	if answer := valueMap(item["answer"]); len(answer) > 0 {
 		view.Decision, view.AnsweredAt, view.AnswerContent = plainString(answer["decision"]), unixSeconds(answer["created_at"]), strings.TrimSpace(plainString(answer["content"]))
+	}
+	view.Question = view.Type == "question"
+	// The same test the room card applies: a selection with options, or a
+	// text selection on an event tagged tinyagent.
+	rawOptions := collaborationSlice(item, "options")
+	if selection := plainString(item["selection"]); selection != "" && (len(rawOptions) > 0 || eventHasTag(item, "tinyagent")) {
+		view.Native = true
+		view.Interaction, view.Selection = plainString(item["interaction"]), selection
+		view.Question = view.Interaction == "question"
+		view.Multiple = selection == "multiple"
+		view.Freeform = plainString(item["freeform"]) == "true" || selection == "text"
+		for _, rawOption := range rawOptions {
+			option := valueMap(rawOption)
+			view.Options = append(view.Options, chatActivityOption{ID: plainString(option["id"]), Label: plainString(option["label"])})
+		}
+		view.AnswerContent = nativeActivityAnswer(view.AnswerContent, view.Options)
 	}
 	if view.Type == "grant" {
 		raw := valueMap(item["grant"])
