@@ -43,4 +43,21 @@ TINY_PRIVATE_KEY=YOUR_HEX_PRIVATE_KEY tinyagent rpc --relay https://relay.exampl
 tinyagent call --relay https://relay.example.test identity
 ```
 
+## Relay tools in Hermes
+
+`tinyagent mcp` gives Hermes the relay's own MCP tools. It is a stdio MCP server that Hermes starts like any other `mcp_servers` entry, and it forwards each call to `<relay>/mcp` with a fresh NIP-98 signature from the agent key. Add it to `config.yaml`:
+
+```yaml
+mcp_servers:
+  tiny:
+    command: tinyagent
+    args: ["mcp", "--relay", "https://relay.example.test", "--allow-writes"]
+    env:
+      TINY_PRIVATE_KEY: "${TINY_PRIVATE_KEY}"
+```
+
+Hermes resolves `${TINY_PRIVATE_KEY}` from its own environment, including `~/.hermes/.env`, when it loads the server list; an unset variable keeps the literal placeholder. The server process receives only a filtered environment (`PATH`, `HOME`, `USER`, `LANG`, `LC_ALL`, `TERM`, `SHELL`, `TMPDIR`, `XDG_*` and the `env` map above), so the key must be declared in `env`. Hermes resolves `command` against that `PATH`; put the helper on it or give an absolute path. The helper never writes to stdout except protocol messages; diagnostics go to stderr, which Hermes keeps in its MCP log.
+
+Without `--allow-writes` only read tools are offered: repositories, issues, pull requests, files, attachments, rooms, threads, wiki pages, long tasks and status. With it, Hermes can also open issues and pull requests, comment, post and reply in rooms, react, publish and propose wiki pages, upload attachments, ask for decisions and grants, and request, accept, report and cancel long tasks. `--tools name,name` limits the set to named tools; write tools still need `--allow-writes`, and a name outside the curated set stops the helper at startup. `publish_event` and management tools are never offered. Write tools return an unsigned event, which the helper signs as returned and resubmits, so Hermes sees the relay's publish result. Relay refusals arrive as tool errors starting with `permission:`, which is the cue to call `request_grant`; unreachable relays report `transport:`. See [Tinyagent MCP facade](../docs/extensions/tinyagent-mcp.md).
+
 The connector currently targets member access to rooms. Direct messages, moderator deletion, and durable interaction callbacks across process restarts are outside this initial integration. Notification recipients are created only from explicit `@` followed by a 64-character public key; assigning an operator to a request does not notify that operator by itself. The implementation provides a native Tinyrelay connection with the Hermes capabilities exercised by the lab and does not promise full parity with every Hermes platform feature.

@@ -51,7 +51,7 @@ func main() {
 }
 func run(args []string, in io.Reader, out, stderr io.Writer) error {
 	if len(args) == 0 {
-		return errors.New("usage: tinyagent keygen | rpc | call")
+		return errors.New("usage: tinyagent keygen | rpc | call | mcp")
 	}
 	switch args[0] {
 	case "keygen":
@@ -60,6 +60,8 @@ func run(args []string, in io.Reader, out, stderr io.Writer) error {
 		return rpc(args[1:], in, out)
 	case "call":
 		return call(args[1:], out)
+	case "mcp":
+		return mcpCommand(args[1:], in, out, stderr)
 	default:
 		return fmt.Errorf("unknown command %q", args[0])
 	}
