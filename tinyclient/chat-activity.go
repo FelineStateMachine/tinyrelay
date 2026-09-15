@@ -26,6 +26,8 @@ type chatActivityItem struct {
 	Options                                                               []chatActivityOption
 	Progress                                                              string
 	Result, Error                                                         *chatActivityResult
+	Assignees                                                             []string
+	CanCancel                                                             bool
 }
 type chatActivityOption struct{ ID, Label string }
 type chatActivityResult struct {
@@ -34,9 +36,14 @@ type chatActivityResult struct {
 }
 type chatActivityLink struct{ Href, Label string }
 type chatActivityPage struct {
-	Items                        []chatActivityItem
-	Endpoint, Room, Actor, Error string
+	Items                              []chatActivityItem
+	Endpoint, Room, Root, Actor, Error string
+	// Ask renders the request form: the backend serves long tasks and the
+	// viewer is signed in. Agents lists the room's agent members for it.
+	Ask    bool
+	Agents []chatActivityAgent
 }
+type chatActivityAgent struct{ PubKey, Operator string }
 
 func chatActivityView(jobs, approvals any, actor, endpoint, room string) []chatActivityItem {
 	items := []chatActivityItem{}
@@ -54,6 +61,11 @@ func chatActivityView(jobs, approvals any, actor, endpoint, room string) []chatA
 			title = "Agent task"
 		}
 		row := chatActivityItem{Type: "job", ID: id, Author: plainString(item["requester"]), Kind: "43001", State: plainString(item["state"]), Status: plainString(item["status"]), Title: truncateActivity(title, 100), Content: plainString(item["content"]), Room: room, CreatedAt: unixSeconds(item["created_at"]), Expires: unixSeconds(item["expires"])}
+		for _, assignee := range stringValues(item["assignees"]) {
+			if eventIDPattern.MatchString(assignee) {
+				row.Assignees = append(row.Assignees, assignee)
+			}
+		}
 		if progress := valueMap(item["progress"]); len(progress) > 0 {
 			row.Progress = strings.TrimSpace(plainString(progress["content"]))
 		}
@@ -74,6 +86,7 @@ func chatActivityView(jobs, approvals any, actor, endpoint, room string) []chatA
 		if row.Status == "" {
 			row.Status = "queued"
 		}
+		row.CanCancel = actor != "" && row.Author == actor && row.State == "open"
 		items = append(items, row)
 	}
 	for _, raw := range collaborationSlice(approvals, "items") {
@@ -223,12 +236,23 @@ func stringValues(value any) []string {
 	return values
 }
 
+// chatActivity renders the room page's panel: the cards plus the request
+// form with the room's agent members.
 func (a *App) chatActivity(ctx context.Context, actor, room, root string) chatActivityPage {
+	page := a.chatActivityCards(ctx, actor, room, root)
+	if _, ok := a.backend.(ChatActivityReader); ok && actor != "" && page.Error == "" {
+		page.Ask = true
+		page.Agents = a.roomAgents(ctx, actor, room)
+	}
+	return page
+}
+
+func (a *App) chatActivityCards(ctx context.Context, actor, room, root string) chatActivityPage {
 	endpoint := "/chat/activity?room=" + url.QueryEscape(room)
 	if root != "" {
 		endpoint += "&root=" + url.QueryEscape(root)
 	}
-	page := chatActivityPage{Endpoint: endpoint, Room: room, Actor: actor}
+	page := chatActivityPage{Endpoint: endpoint, Room: room, Root: root, Actor: actor}
 	reader, ok := a.backend.(ChatActivityReader)
 	if !ok {
 		return page
@@ -242,6 +266,37 @@ func (a *App) chatActivity(ctx context.Context, actor, room, root string) chatAc
 	page.Items = chatActivityView(map[string]any{"items": data["jobs"]}, map[string]any{"items": data["approvals"]}, actor, endpoint, room)
 	return page
 }
+
+// roomAgents lists the agent members the viewer may see in a room, from the
+// same room read the room page uses, sorted by key so the form is stable.
+func (a *App) roomAgents(ctx context.Context, actor, room string) []chatActivityAgent {
+	var members []any
+	if reader := a.roomsReader(); reader != nil {
+		page, err := reader.ReadRoom(ctx, actor, room, "", 1)
+		if err != nil {
+			return nil
+		}
+		members = roomMembers(roomPageValueFromContract(page))
+	} else {
+		raw, _ := json.Marshal(map[string]any{"id": room, "limit": 1})
+		result, err := a.backend.Query(ctx, "browseroom", []json.RawMessage{raw}, actor)
+		if err != nil {
+			return nil
+		}
+		members = roomMembers(result)
+	}
+	var agents []chatActivityAgent
+	for _, row := range members {
+		member := valueMap(row)
+		pubkey := plainString(member["pubkey"])
+		if isAgent, _ := member["agent"].(bool); !isAgent || !eventIDPattern.MatchString(pubkey) {
+			continue
+		}
+		agents = append(agents, chatActivityAgent{PubKey: pubkey, Operator: plainString(member["operator"])})
+	}
+	sort.Slice(agents, func(i, j int) bool { return agents[i].PubKey < agents[j].PubKey })
+	return agents
+}
 func (a *App) chatActivityHTTP(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "private, no-store")
 	actor, err := a.resolveActor(r)
@@ -254,7 +309,7 @@ func (a *App) chatActivityHTTP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Invalid room or thread.", http.StatusBadRequest)
 		return
 	}
-	page := a.chatActivity(r.Context(), actor, room, root)
+	page := a.chatActivityCards(r.Context(), actor, room, root)
 	if page.Error != "" {
 		http.Error(w, page.Error, http.StatusForbidden)
 		return

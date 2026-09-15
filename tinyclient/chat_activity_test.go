@@ -1,8 +1,11 @@
 package tinyclient
 
 import (
+	"context"
 	"strings"
 	"testing"
+
+	"github.com/FelineStateMachine/tinyrelay/internal/policy"
 )
 
 func TestChatActivityViewScopesDecisionsAndPreservesJobSummary(t *testing.T) {
@@ -123,5 +126,52 @@ func TestChatActivityJobCardsCarryResultsArtifactsAndErrors(t *testing.T) {
 	}
 	if card := items[2]; card.State != "open" || card.Status != "queued" || card.Title != "Later" {
 		t.Fatalf("queued card = %#v", card)
+	}
+}
+
+func TestChatActivityOnlyTheRequesterMayCancelAnOpenTask(t *testing.T) {
+	actor, other := strings.Repeat("a", 64), strings.Repeat("b", 64)
+	jobs := map[string]any{"items": []any{
+		map[string]any{"id": strings.Repeat("1", 64), "requester": actor, "assignees": []any{other, "short", strings.Repeat("c", 64)}, "subject": "Mine, open", "created_at": 1},
+		map[string]any{"id": strings.Repeat("2", 64), "requester": actor, "assignees": []any{other}, "subject": "Mine, done", "state": "done", "status": "done", "created_at": 2},
+		map[string]any{"id": strings.Repeat("3", 64), "requester": other, "assignees": []any{actor}, "subject": "Theirs, running", "state": "open", "status": "running", "created_at": 3},
+	}}
+	items := chatActivityView(jobs, nil, actor, "/chat/activity", "general")
+	if len(items) != 3 {
+		t.Fatalf("got %d cards", len(items))
+	}
+	if card := items[0]; !card.CanCancel || len(card.Assignees) != 2 || card.Assignees[0] != other || card.Assignees[1] != strings.Repeat("c", 64) {
+		t.Fatalf("open own task = %#v", card)
+	}
+	if items[1].CanCancel || items[2].CanCancel {
+		t.Fatalf("done or foreign task cancellable: %#v %#v", items[1], items[2])
+	}
+	if anonymous := chatActivityView(jobs, nil, "", "/chat/activity", "general"); anonymous[0].CanCancel {
+		t.Fatal("signed-out viewer may cancel")
+	}
+}
+
+func TestChatActivityListsRoomAgentsForTheRequestForm(t *testing.T) {
+	b := &activityHTTPBackend{roomsBackend: roomsBackend{fakeBackend: fakeBackend{policy: policy.Defaults(roomOwner)}}}
+	app, err := New(b, Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	page := app.chatActivity(context.Background(), roomOwner, "general", roomThread)
+	if !page.Ask || page.Root != roomThread || len(page.Agents) != 1 || page.Agents[0] != (chatActivityAgent{PubKey: roomAgent, Operator: roomOwner}) {
+		t.Fatalf("request form data = %#v", page)
+	}
+	if guest := app.chatActivity(context.Background(), "", "general", ""); guest.Ask || guest.Agents != nil {
+		t.Fatalf("signed-out viewer offered the form: %#v", guest)
+	}
+	if refresh := app.chatActivityCards(context.Background(), roomOwner, "general", ""); refresh.Ask || refresh.Agents != nil {
+		t.Fatalf("refresh carried form data: %#v", refresh)
+	}
+	plain, err := New(&roomsBackend{fakeBackend: fakeBackend{policy: policy.Defaults(roomOwner)}}, Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if page := plain.chatActivity(context.Background(), roomOwner, "general", ""); page.Ask {
+		t.Fatalf("form offered without a task backend: %#v", page)
 	}
 }

@@ -152,3 +152,74 @@ test("combined answers still require freeform permission on the current question
     assert.equal(published.length,0);
   }
 });
+
+// The request form and the cancel button share the host, the signer check
+// and the publish path with decisions; these cover the events they sign.
+const agent = "d".repeat(64), second = "e".repeat(64), root = "f".repeat(64);
+function requestForm({root: thread = null} = {}) {
+  const {definitions, document, published, signer} = setup();
+  const host = new (definitions["chat-activity"])(); host.localName = "chat-activity"; host.parent = document;
+  host.refresh = async force => { host.refreshed = force; };
+  const request = new (definitions["chat-request"])(); request.localName = "chat-request"; request.parent = host;
+  for (const [name, value] of [["room", "room"], ["actor", actor]]) request.setAttribute(name, value);
+  if (thread) request.setAttribute("root", thread);
+  return {request, host, published, signer};
+}
+
+test("request publishes a kind 43001 with room, agent, subject and thread root tags", async () => {
+  const {request, host, published} = requestForm({root});
+  const form = {elements: {agent: {value: agent.toUpperCase()}, subject: {value: " Build the preview "}, content: {value: " Use the dark palette. "}}, reset() { this.wasReset = true; }};
+  await request.submit(form);
+  assert.equal(published.length, 1);
+  assert.equal(published[0].kind, 43001);
+  assert.deepEqual(JSON.parse(JSON.stringify(published[0].tags)), [["h", "room"], ["p", agent], ["subject", "Build the preview"], ["e", root, "", "root"]]);
+  assert.equal(published[0].content, "Use the dark palette.");
+  assert.equal(typeof published[0].created_at, "number");
+  assert.equal(form.wasReset, true);
+  assert.equal(host.refreshed, true);
+  assert.equal(request.message, "Task sent.");
+});
+
+test("request outside a thread omits subject and root tags and validates its fields", async () => {
+  const {request, published, signer} = requestForm();
+  await request.submit({elements: {agent: {value: agent}, subject: {value: ""}, content: {value: "Transcribe the call."}}});
+  assert.deepEqual(JSON.parse(JSON.stringify(published[0].tags)), [["h", "room"], ["p", agent]]);
+  await assert.rejects(request.submit({elements: {agent: {value: "not-a-key"}, content: {value: "x"}}}), /public key/);
+  await assert.rejects(request.submit({elements: {agent: {value: agent}, subject: {value: " "}, content: {value: " "}}}), /Write the task/);
+  await assert.rejects(request.submit({elements: {agent: {value: agent}, subject: {value: "s".repeat(201)}, content: {value: "x"}}}), /subject is too long/);
+  signer.getPublicKey = async () => author;
+  await assert.rejects(request.submit({elements: {agent: {value: agent}, content: {value: "x"}}}), /Connect the signer/);
+  assert.equal(published.length, 1);
+});
+
+function cancelButton(listing) {
+  const {definitions, document, template, published} = setup();
+  const host = new (definitions["chat-activity"])(); host.localName = "chat-activity"; host.parent = document;
+  host.read = async () => "fresh"; host.schedule = () => { host.scheduled = true; }; host.refresh = async force => { host.refreshed = force; };
+  template.content = {querySelectorAll: selector => selector === "chat-cancel" ? listing : []};
+  const cancel = new (definitions["chat-cancel"])(); cancel.localName = "chat-cancel"; cancel.parent = host;
+  for (const [name, value] of [["event", request], ["room", "room"], ["actor", actor], ["assignees", agent + " " + second]]) cancel.setAttribute(name, value);
+  return {cancel, host, published};
+}
+
+test("cancel revalidates the open card and publishes a kind 43005 naming each assignee", async () => {
+  const allowed = new Node("chat-cancel");
+  for (const [name, value] of [["event", request], ["room", "room"], ["actor", actor], ["assignees", agent + " " + second + " short"]]) allowed.setAttribute(name, value);
+  const {cancel, host, published} = cancelButton([allowed]);
+  await cancel.submit({elements: {}});
+  assert.equal(published.length, 1);
+  assert.equal(published[0].kind, 43005);
+  assert.deepEqual(JSON.parse(JSON.stringify(published[0].tags)), [["e", request], ["h", "room"], ["p", agent], ["p", second]]);
+  assert.equal(published[0].content, "");
+  assert.equal(host.refreshed, true);
+  assert.equal(cancel.message, "Task cancelled.");
+});
+
+test("cancel refuses a task that is no longer open for this account", async () => {
+  const stale = new Node("chat-cancel");
+  for (const [name, value] of [["event", request], ["room", "room"], ["actor", author]]) stale.setAttribute(name, value);
+  const {cancel, host, published} = cancelButton([stale]);
+  await assert.rejects(cancel.submit({elements: {}}), /no longer open/);
+  assert.equal(host.scheduled, true);
+  assert.equal(published.length, 0);
+});

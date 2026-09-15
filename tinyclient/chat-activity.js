@@ -1,6 +1,20 @@
 (() => {
   "use strict";
   const tiny=globalThis.tiny;
+  const isHex64=value=>typeof value==="string" && /^[0-9a-f]{64}$/.test(value);
+  const now=()=>Math.floor(Date.now()/1000);
+  // requireSigner confirms the connected signer still belongs to the account
+  // the card or form was rendered for before anything is signed.
+  const requireSigner=async actor=>{
+    const signer=tiny.signer();
+    if(!signer || await signer.getPublicKey()!==actor || tiny.signer()!==signer) throw Error("Connect the signer for this account.");
+  };
+  // freshElement re-reads the panel and returns the matching element when
+  // the request still waits for this account, so a stale card cannot sign.
+  const freshElement=async(host,name,id,actor)=>{
+    const fresh=document.createElement("template"); fresh.innerHTML=await host.read();
+    return [...fresh.content.querySelectorAll(name)].find(el=>el.getAttribute("event")===id && el.getAttribute("actor")===actor) || null;
+  };
   class ChatActivity extends HTMLElement {
     connectedCallback() {
       if (this.running) return;
@@ -52,7 +66,7 @@
       const opened=new Set([...this.querySelectorAll("details[open][data-task]")].map(el=>el.dataset.task));
       morph(cfg.target,cfg.text);
       cfg.target.querySelectorAll("details[data-task]").forEach(el=>{el.open=opened.has(el.dataset.task);});
-      cfg.target.querySelectorAll("chat-decision").forEach(el=>{if(!el.form?.isConnected){el.form=null;el.output=null;el.connectedCallback();}});
+      cfg.target.querySelectorAll("chat-decision,chat-cancel").forEach(el=>{if(!el.form?.isConnected){el.form=null;el.output=null;el.connectedCallback();}});
       this.version=cfg.text;
     }
   }
@@ -60,10 +74,9 @@
     connectedCallback() { if(this.form) return; super.connectedCallback(); }
     async submit(form) {
       const host=this.closest("chat-activity"),id=this.getAttribute("event"),author=this.getAttribute("pubkey"),actor=this.getAttribute("actor"),room=this.getAttribute("room");
-      const signer=tiny.signer();
-      if(!signer || await signer.getPublicKey()!==actor || tiny.signer()!==signer) throw Error("Connect the signer for this account.");
-      const fresh=document.createElement("template"); fresh.innerHTML=await host.read();
-      const allowed=[...fresh.content.querySelectorAll("chat-decision")].find(el=>el.getAttribute("event")===id && el.getAttribute("actor")===actor && el.getAttribute("pubkey")===author);
+      await requireSigner(actor);
+      const current=await freshElement(host,"chat-decision",id,actor);
+      const allowed=current && current.getAttribute("pubkey")===author ? current : null;
       if(!allowed) { host.schedule(); throw Error("This request is no longer waiting for your answer."); }
       let unsigned;
       if(this.hasAttribute("native")) {
@@ -96,5 +109,43 @@
       await host.refresh(true);
     }
   }
+  // ChatRequest publishes a kind 43001 job request for the room, and for
+  // the thread when the panel is scoped to one.
+  class ChatRequest extends tiny.ui.FormElement {
+    connectedCallback() { if(this.form) return; super.connectedCallback(); }
+    async submit(form) {
+      const host=this.closest("chat-activity"),actor=this.getAttribute("actor"),room=this.getAttribute("room"),root=this.getAttribute("root");
+      const agent=(form.elements.agent?.value || "").trim().toLowerCase();
+      const subject=(form.elements.subject?.value || "").trim(), content=(form.elements.content?.value || "").trim();
+      if(!isHex64(agent)) throw Error("Choose an agent or enter its 64-character public key.");
+      if(!content && !subject) throw Error("Write the task first.");
+      if(subject.length > 200) throw Error("The subject is too long.");
+      if(content.length > 8000) throw Error("The task is too long.");
+      await requireSigner(actor);
+      const tags=[["h",room],["p",agent]];
+      if(subject) tags.push(["subject",subject]);
+      if(root) { if(!isHex64(root)) throw Error("The thread address is missing."); tags.push(["e",root,"","root"]); }
+      this.report("Signing…"); await tiny.signing.publish({kind:43001,created_at:now(),tags,content});
+      form.reset?.(); this.report("Task sent.");
+      await host?.refresh(true);
+    }
+  }
+  // ChatCancel publishes a kind 43005 cancel for an open task the account
+  // requested, naming each key the request asked.
+  class ChatCancel extends tiny.ui.FormElement {
+    connectedCallback() { if(this.form) return; super.connectedCallback(); }
+    async submit() {
+      const host=this.closest("chat-activity"),id=this.getAttribute("event"),actor=this.getAttribute("actor"),room=this.getAttribute("room");
+      await requireSigner(actor);
+      const allowed=await freshElement(host,"chat-cancel",id,actor);
+      if(!allowed) { host.schedule(); throw Error("This task is no longer open."); }
+      const tags=[["e",id],["h",room]];
+      for(const assignee of (allowed.getAttribute("assignees") || "").split(/\s+/)) if(isHex64(assignee)) tags.push(["p",assignee]);
+      this.report("Signing…"); await tiny.signing.publish({kind:43005,created_at:now(),tags,content:""});
+      this.report("Task cancelled."); this.querySelectorAll("button").forEach(el=>el.disabled=true);
+      await host.refresh(true);
+    }
+  }
   customElements.define("chat-activity",ChatActivity); customElements.define("chat-decision",ChatDecision);
+  customElements.define("chat-request",ChatRequest); customElements.define("chat-cancel",ChatCancel);
 })();
