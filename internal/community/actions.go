@@ -61,7 +61,7 @@ func (s *Service) setMemberVia(ctx context.Context, actor string, p []json.RawMe
 	if name != "" {
 		name = strings.ToLower(strings.TrimSpace(name))
 		if !nameRE.MatchString(name) {
-			return nil, errors.New("invalid: bad member name")
+			return nil, errors.New("invalid: bad member name: use a-z, 0-9, _ or -, up to 32 characters")
 		}
 	}
 	if role == "moderator" && actor != s.owner {
