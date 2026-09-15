@@ -29,7 +29,7 @@ The facade reads one JSON-RPC 2.0 message per line on stdin and writes one per l
 | `initialize` | Answers with the client's `protocolVersion` when it is `2024-11-05`, `2025-03-26`, `2025-06-18` or `2025-11-25`, and with `2025-06-18` otherwise. Capabilities are `{"tools": {}}`; `serverInfo` names `tinyagent`. |
 | `notifications/initialized`, `notifications/cancelled` and any other notification | Ignored. A cancelled call still runs to completion on the relay and its answer is discarded by the host. |
 | `ping` | Answers `{}`. |
-| `tools/list` | The relay's tool table restricted to the exposed set, with the relay's descriptions, input schemas and annotations. |
+| `tools/list` | The relay's tool table restricted to the exposed set, with the relay's descriptions, input schemas and annotations, followed by `tiny_diagnose`. |
 | `tools/call` | Forwarded to the relay as described below. |
 | Any other request | JSON-RPC error `-32601`. A message that is not one JSON object answers `-32700`. |
 
@@ -52,6 +52,8 @@ Write tools, added with `--allow-writes`:
 `create_issue`, `create_pull_request`, `comment`, `post_message`, `start_thread`, `reply_in_thread`, `react`, `publish_wiki_page`, `propose_wiki_merge`, `upload_attachment`, `request_decision`, `request_grant`, `request_job`, `accept_job`, `job_progress`, `job_result`, `job_error`, `cancel_job`.
 
 `--tools` replaces the default with the named tools, in the order given. Each name must belong to one of the two lists, and a write tool still needs `--allow-writes`; otherwise the process exits at startup with the offending name. Names the relay does not serve are accepted and simply absent from `tools/list`.
+
+`tiny_diagnose` is the one tool the facade answers itself. It is always offered, whatever `--tools` names, and no relay tool carries the name. It takes optional `rooms` and `kinds` arrays and returns the report of `tinyagent diagnose` as `structuredContent`, with `<verdict>: <advice>` as the text block: whether the relay answers, whether it accepts the key's signature, membership and role, the grant and its state, and the named rooms and kinds the grant lacks. The verdict is `ok`, `needs-grant`, `not-a-member`, `unauthorized` or `unreachable`; a refused signature is reported as `unauthorized`, never as `unreachable`. The tool calls the relay's `browsegrant` browse method over the signed NIP-86 endpoint rather than `/mcp`, and its report is a result rather than an error whatever the verdict. See [Diagnostics](../agents.md#diagnostics).
 
 ## Sign and resubmit
 

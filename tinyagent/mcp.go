@@ -23,8 +23,9 @@ import (
 
 // The facade speaks the standard MCP stdio protocol to Hermes and forwards
 // every tool to the relay's stateless HTTP endpoint with fresh NIP-98
-// signatures. Only the curated tools below are ever exposed; publish_event
-// and the management tools never are.
+// signatures. Only the curated tools below are ever exposed, plus
+// tiny_diagnose, which the facade answers itself; publish_event and the
+// management tools never are.
 
 // mcpReadTools are exposed by default.
 var mcpReadTools = []string{
@@ -63,6 +64,25 @@ const (
 // mcpAuthKinds are never signed on the relay's behalf: a template of one of
 // these kinds would be an authorization, not a publication.
 var mcpAuthKinds = map[int]bool{22242: true, 24242: true, 27235: true}
+
+// mcpDiagnoseTool is the one tool the facade answers itself. It is always
+// offered, whatever the allowlist, because it is how an agent finds out why
+// the other tools fail. No relay tool carries this name.
+const mcpDiagnoseTool = "tiny_diagnose"
+
+var mcpDiagnoseEntry = map[string]any{
+	"name":        mcpDiagnoseTool,
+	"title":       "Diagnose relay access",
+	"description": "Check this connector's access to the relay: reachability, whether the relay accepts its signature, membership, the agent grant and its state, and which of the given rooms and kinds the grant lacks. The verdict is ok, needs-grant, not-a-member, unauthorized or unreachable; advice says what to do next, such as calling request_grant.",
+	"inputSchema": map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"rooms": map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "Room ids the connector needs to post in."},
+			"kinds": map[string]any{"type": "array", "items": map[string]any{"type": "integer", "minimum": 0, "maximum": 65535}, "description": "Event kinds the connector needs to publish."},
+		},
+	},
+	"annotations": map[string]any{"readOnlyHint": true, "idempotentHint": true},
+}
 
 type mcpFacade struct {
 	client  *client.Client
@@ -314,6 +334,7 @@ func (f *mcpFacade) tools(ctx context.Context) ([]map[string]any, error) {
 		}
 		table = append(table, entry)
 	}
+	table = append(table, mcpDiagnoseEntry)
 	f.table = table
 	return table, nil
 }
@@ -336,6 +357,9 @@ func (f *mcpFacade) call(ctx context.Context, params json.RawMessage) (any, *mcp
 	}
 	if p.Name == "" {
 		return nil, &mcp.Error{Code: mcp.CodeInvalidParams, Message: "params.name is required"}
+	}
+	if p.Name == mcpDiagnoseTool {
+		return f.diagnose(ctx, p.Arguments), nil
 	}
 	if !f.allowed[p.Name] {
 		return nil, &mcp.Error{Code: mcp.CodeInvalidParams, Message: "Unknown tool: " + p.Name}

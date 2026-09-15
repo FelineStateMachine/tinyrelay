@@ -46,12 +46,12 @@ type rpcServer struct {
 func main() {
 	if err := run(os.Args[1:], os.Stdin, os.Stdout, os.Stderr); err != nil {
 		fmt.Fprintln(os.Stderr, err)
-		os.Exit(1)
+		os.Exit(exitStatus(err))
 	}
 }
 func run(args []string, in io.Reader, out, stderr io.Writer) error {
 	if len(args) == 0 {
-		return errors.New("usage: tinyagent keygen | rpc | call | mcp")
+		return errors.New("usage: tinyagent keygen | rpc | call | mcp | diagnose")
 	}
 	switch args[0] {
 	case "keygen":
@@ -62,6 +62,8 @@ func run(args []string, in io.Reader, out, stderr io.Writer) error {
 		return call(args[1:], out)
 	case "mcp":
 		return mcpCommand(args[1:], in, out, stderr)
+	case "diagnose":
+		return diagnoseCommand(args[1:], out)
 	default:
 		return fmt.Errorf("unknown command %q", args[0])
 	}
@@ -218,6 +220,8 @@ func (s *rpcServer) dispatch(ctx context.Context, method string, raw json.RawMes
 			return nil, err
 		}
 		return s.client.Download(ctx, path)
+	case "diagnose":
+		return s.diagnose(ctx, p)
 	case "unsubscribe":
 		var name string
 		if err := json.Unmarshal(p["subscription"], &name); err != nil {

@@ -116,7 +116,7 @@ var remoteReadMethods = map[string]bool{
 	"browsewikipage": true, "browsewikimerge": true, "browsestatus": true,
 	"browserooms": true, "browseroom": true, "browsethread": true,
 	"browseissues": true, "browseissue": true, "browsepulls": true, "browsepull": true,
-	"browseagent": true, "browsejobs": true, "browsejob": true,
+	"browseagent": true, "browsegrant": true, "browsejobs": true, "browsejob": true,
 	"browsesocial": true, "browsesocialthread": true, "browsepodcasts": true, "browsedirectmessages": true,
 }
 

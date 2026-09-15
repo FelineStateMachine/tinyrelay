@@ -34,7 +34,7 @@ type clientBrowseRequest struct {
 }
 
 func clientBrowseMethod(method string) bool {
-	return method == "browsechatactivity" || wikiBrowseMethod(method) || approvalBrowseMethod(method) || jobBrowseMethod(method) || socialBrowseMethod(method) || directMessagesBrowseMethod(method) || containsString([]string{"browserepos", "browserepo", "browsefiles", "browsefile", "browsestatus", "browseissues", "browsepulls", "browseissue", "browsepull", "browseagent", "browseprofile"}, method)
+	return method == "browsechatactivity" || wikiBrowseMethod(method) || approvalBrowseMethod(method) || jobBrowseMethod(method) || socialBrowseMethod(method) || directMessagesBrowseMethod(method) || containsString([]string{"browserepos", "browserepo", "browsefiles", "browsefile", "browsestatus", "browseissues", "browsepulls", "browseissue", "browsepull", "browseagent", "browsegrant", "browseprofile"}, method)
 }
 
 func (t *Tenant) browseRead(ctx context.Context, actor string) error {
@@ -98,6 +98,8 @@ func (t *Tenant) executeBrowse(ctx context.Context, actor, method string, params
 		return t.browseStatus(ctx, actor)
 	case "browseagent":
 		return t.browseAgent(ctx, actor, q.Agent)
+	case "browsegrant":
+		return t.browseGrant(ctx, actor, params)
 	case "browseprofile":
 		return t.browseProfile(ctx, actor, q.Pubkey)
 	case "browseissues":

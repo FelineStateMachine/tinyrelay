@@ -370,7 +370,7 @@ func TestMCPInitializeAndFilteredList(t *testing.T) {
 		t.Fatalf("ping: %+v", ping)
 	}
 	names := c.listNames()
-	if strings.Join(names, ",") != "list_rooms,read_room" {
+	if strings.Join(names, ",") != "list_rooms,read_room,tiny_diagnose" {
 		t.Fatalf("read-only table: %v", names)
 	}
 	response := c.call("tools/list", map[string]any{})
@@ -409,7 +409,7 @@ func TestMCPAllowWritesAndTenantPrefix(t *testing.T) {
 	c := startFacade(t, "--relay", relay.base(), "--key-env", "TINY_MCP_TEST_KEY", "--allow-writes")
 	c.initialize("2025-06-18")
 	names := c.listNames()
-	if strings.Join(names, ",") != "list_rooms,read_room,post_message,request_job" {
+	if strings.Join(names, ",") != "list_rooms,read_room,post_message,request_job,tiny_diagnose" {
 		t.Fatalf("write table: %v", names)
 	}
 	for _, name := range []string{"publish_event", "set_policy"} {
@@ -521,7 +521,7 @@ func TestMCPToolsFlag(t *testing.T) {
 	relay := newFakeRelay(t, "", pub)
 	c := startFacade(t, "--relay", relay.base(), "--key-env", "TINY_MCP_TEST_KEY", "--tools", "read_room, list_rooms,list_wiki")
 	c.initialize("2025-06-18")
-	if names := c.listNames(); strings.Join(names, ",") != "read_room,list_rooms" {
+	if names := c.listNames(); strings.Join(names, ",") != "read_room,list_rooms,tiny_diagnose" {
 		t.Fatalf("--tools table: %v", names)
 	}
 	for _, tc := range []struct{ tools, want string }{
@@ -604,7 +604,7 @@ func TestMCPAgainstRelayTransport(t *testing.T) {
 	t.Cleanup(server.Close)
 	c := startFacade(t, "--relay", server.URL, "--key-env", "TINY_MCP_TEST_KEY", "--allow-writes")
 	c.initialize("2025-03-26")
-	if names := c.listNames(); strings.Join(names, ",") != "list_rooms,post_message" {
+	if names := c.listNames(); strings.Join(names, ",") != "list_rooms,post_message,tiny_diagnose" {
 		t.Fatalf("table: %v", names)
 	}
 	result, response := c.tool("list_rooms", map[string]any{})
