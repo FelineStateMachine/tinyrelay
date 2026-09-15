@@ -291,15 +291,15 @@ func (t *Tenant) folderItems(rows []map[string]any, excluded map[string]bool, q 
 			m["name"] = path.Base(p)
 		}
 		m["kind"] = "file"
-		m["open"] = "/file?hash=" + url.QueryEscape(m["sha256"].(string))
+		m["open"] = "/file/" + url.PathEscape(m["sha256"].(string))
 		if contextName, ok := m["context"].(string); ok {
-			m["context_url"] = "/files?view=" + contextName + "s&path=" + url.QueryEscape(path.Dir(p))
+			m["context_url"] = filesPageURL(contextName+"s", path.Dir(p))
 		}
 		files = append(files, m)
 	}
 	items := []map[string]any{}
 	for n := range folders {
-		items = append(items, map[string]any{"kind": "folder", "name": n, "path": strings.Trim(prefix+n, "/"), "open": "/files?view=" + url.QueryEscape(view) + "&path=" + url.QueryEscape(strings.Trim(prefix+n, "/"))})
+		items = append(items, map[string]any{"kind": "folder", "name": n, "path": strings.Trim(prefix+n, "/"), "open": filesPageURL(view, strings.Trim(prefix+n, "/"))})
 	}
 	items = append(items, files...)
 	sort.Slice(items, func(i, j int) bool { return fileItemKey(items[i]) < fileItemKey(items[j]) })
@@ -326,7 +326,7 @@ func fileItemKey(item map[string]any) string {
 }
 func breadcrumbs(view, p string) []map[string]string {
 	label := map[string]string{"library": "My files", "sites": "Sites", "rooms": "Rooms", "storage": "Storage"}[view]
-	out := []map[string]string{{"name": label, "open": "/files?view=" + view}}
+	out := []map[string]string{{"name": label, "open": filesPageURL(view, "")}}
 	parts := strings.Split(strings.Trim(p, "/"), "/")
 	cur := ""
 	for _, v := range parts {
@@ -337,9 +337,22 @@ func breadcrumbs(view, p string) []map[string]string {
 			cur += "/"
 		}
 		cur += v
-		out = append(out, map[string]string{"name": v, "open": "/files?view=" + view + "&path=" + url.QueryEscape(cur)})
+		out = append(out, map[string]string{"name": v, "open": filesPageURL(view, cur)})
 	}
 	return out
+}
+
+// filesPageURL is the files page for a view and folder. The library is the
+// bare /files page; the other views are /files/{view}.
+func filesPageURL(view, folder string) string {
+	page := "/files"
+	if view != "library" {
+		page += "/" + url.PathEscape(view)
+	}
+	if folder == "" || folder == "." {
+		return page
+	}
+	return page + "?path=" + url.QueryEscape(folder)
 }
 
 func (t *Tenant) contextHashes(ctx context.Context, actor string) (map[string][]string, map[string][]string, error) {

@@ -151,7 +151,7 @@ func TestGrantRequestNotificationRequiresReview(t *testing.T) {
 	agent, _ := event.PublicKey(testAgentSecret)
 	request := approvalGrantRequest(t, agentGrantEvent(t, agent, now-30, now+3600, []string{"k", "9"}), now-20)
 	notices := tenant.pushNotices(context.Background(), request)
-	if len(notices) != 1 || notices[0].recipient != tenant.Policy().Owner || notices[0].category != pushApprovals || len(notices[0].actions) != 1 || notices[0].actions[0].Action != "review" || !strings.Contains(notices[0].url, "/approvals?id="+request.ID) {
+	if len(notices) != 1 || notices[0].recipient != tenant.Policy().Owner || notices[0].category != pushApprovals || len(notices[0].actions) != 1 || notices[0].actions[0].Action != "review" || !strings.Contains(notices[0].url, "/approvals/"+request.ID) {
 		t.Fatalf("grant request notification: %+v", notices)
 	}
 }

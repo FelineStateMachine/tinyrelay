@@ -144,7 +144,7 @@ func TestDeviceNotificationsFollowCategoriesAndBadge(t *testing.T) {
 		t.Fatalf("message notices %+v", notices)
 	}
 	issue := event.Event{Kind: 1621, PubKey: other, CreatedAt: 1, Tags: [][]string{{"a", "30617:" + owner + ":notes"}, {"subject", "Broken build"}}}
-	if notices := tenant.pushNotices(ctx, issue); len(notices) != 1 || notices[0].category != pushReplies || notices[0].body != "New issue: Broken build" || !strings.Contains(notices[0].url, "view=issue") {
+	if notices := tenant.pushNotices(ctx, issue); len(notices) != 1 || notices[0].category != pushReplies || notices[0].body != "New issue: Broken build" || !strings.Contains(notices[0].url, "/repos/"+owner+"/notes/issues/") {
 		t.Fatalf("issue notices %+v", notices)
 	}
 

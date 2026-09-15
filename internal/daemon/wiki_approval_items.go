@@ -53,7 +53,7 @@ func (t *Tenant) wikiProposalApprovalItems(ctx context.Context, actor string, de
 				continue
 			}
 			version := wikiVersionFrom(row, false)
-			item := approvalItemFrom(row, approvalWikiProposal, strings.TrimRight(t.publicURL, "/"))
+			item := t.approvalItemFrom(ctx, row, approvalWikiProposal)
 			item.Asked = asked
 			item.Subject = version.Title
 			item.About = &approvalAbout{Coordinate: version.Coordinate, Event: row.ID, Kind: "30818", URL: strings.TrimRight(t.publicURL, "/") + "/wiki/" + url.PathEscape(version.D) + "?version=" + url.QueryEscape(row.ID)}
@@ -91,10 +91,10 @@ func (t *Tenant) wikiMergeApprovalItems(ctx context.Context, actor string, befor
 		if merge.Destination != actor {
 			continue
 		}
-		item := approvalItemFrom(row, approvalWikiMerge, strings.TrimRight(t.publicURL, "/"))
+		item := t.approvalItemFrom(ctx, row, approvalWikiMerge)
 		item.Asked = []string{actor}
 		item.Subject = "Wiki merge request"
-		item.About = &approvalAbout{Coordinate: merge.Target, Event: row.ID, Kind: "818", URL: strings.TrimRight(t.publicURL, "/") + "/wiki/" + url.PathEscape(merge.TargetD) + "?merge=" + row.ID}
+		item.About = &approvalAbout{Coordinate: merge.Target, Event: row.ID, Kind: "818", URL: t.wikiProposalURL(merge.TargetD, row.ID)}
 		items = append(items, item)
 	}
 	answers, err := t.approvalAnswers(ctx, items, nowUnix())
@@ -183,7 +183,7 @@ func (t *Tenant) wikiApprovalByID(ctx context.Context, actor, id string) (approv
 			return approvalItem{}, false, nil
 		}
 		version := wikiVersionFrom(row, false)
-		item := approvalItemFrom(row, approvalWikiProposal, strings.TrimRight(t.publicURL, "/"))
+		item := t.approvalItemFrom(ctx, row, approvalWikiProposal)
 		item.Asked = t.wikiApprovalAudience(ctx)
 		item.Subject = version.Title
 		item.About = &approvalAbout{Coordinate: version.Coordinate, Event: row.ID, Kind: "30818", URL: strings.TrimRight(t.publicURL, "/") + "/wiki/" + url.PathEscape(version.D) + "?version=" + url.QueryEscape(row.ID)}
@@ -193,10 +193,10 @@ func (t *Tenant) wikiApprovalByID(ctx context.Context, actor, id string) (approv
 	if merge.Destination == "" || merge.Destination != actor {
 		return approvalItem{}, false, nil
 	}
-	item := approvalItemFrom(row, approvalWikiMerge, strings.TrimRight(t.publicURL, "/"))
+	item := t.approvalItemFrom(ctx, row, approvalWikiMerge)
 	item.Asked = []string{actor}
 	item.Subject = "Wiki merge request"
-	item.About = &approvalAbout{Coordinate: merge.Target, Event: row.ID, Kind: "818", URL: strings.TrimRight(t.publicURL, "/") + "/wiki/" + url.PathEscape(merge.TargetD) + "?merge=" + url.QueryEscape(row.ID)}
+	item.About = &approvalAbout{Coordinate: merge.Target, Event: row.ID, Kind: "818", URL: t.wikiProposalURL(merge.TargetD, row.ID)}
 	return item, true, nil
 }
 

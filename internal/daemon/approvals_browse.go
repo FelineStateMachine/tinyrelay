@@ -10,7 +10,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/FelineStateMachine/tinyrelay/internal/event"
@@ -169,7 +168,7 @@ func (t *Tenant) browseApproval(ctx context.Context, actor, id string) (any, err
 	if !ok {
 		return nil, errors.New("not found: request")
 	}
-	item := approvalItemFrom(rows[0], kind, strings.TrimRight(t.publicURL, "/"))
+	item := t.approvalItemFrom(ctx, rows[0], kind)
 	if item.Asker != actor && !containsString(item.Asked, actor) {
 		return nil, errors.New("restricted: this request is not addressed to you")
 	}

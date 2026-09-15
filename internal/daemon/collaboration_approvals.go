@@ -284,7 +284,7 @@ func (t *Tenant) collaborationProposalNotices(ctx context.Context, e event.Event
 	case event.KIND_GIT_PATCH:
 		what, subject = "patch", collaborationTitle(e)
 	}
-	notice := pushNotice{category: pushApprovals, body: name + " proposes " + what + ": " + excerpt(subject), url: t.collaborationProposalURL(e, r)}
+	notice := pushNotice{category: pushApprovals, body: name + " proposes " + what + ": " + excerpt(subject), url: t.collaborationProposalURL(ctx, e, r)}
 	var notices []pushNotice
 	for _, recipient := range uniqueStrings(t.maintainerKeys(ctx, r)) {
 		if recipient == e.PubKey {
@@ -300,23 +300,23 @@ func (t *Tenant) collaborationProposalNotices(ctx context.Context, e event.Event
 // collaborationProposalURL is the page a proposal is read on: the issue or
 // pull request page for a root and for a comment under one, and the event
 // page otherwise.
-func (t *Tenant) collaborationProposalURL(e event.Event, r gitrelay.Repository) string {
+func (t *Tenant) collaborationProposalURL(ctx context.Context, e event.Event, r gitrelay.Repository) string {
 	base := strings.TrimRight(t.publicURL, "/")
-	page := func(view, id string) string {
-		return base + "/repo?owner=" + r.Owner + "&repo=" + r.Identifier + "&view=" + view + "&id=" + id
+	page := func(section, id string) string {
+		return t.repoItemURL(ctx, r.Owner, r.Identifier, section, id)
 	}
 	switch e.Kind {
 	case event.KIND_GIT_ISSUE:
-		return page("issue", e.ID)
+		return page("issues", e.ID)
 	case event.KIND_GIT_PR:
-		return page("pr", e.ID)
+		return page("prs", e.ID)
 	case 1111:
 		if root := event.Tag(e, "E"); len(root) == 64 {
 			switch event.Tag(e, "K") {
 			case "1621":
-				return page("issue", root)
+				return page("issues", root)
 			case "1618":
-				return page("pr", root)
+				return page("prs", root)
 			}
 		}
 	}

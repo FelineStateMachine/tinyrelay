@@ -116,15 +116,15 @@ func (t *Tenant) pushNotices(ctx context.Context, e event.Event) []pushNotice {
 			return nil
 		}
 		label := "New issue"
-		view := "issue"
+		section := "issues"
 		if e.Kind == event.KIND_GIT_PR {
-			label, view = "New pull request", "pr"
+			label, section = "New pull request", "prs"
 		}
 		body := label
 		if subject := strings.TrimSpace(event.Tag(e, "subject")); subject != "" {
 			body += ": " + excerpt(subject)
 		}
-		notices = append(notices, pushNotice{recipient: owner, category: pushReplies, body: body, url: base + "/repo?owner=" + owner + "&repo=" + identifier + "&view=" + view + "&id=" + e.ID})
+		notices = append(notices, pushNotice{recipient: owner, category: pushReplies, body: body, url: t.repoItemURL(ctx, owner, identifier, section, e.ID)})
 	case 1, 1111, 30023:
 		authored := t.referencedAuthors(ctx, e)
 		for _, recipient := range pushRecipients(e) {

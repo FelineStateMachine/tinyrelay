@@ -57,7 +57,7 @@ func (t *Tenant) browseChatActivity(ctx context.Context, actor string, params []
 		if event.IsJobRequest(row.Kind) && t.Policy().Features.Jobs && (event.Expiration(row) == 0 || event.Expiration(row) > now) {
 			jobs = append(jobs, jobItemFrom(row))
 		} else if kind, ok := approvalRequest(row); ok && (row.PubKey == actor || containsString(approvalAsked(row), actor)) {
-			approvals = append(approvals, approvalItemFrom(row, kind, t.publicURL))
+			approvals = append(approvals, t.approvalItemFrom(ctx, row, kind))
 		}
 	}
 	// Keep the inline panel bounded even when a busy room has accumulated a

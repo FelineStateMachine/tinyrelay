@@ -138,7 +138,7 @@ func TestBrowseApprovalsStatesAndAccess(t *testing.T) {
 	if item["state"] != "open" || item["type"] != "approve" || item["subject"] != "Publish release notes 1.4" || item["asker"] != asker || item["expires"] != float64(now+3600) || item["answer"] != nil {
 		t.Fatalf("open item %v", item)
 	}
-	if about := item["about"].(map[string]any); about["coordinate"] != "30617:"+owner+":notes" || !strings.HasSuffix(about["url"].(string), "/repo?owner="+owner+"&repo=notes&view=home") {
+	if about := item["about"].(map[string]any); about["coordinate"] != "30617:"+owner+":notes" || !strings.HasSuffix(about["url"].(string), "/repos/"+owner+"/notes") {
 		t.Fatalf("about %v", about)
 	}
 	item = approvalByID(items, decided.ID)
@@ -237,7 +237,7 @@ func TestBrowseApprovalsIncludesWikiProposalsAndMerges(t *testing.T) {
 		t.Fatalf("proposal approval %v", proposalItem)
 	}
 	mergeItem := approvalByID(items, merge.ID)
-	if mergeItem["type"] != approvalWikiMerge || mergeItem["state"] != "open" || !strings.Contains(mergeItem["about"].(map[string]any)["url"].(string), "?merge="+merge.ID) {
+	if mergeItem["type"] != approvalWikiMerge || mergeItem["state"] != "open" || !strings.Contains(mergeItem["about"].(map[string]any)["url"].(string), "/proposals/"+merge.ID) {
 		t.Fatalf("merge approval %v", mergeItem)
 	}
 	if got, err := approvalCall(t, tenant, member, "browseapprovals", map[string]any{}); err != nil || len(wikiItems(got, "items")) != 0 {
@@ -283,7 +283,7 @@ func TestApprovalRequestsWakeDevicesWithActionsAndCountOnBadge(t *testing.T) {
 
 	request := event.Event{Kind: kindComment, PubKey: asker, CreatedAt: now, Tags: [][]string{{"request", "decide"}, {"p", owner}, {"subject", "Publish  release notes"}, {"expiration", strconv.FormatInt(now+3600, 10)}}, Content: "Long body"}
 	notices := tenant.pushNotices(ctx, request)
-	if len(notices) != 1 || notices[0].category != pushApprovals || notices[0].recipient != owner || notices[0].body != asker[:12]+" asks: Publish release notes" || !strings.HasSuffix(notices[0].url, "/approvals?id="+request.ID) {
+	if len(notices) != 1 || notices[0].category != pushApprovals || notices[0].recipient != owner || notices[0].body != asker[:12]+" asks: Publish release notes" || !strings.HasSuffix(notices[0].url, "/approvals/"+request.ID) {
 		t.Fatalf("decision notices %+v", notices)
 	}
 	if actions := notices[0].actions; len(actions) != 3 || actions[0].Action != "approve" || actions[1].Action != "deny" || actions[2].Action != "reply" || actions[0].Title != "Approve" {
@@ -348,7 +348,7 @@ func TestNativeFreeformAllowsBothOptionsAndCustomText(t *testing.T) {
 			if selection != "text" {
 				e.Tags = append(e.Tags, []string{"option", "c0", "Continue"})
 			}
-			item := approvalItemFrom(e, "question", "")
+			item := (&Tenant{}).approvalItemFrom(context.Background(), e, "question")
 			answer := event.Event{Kind: 1111, CreatedAt: 110, Tags: [][]string{{"h", "lab"}, {"e", e.ID}, {"E", e.ID}, {"p", e.PubKey}, {"P", e.PubKey}, {"k", "9"}, {"K", "9"}}}
 			valid := []string{`{"text":"custom"}`, "c0"}
 			invalid := []string{`{"text":"custom","extra":true}`, `{"Text":"custom"}`, `{"text":"one","text":"two"}`, "unknown", `[]`}
@@ -405,7 +405,7 @@ func TestNativeFreeformAcceptsChoiceAndExplanationTogether(t *testing.T) {
 			e := base
 			e.Tags = append([][]string(nil), base.Tags...)
 			e.Tags = append(e.Tags, []string{"selection", test.selection})
-			item := approvalItemFrom(e, "question", "")
+			item := (&Tenant{}).approvalItemFrom(context.Background(), e, "question")
 			answer := event.Event{Kind: kindComment, CreatedAt: 110, Content: test.content, Tags: answerTags}
 			if got := nativeAnswerValid(item, answer); got != test.valid {
 				t.Fatalf("nativeAnswerValid = %v, want %v for %s", got, test.valid, test.content)

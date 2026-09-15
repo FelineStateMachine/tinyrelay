@@ -391,7 +391,7 @@ func TestRepositoryProposalWakesOwnerAndMaintainerDevices(t *testing.T) {
 		if err := json.Unmarshal([]byte(payload), &notice); err != nil {
 			t.Fatal(err)
 		}
-		if notice.Kind != pushApprovals || notice.Text != "helper proposes issue: Needs review" || notice.URL != "http://relay.test/repo?owner="+k.owner+"&repo="+proposalRepo+"&view=issue&id="+issue.ID {
+		if notice.Kind != pushApprovals || notice.Text != "helper proposes issue: Needs review" || notice.URL != "http://relay.test/repos/"+k.owner+"/"+proposalRepo+"/issues/"+issue.ID {
 			t.Fatalf("notice %+v", notice)
 		}
 	}
@@ -404,11 +404,11 @@ func TestRepositoryProposalWakesOwnerAndMaintainerDevices(t *testing.T) {
 	// are read directly since the approvals category coalesces.
 	comment := proposalComment(t, tenant, k, testAgentSecret, issue, "Also this line looks wrong", now-70)
 	notices, ok := tenant.collaborationProposalNotices(ctx, comment)
-	if !ok || len(notices) != 3 || notices[0].recipient != k.owner || notices[0].category != pushApprovals || notices[0].body != "helper proposes comment: Also this line looks wrong" || notices[0].url != "http://relay.test/repo?owner="+k.owner+"&repo="+proposalRepo+"&view=issue&id="+issue.ID {
+	if !ok || len(notices) != 3 || notices[0].recipient != k.owner || notices[0].category != pushApprovals || notices[0].body != "helper proposes comment: Also this line looks wrong" || notices[0].url != "http://relay.test/repos/"+k.owner+"/"+proposalRepo+"/issues/"+issue.ID {
 		t.Fatalf("comment notices %v %+v", ok, notices)
 	}
 	pull := proposalRoot(t, tenant, k, testAgentSecret, event.KIND_GIT_PR, "Add tests", now-60)
-	if notices, ok = tenant.collaborationProposalNotices(ctx, pull); !ok || notices[0].body != "helper proposes pull request: Add tests" || notices[0].url != "http://relay.test/repo?owner="+k.owner+"&repo="+proposalRepo+"&view=pr&id="+pull.ID {
+	if notices, ok = tenant.collaborationProposalNotices(ctx, pull); !ok || notices[0].body != "helper proposes pull request: Add tests" || notices[0].url != "http://relay.test/repos/"+k.owner+"/"+proposalRepo+"/prs/"+pull.ID {
 		t.Fatalf("pull notices %v %+v", ok, notices)
 	}
 	if _, ok = tenant.collaborationProposalNotices(ctx, proposalRoot(t, tenant, k, testOwnerSecret, event.KIND_GIT_PR, "Owner pull", now-50)); ok {

@@ -153,19 +153,20 @@ func approvalAsked(e event.Event) []string {
 	return pushRecipients(e)
 }
 
-func approvalItemFrom(e event.Event, kind string, base string) approvalItem {
+func (t *Tenant) approvalItemFrom(ctx context.Context, e event.Event, kind string) approvalItem {
 	item := approvalItem{ID: e.ID, Kind: e.Kind, Type: kind, Asker: e.PubKey, Asked: approvalAsked(e), Subject: strings.TrimSpace(event.Tag(e, "subject")), Content: e.Content, CreatedAt: e.CreatedAt, Expires: event.Expiration(e), State: "open", Room: event.Tag(e, "h"), Event: e}
 	item.Options, item.Selection, _ = nativeInteraction(e)
 	item.Freeform = event.Tag(e, "freeform") == "true"
 	item.Interaction = event.Tag(e, "interaction")
-	item.About = approvalAboutFrom(e, base)
+	item.About = t.approvalAboutFrom(ctx, e)
 	return item
 }
 
 // approvalAboutFrom resolves the request's a or e reference to a page. A
 // repository coordinate opens the repository, or its issue or pull request
 // when the root is one; any other event opens the event page.
-func approvalAboutFrom(e event.Event, base string) *approvalAbout {
+func (t *Tenant) approvalAboutFrom(ctx context.Context, e event.Event) *approvalAbout {
+	base := strings.TrimRight(t.publicURL, "/")
 	coordinate := ""
 	for _, name := range []string{"a", "A"} {
 		if value := event.Tag(e, name); value != "" {
@@ -185,9 +186,9 @@ func approvalAboutFrom(e event.Event, base string) *approvalAbout {
 	}
 	about := &approvalAbout{Coordinate: coordinate, Event: referenced, Kind: kind}
 	if owner, identifier, ok := repoCoordinate(coordinate); ok {
-		about.URL = base + "/repo?owner=" + owner + "&repo=" + identifier + "&view=home"
-		if view := map[string]string{"1621": "issue", "1618": "pr"}[kind]; view != "" && referenced != "" {
-			about.URL = base + "/repo?owner=" + owner + "&repo=" + identifier + "&view=" + view + "&id=" + referenced
+		about.URL = t.repoPageURL(ctx, owner, identifier)
+		if section := map[string]string{"1621": "issues", "1618": "prs"}[kind]; section != "" && referenced != "" {
+			about.URL = t.repoItemURL(ctx, owner, identifier, section, referenced)
 		}
 	} else if referenced != "" {
 		about.URL = base + "/e/" + referenced
@@ -429,7 +430,6 @@ func approvalSettle(item *approvalItem, rows []event.Event, now int64) {
 // what lapsed until maintenance removes them.
 func (t *Tenant) approvalsFor(ctx context.Context, pubkey string, before *storage.EventCursor, limit int) ([]approvalItem, bool, error) {
 	now := time.Now().Unix()
-	base := strings.TrimRight(t.publicURL, "/")
 	page, err := t.store.Query(ctx, event.Filter{Kinds: approvalKinds, Tags: map[string][]string{"p": {pubkey}}}, storage.QueryOptions{Access: storage.Access{PubKeys: []string{pubkey}}, Limit: limit, Before: before})
 	if err != nil {
 		return nil, false, err
@@ -440,7 +440,7 @@ func (t *Tenant) approvalsFor(ctx context.Context, pubkey string, before *storag
 		if !ok || row.PubKey == pubkey {
 			continue
 		}
-		items = append(items, approvalItemFrom(row, kind, base))
+		items = append(items, t.approvalItemFrom(ctx, row, kind))
 	}
 	answers, err := t.approvalAnswers(ctx, items, now)
 	if err != nil {
@@ -517,7 +517,7 @@ func (t *Tenant) approvalNotices(e event.Event, kind string) []pushNotice {
 		if native && !containsString(event.TagValues(e, "mention"), recipient) {
 			continue
 		}
-		notices = append(notices, pushNotice{recipient: recipient, category: pushApprovals, body: body, url: base + "/approvals?id=" + e.ID, actions: actions})
+		notices = append(notices, pushNotice{recipient: recipient, category: pushApprovals, body: body, url: base + "/approvals/" + e.ID, actions: actions})
 	}
 	return notices
 }

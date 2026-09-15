@@ -68,7 +68,7 @@ func TestMemberFileAccessAcrossHTTPAndBrowseSurfaces(t *testing.T) {
 	}
 
 	for _, actor := range []string{"bob", "stranger"} {
-		request := httptest.NewRequest(http.MethodGet, "http://relay.test/file?hash="+descriptor.Hash, nil)
+		request := httptest.NewRequest(http.MethodGet, "http://relay.test/file/"+descriptor.Hash, nil)
 		if actor != "" {
 			signRequestWithSecret(t, request, "", h.secrets[actor])
 		}

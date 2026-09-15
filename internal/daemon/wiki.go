@@ -8,7 +8,6 @@ package daemon
 
 import (
 	"context"
-	"net/url"
 	"sort"
 	"strconv"
 	"strings"
@@ -384,7 +383,7 @@ func (t *Tenant) notifyWikiMerge(ctx context.Context, e event.Event) {
 	if err == nil && len(rows.Events) == 1 {
 		title = wikiVersionFrom(rows.Events[0], false).Title
 	}
-	notice := pushNotice{recipient: m.Destination, category: pushReplies, body: "Merge request for " + excerpt(title), url: strings.TrimRight(t.publicURL, "/") + "/wiki/" + url.PathEscape(m.TargetD) + "?merge=" + e.ID}
+	notice := pushNotice{recipient: m.Destination, category: pushReplies, body: "Merge request for " + excerpt(title), url: t.wikiProposalURL(m.TargetD, e.ID)}
 	if err := t.enqueuePushNotice(ctx, notice); err != nil {
 		t.app.telemetry.Logger().Debug("wiki merge notification not queued", "error", err)
 	}

@@ -338,7 +338,7 @@ func TestWikiMergeRequestWakesDestinationDevices(t *testing.T) {
 	if err := json.Unmarshal([]byte(payload), &notice); err != nil {
 		t.Fatal(err)
 	}
-	if notice.Kind != pushReplies || notice.Text != "Merge request for Bitcoin Basics" || notice.URL != "http://relay.test/wiki/bitcoin-basics?merge="+merge.ID {
+	if notice.Kind != pushReplies || notice.Text != "Merge request for Bitcoin Basics" || notice.URL != "http://relay.test/wiki/bitcoin-basics/proposals/"+merge.ID {
 		t.Fatalf("notice %+v", notice)
 	}
 }
