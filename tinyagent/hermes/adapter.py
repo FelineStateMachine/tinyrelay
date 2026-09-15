@@ -28,16 +28,22 @@ try:
     from .interactions import InteractionMixin
     from .media import incoming_media
     from .ingress import EventTracker, IdentityLock, event_thread, reply_parent
+    from . import tasks as taskmod
+    from .tasks import TaskState, answer_tags, request_root, request_text
 except ImportError:  # Hermes plugin loader may import adapter.py as a top-level module.
     from client import TinyRPC
     from interactions import InteractionMixin
     from media import incoming_media
     from ingress import EventTracker, IdentityLock, event_thread, reply_parent
+    import tasks as taskmod
+    from tasks import TaskState, answer_tags, request_root, request_text
 
 logger = logging.getLogger(__name__)
 
 _HEX = re.compile(r"\b[0-9a-f]{64}\b", re.I)
 _MENTION = re.compile(r"(?<![0-9A-Za-z])@([0-9a-f]{64})(?![0-9A-Za-z])", re.I)
+# Buzz's convention: this exact message from an allowed user stops the current turn.
+CANCEL_COMMAND = "!cancel"
 
 
 def _tags(event: dict, name: str) -> list[list[str]]:
@@ -69,6 +75,9 @@ class TinyAdapter(InteractionMixin, BasePlatformAdapter):
     RECONNECT_MIN = 1.0
     RECONNECT_MAX = 30.0
     SWEEP_INTERVAL = 60.0
+    # Long-task cards: at most one 43003 progress event per task in this many seconds.
+    PROGRESS_INTERVAL = 15.0
+    MAX_TASKS = 200
 
     def __init__(self, config: PlatformConfig):
         super().__init__(config, Platform("tiny"))
@@ -101,6 +110,8 @@ class TinyAdapter(InteractionMixin, BasePlatformAdapter):
         self._closed = False
         self._reconnect_task: asyncio.Task | None = None
         self._last_sweep = 0.0
+        # request id -> long-task card state, in intake order.
+        self._tasks: dict[str, TaskState] = {}
 
     @property
     def name(self) -> str:
@@ -114,8 +125,18 @@ class TinyAdapter(InteractionMixin, BasePlatformAdapter):
             route = {**self._reply_routes.get(event.message_id, {}), "session": session}
             token = self._turn_route.set(route)
             self._turn_routes[session] = route
+            task = self._tasks.get(event.message_id)
             try:
-                return await handler(event)
+                response = await handler(event)
+            except BaseException as exc:
+                # The failure hook fires before Hermes posts its notice; keep the text now.
+                if task is not None and not isinstance(exc, asyncio.CancelledError):
+                    task.note_error(str(exc) or type(exc).__name__)
+                raise
+            else:
+                if task is not None and isinstance(response, str):
+                    task.final_text = response
+                return response
             finally:
                 if self._turn_routes.get(session) is route:
                     self._turn_routes.pop(session, None)
@@ -180,7 +201,8 @@ class TinyAdapter(InteractionMixin, BasePlatformAdapter):
             self.pubkey = pubkey
             if self._tracker is None or self._tracker.identity != pubkey.lower():
                 self._tracker = EventTracker(self.relay_url, pubkey, self.rooms)
-            filter: dict[str, Any] = {"kinds": [9, 11, 12, 1111], **self._tracker.filter_since()}
+            filter: dict[str, Any] = {"kinds": [9, 11, 12, 1111, taskmod.KIND_JOB_REQUEST, taskmod.KIND_JOB_CANCEL],
+                                      **self._tracker.filter_since()}
             if self.rooms:
                 filter["#h"] = self.rooms
             await rpc.subscribe(self._subscription, filter, self._on_event)
@@ -238,6 +260,8 @@ class TinyAdapter(InteractionMixin, BasePlatformAdapter):
         if self._lock is not None:
             self._lock.release()
             self._lock = None
+        for task in self._tasks.values():
+            self._stop_progress_timer(task)
         self._mark_disconnected()
 
     async def _on_event(self, event: dict) -> None:
@@ -265,6 +289,20 @@ class TinyAdapter(InteractionMixin, BasePlatformAdapter):
         if not room or (self.rooms and room not in self.rooms) or not self._authorized(author):
             return
         if self._tracker and not self._tracker.should_accept(event, now=int(time.time())):
+            return
+        kind = event.get("kind")
+        if kind == taskmod.KIND_JOB_REQUEST:
+            await self._on_task_request(event, room, author)
+            return
+        if kind == taskmod.KIND_JOB_CANCEL:
+            await self._on_task_cancel(event, author)
+            if self._tracker:
+                self._tracker.mark(event)
+            return
+        if kind in (9, 12) and self._is_cancel_command(event):
+            await self._on_cancel_command(event, room, author)
+            if self._tracker:
+                self._tracker.mark(event)
             return
         root = event_thread(event)
         parent_id = reply_parent(event)
@@ -300,8 +338,13 @@ class TinyAdapter(InteractionMixin, BasePlatformAdapter):
                                          "reply_to_message_id": event_id, "thread_id": thread_id, "user_id": author}
         if len(self._reply_routes) > 10000:
             self._reply_routes.pop(next(iter(self._reply_routes)))
-        # The event counts as delivered only once Hermes has accepted it. A failed
-        # hand-off leaves it eligible for redelivery until the attempt budget is spent.
+        await self._deliver(message, event)
+
+    async def _deliver(self, message: MessageEvent, event: dict) -> None:
+        """Hand a turn to Hermes. The event counts as delivered only once Hermes has
+        accepted it; a failed hand-off leaves it eligible for redelivery until the
+        attempt budget is spent."""
+        event_id = str(event.get("id", ""))
         try:
             await self.handle_message(message)
         except BaseException as exc:
@@ -311,6 +354,212 @@ class TinyAdapter(InteractionMixin, BasePlatformAdapter):
             raise
         if self._tracker:
             self._tracker.mark(event)
+
+    # -- long-task cards -------------------------------------------------
+
+    async def _on_task_request(self, event: dict, room: str, author: str) -> None:
+        """Turn a 43001 that asks this key into a thread turn anchored at the request."""
+        request_id = str(event.get("id", ""))
+        if self.pubkey not in [row[1] for row in _tags(event, "p")]:
+            if self._tracker:
+                self._tracker.mark(event)
+            return
+        # Restart safety: a request this key already finished (or the requester
+        # cancelled) is not run again.
+        done = await self.rpc.query({"kinds": list(taskmod.TERMINAL_KINDS), "#e": [request_id],
+                                     "#h": [room], "limit": 1})
+        if done or request_id in self._tasks:
+            if self._tracker:
+                self._tracker.mark(event)
+            return
+        root = request_root(event)
+        source = self.build_source(chat_id=room, chat_name=room, chat_type="group", user_id=author,
+                                   thread_id=root, message_id=request_id)
+        message = MessageEvent(text=request_text(event), message_type=MessageType.TEXT, source=source,
+                               raw_message=event, message_id=request_id,
+                               timestamp=datetime.fromtimestamp(int(event.get("created_at", time.time()))))
+        session = self._event_session_key(message)
+        task = TaskState(request_id, room, author, root, session)
+        self._tasks[request_id] = task
+        while len(self._tasks) > self.MAX_TASKS:
+            self._forget_task(next(iter(self._tasks)))
+        self._session_assignees[session] = author
+        self._reply_routes[request_id] = {"room": room, "root": root, "reply_to_message_id": request_id,
+                                          "thread_id": root, "user_id": author}
+        try:
+            await self._deliver(message, event)
+        except BaseException:
+            self._forget_task(request_id)
+            raise
+
+    def _forget_task(self, request_id: str) -> None:
+        task = self._tasks.pop(request_id, None)
+        if task is not None:
+            self._stop_progress_timer(task)
+
+    def _task_for_send(self, room: str, tags: list[list[str]]) -> TaskState | None:
+        """Return the running task whose thread a send lands in, if any."""
+        root = next((row[1] for row in tags if len(row) >= 4 and row[0] == "e" and row[3] == "root"), None)
+        if not root:
+            return None
+        matches = [task for task in self._tasks.values()
+                   if not task.terminal and task.room == room and task.thread_root == root]
+        return next((task for task in matches if task.accepted), matches[0] if matches else None)
+
+    def _task_for_message(self, message_id: str) -> TaskState | None:
+        return next((task for task in self._tasks.values()
+                     if not task.terminal and message_id in task.classes), None)
+
+    def _task_for_session(self, session: str) -> TaskState | None:
+        matches = [task for task in self._tasks.values() if not task.terminal and task.session_key == session]
+        return next((task for task in matches if task.accepted), matches[0] if matches else None)
+
+    def _observe(self, task: TaskState | None, message_id: str | None, content: str, cls: str, *,
+                 final: bool = False, file_name: str | None = None) -> None:
+        if task is None or not message_id:
+            return
+        task.observe(message_id, content, cls, final=final, file_name=file_name)
+        self._schedule_progress(task)
+
+    def _clock(self) -> float:
+        return time.monotonic()
+
+    def _schedule_progress(self, task: TaskState) -> None:
+        """Publish pending progress now, or once the throttle window has passed."""
+        if task.terminal or not task.accepted or not task.has_progress or task.timer is not None:
+            return
+        delay = task.progress_due(self._clock(), self.PROGRESS_INTERVAL)
+        if delay <= 0:
+            task.timer = asyncio.ensure_future(self._flush_progress(task.request_id))
+            return
+        loop = asyncio.get_running_loop()
+        task.timer = loop.call_later(delay, self._progress_timer_fired, task.request_id)
+
+    def _progress_timer_fired(self, request_id: str) -> None:
+        task = self._tasks.get(request_id)
+        if task is None:
+            return
+        task.timer = asyncio.ensure_future(self._flush_progress(request_id))
+
+    def _stop_progress_timer(self, task: TaskState) -> None:
+        timer, task.timer = task.timer, None
+        try:
+            current = asyncio.current_task()
+        except RuntimeError:
+            current = None
+        if timer is not None and timer is not current:
+            timer.cancel()
+
+    async def _stop_task_turn(self, task: TaskState) -> None:
+        """Stop the Hermes turn of a task: cancel it when it runs, drop it when still queued."""
+        if task.accepted:
+            await self.cancel_session_processing(task.session_key)
+            return
+        pending = getattr(self, "_pending_messages", {}).get(task.session_key)
+        if pending is not None and str(getattr(pending, "message_id", "")) == task.request_id:
+            self._pending_messages.pop(task.session_key, None)
+
+    async def _flush_progress(self, request_id: str) -> None:
+        task = self._tasks.get(request_id)
+        if task is None:
+            return
+        if task.timer is not None and task.timer is not asyncio.current_task():
+            task.timer.cancel()
+        try:
+            if task.terminal or not task.has_progress:
+                return
+            content = task.take_progress(self._clock())
+            result = await self._publish(task.room, content, answer_tags(task), kind=taskmod.KIND_JOB_PROGRESS)
+            if not result.success:
+                logger.warning("Tiny task %s progress failed: %s", request_id[:8], result.error)
+        finally:
+            task.timer = None
+            if task.has_progress:
+                self._schedule_progress(task)
+
+    async def _publish_terminal(self, task: TaskState, kind: int, content: str, extra: list[list[str]] = ()) -> None:
+        """Publish exactly one terminal event for a task, whatever happens to the send."""
+        if not task.end():
+            return
+        self._stop_progress_timer(task)
+        result = await self._publish(task.room, content, [*answer_tags(task), *extra], kind=kind)
+        if not result.success:
+            logger.error("Tiny task %s terminal event %d failed: %s", task.request_id[:8], kind, result.error)
+        self._forget_task(task.request_id)
+
+    async def on_processing_start(self, event: MessageEvent) -> None:
+        await super().on_processing_start(event)
+        task = self._tasks.get(str(event.message_id or ""))
+        if task is None or task.terminal or task.accepted:
+            return
+        task.accepted = True
+        result = await self._publish(task.room, "", answer_tags(task), kind=taskmod.KIND_JOB_ACCEPTED)
+        if not result.success:
+            logger.warning("Tiny task %s accepted event failed: %s", task.request_id[:8], result.error)
+
+    async def on_processing_complete(self, event: MessageEvent, outcome) -> None:
+        await super().on_processing_complete(event, outcome)
+        task = self._tasks.get(str(event.message_id or ""))
+        if task is None:
+            return
+        name = str(getattr(outcome, "value", outcome)).lower()
+        if task.terminal:
+            self._forget_task(task.request_id)
+            return
+        if name == "success":
+            content, extra = task.result()
+            await self._publish_terminal(task, taskmod.KIND_JOB_RESULT, content, extra)
+        elif name == "cancelled":
+            await self._publish_terminal(task, taskmod.KIND_JOB_ERROR, "Cancelled")
+        else:
+            await self._publish_terminal(task, taskmod.KIND_JOB_ERROR, task.failure())
+
+    async def _on_task_cancel(self, event: dict, author: str) -> None:
+        """A 43005 from the requester ends the task; the cancel itself is the terminal event."""
+        task = self._tasks.get(str(_tag(event, "e") or ""))
+        if task is None or task.terminal or author != task.requester:
+            return
+        task.end()
+        self._stop_progress_timer(task)
+        await self._stop_task_turn(task)
+        self._forget_task(task.request_id)
+
+    def _is_cancel_command(self, event: dict) -> bool:
+        return (str(event.get("content", "")).strip() == CANCEL_COMMAND
+                and self.pubkey in [row[1] for row in _tags(event, "p")])
+
+    async def _on_cancel_command(self, event: dict, room: str, author: str) -> None:
+        """Buzz's !cancel: stop the current turn of the room or thread session instead of
+        forwarding it. A task turn ends with a 43006 naming who cancelled it."""
+        event_id = str(event.get("id", ""))
+        thread_id = event_thread(event) if event.get("kind") == 12 else None
+        source = self.build_source(chat_id=room, chat_name=room, chat_type="group", user_id=author,
+                                   thread_id=thread_id, message_id=event_id)
+        session = self._event_session_key(MessageEvent(text=CANCEL_COMMAND, source=source, message_id=event_id))
+        task = self._task_for_session(session)
+        if task is None:
+            root = event_thread(event)
+            if root:
+                task = next((entry for entry in self._tasks.values()
+                             if not entry.terminal and entry.room == room and entry.thread_root == root), None)
+            elif session not in getattr(self, "_active_sessions", {}):
+                # A bare room-level !cancel with no turn of its own stops the room's newest task.
+                running = [entry for entry in self._tasks.values()
+                           if not entry.terminal and entry.room == room and entry.accepted]
+                task = running[-1] if running else None
+        if task is not None:
+            await self._publish_terminal(task, taskmod.KIND_JOB_ERROR, f"Cancelled by {author}")
+            await self._stop_task_turn(task)
+            return
+        await self.cancel_session_processing(session)
+
+    async def create_handoff_thread(self, parent_chat_id: str, name: str) -> str | None:
+        """Open a real thread in the room so a handed-off session continues there."""
+        result = await self._publish(parent_chat_id, str(name or "").strip() or "Handoff", [], kind=11)
+        if not result.success or not result.message_id:
+            logger.warning("Tiny handoff thread failed: %s", result.error)
+            return None
+        return str(result.message_id)
 
     def _authorized(self, author: str) -> bool:
         return author.lower() in self.allowed
@@ -339,10 +588,19 @@ class TinyAdapter(InteractionMixin, BasePlatformAdapter):
             tags.append(["p", pubkey])
             tags.append(["mention", pubkey])
         result = await self._publish(chat_id, content, tags, kind=kind)
+        task = self._task_for_send(chat_id, tags)
         if result.success:
             self._sent[result.message_id] = tags
             if len(self._sent) > 1000:
                 self._sent.pop(next(iter(self._sent)))
+            # Hermes marks a streamed draft with expect_edits and a final reply with notify;
+            # anything else in the thread is tool chrome or a status line.
+            meta = metadata or {}
+            final = bool(meta.get("notify"))
+            cls = taskmod.TEXT if final or meta.get("expect_edits") else taskmod.CHROME
+            self._observe(task, result.message_id, content, cls, final=final)
+        elif task is not None:
+            task.note_error(result.error or "Tiny send failed")
         return result
 
     async def edit_message(self, chat_id: str, message_id: str, content: str, *, finalize: bool = False) -> SendResult:
@@ -350,8 +608,12 @@ class TinyAdapter(InteractionMixin, BasePlatformAdapter):
         for key in _explicit_mentions(content):
             tags.extend([["p", key], ["mention", key]])
         result = await self._publish(chat_id, content, tags, kind=40003)
+        task = self._task_for_message(str(message_id))
         if result.success:
             result.message_id = message_id
+            self._observe(task, str(message_id), content, taskmod.CHROME, final=finalize)
+        elif task is not None:
+            task.note_error(result.error or "Tiny edit failed")
         return result
 
     async def delete_message(self, chat_id: str, message_id: str) -> bool:
@@ -385,7 +647,13 @@ class TinyAdapter(InteractionMixin, BasePlatformAdapter):
             tags.append(["imeta", *fields])
             for key in _explicit_mentions(caption or ""):
                 tags.extend([["p", key], ["mention", key]])
-            return await self._publish(chat_id, caption or "", tags, kind=kind)
+            result = await self._publish(chat_id, caption or "", tags, kind=kind)
+            task = self._task_for_send(chat_id, tags)
+            if result.success:
+                self._observe(task, result.message_id, caption or "", taskmod.FILE, file_name=filename)
+            elif task is not None:
+                task.note_error(result.error or "Tiny upload failed")
+            return result
         except Exception as exc:
             return SendResult(success=False, error=str(exc), retryable=True)
 

@@ -45,7 +45,14 @@ The helper exposes a JSON-lines RPC mode for the adapter. Its public commands ar
 tinyagent keygen
 TINY_PRIVATE_KEY=YOUR_HEX_PRIVATE_KEY tinyagent rpc --relay https://relay.example.test
 tinyagent call --relay https://relay.example.test identity
+tinyagent diagnose --relay https://relay.example.test --rooms room-id --kinds 9,12
 ```
+
+`tinyagent diagnose` reports, as JSON, whether the relay answers, whether it accepts the key's signature, the key's membership and grant state, and which of the named rooms and kinds the grant lacks, with a verdict of `ok`, `needs-grant`, `not-a-member`, `unauthorized` or `unreachable` and one line of advice. A refused signature is never reported as an unreachable relay. The exit status is 0 for `ok`, 2 when the key or its grant is the problem and 3 when the relay is out of reach. Hermes gets the same report from the `tiny_diagnose` MCP tool.
+
+## Long tasks
+
+A member can hand Hermes a long task with a kind 43001 request that names the agent key in a `p` tag. The adapter treats the request like a mention: the subject and content become one turn, and the conversation runs as a thread anchored at the request (or at the thread the request names). Hermes's replies stay in that thread; the task card summarises them. The adapter publishes accepted, progress, result and error events as the turn runs, and a request that already has a result, error or cancel on the relay is not run again after a restart. The requester ends a task with a kind 43005 cancel; any allowed user can stop the current turn of a room or thread by sending `!cancel` with the agent mentioned. See [Tiny agent interactions](../docs/extensions/tinyagent.md#long-task-cards) for the events the adapter publishes and when.
 
 ## Relay tools in Hermes
 

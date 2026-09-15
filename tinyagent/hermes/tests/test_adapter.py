@@ -482,7 +482,7 @@ def test_helper_death_reconnects_from_persisted_cursor(adapter, helper, tmp_path
         assert await instance.connect()
         first = helper.instances[-1]
         assert instance.is_connected and instance._lock.held
-        assert first.filters == [{"kinds": [9, 11, 12, 1111], "since": now - 1000, "#h": ["room"]}]
+        assert first.filters == [{"kinds": [9, 11, 12, 1111, 43001, 43005], "since": now - 1000, "#h": ["room"]}]
         await first.subscriptions["tinyagent"]({"kind": 9, "id": "d" * 64, "pubkey": OWNER, "created_at": now,
                                                 "content": "hello", "tags": [["h", "room"], ["p", BOT]]})
         assert len(received) == 1 and instance._tracker.cursor == now
@@ -491,7 +491,7 @@ def test_helper_death_reconnects_from_persisted_cursor(adapter, helper, tmp_path
         await asyncio.wait_for(instance._reconnect_task, 2)
         second = helper.instances[-1]
         assert second is not first and first.closed and instance.rpc is second
-        assert second.filters == [{"kinds": [9, 11, 12, 1111], "since": now - 300, "#h": ["room"]}]
+        assert second.filters == [{"kinds": [9, 11, 12, 1111, 43001, 43005], "since": now - 300, "#h": ["room"]}]
         assert instance.is_connected and instance._lock.held and marks == ["connected", "connected"]
         # The same tracker persists across the reconnect: the delivered event stays deduplicated.
         assert not instance._tracker.should_accept({"id": "d" * 64, "created_at": now, "tags": []})
