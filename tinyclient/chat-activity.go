@@ -19,15 +19,20 @@ type chatActivityItem struct {
 	Type, ID, Author, Kind, State, Status, Title, Content, Room, Decision string
 	CreatedAt, Expires                                                    int64
 	Answer                                                                string
-	CanDecide, Question, Encrypted                                        bool
+	CanDecide, Question                                                   bool
 	Native, Multiple                                                      bool
 	Freeform                                                              bool
 	Interaction                                                           string
 	Options                                                               []chatActivityOption
-	Result                                                                *chatActivityResult
+	Progress                                                              string
+	Result, Error                                                         *chatActivityResult
 }
 type chatActivityOption struct{ ID, Label string }
-type chatActivityResult struct{ ID, Content string }
+type chatActivityResult struct {
+	ID, Content string
+	Artifacts   []chatActivityLink
+}
+type chatActivityLink struct{ Href, Label string }
 type chatActivityPage struct {
 	Items                        []chatActivityItem
 	Endpoint, Room, Actor, Error string
@@ -41,40 +46,30 @@ func chatActivityView(jobs, approvals any, actor, endpoint, room string) []chatA
 		if !eventIDPattern.MatchString(id) {
 			continue
 		}
-		ev := valueMap(item["event"])
-		title := firstString(tagValues(ev, "subject"))
+		title := strings.TrimSpace(plainString(item["subject"]))
 		if title == "" {
 			title = strings.TrimSpace(plainString(item["content"]))
 		}
 		if title == "" {
-			for _, raw := range collaborationSlice(item, "inputs") {
-				input := valueMap(raw)
-				if plainString(input["type"]) == "text" {
-					title = plainString(input["data"])
-					break
-				}
-			}
-		}
-		if title == "" {
 			title = "Agent task"
 		}
-		title = truncateActivity(title, 100)
-		row := chatActivityItem{Type: "job", ID: id, Author: plainString(item["requester"]), Kind: plainString(item["kind"]), State: plainString(item["state"]), Status: plainString(item["status"]), Title: title, Content: plainString(item["content"]), Room: room, CreatedAt: unixSeconds(item["created_at"])}
-		row.Encrypted, _ = item["encrypted"].(bool)
-		if row.Encrypted {
-			row.Title = "Encrypted task"
-			row.Content = "Open the task in its originating client."
-		}
-		if feedback := valueMap(item["feedback"]); len(feedback) > 0 && !row.Encrypted {
-			row.Author = plainString(feedback["provider"])
-			row.Content = strings.TrimSpace(plainString(feedback["info"]) + "\n" + plainString(feedback["content"]))
+		row := chatActivityItem{Type: "job", ID: id, Author: plainString(item["requester"]), Kind: "43001", State: plainString(item["state"]), Status: plainString(item["status"]), Title: truncateActivity(title, 100), Content: plainString(item["content"]), Room: room, CreatedAt: unixSeconds(item["created_at"]), Expires: unixSeconds(item["expires"])}
+		if progress := valueMap(item["progress"]); len(progress) > 0 {
+			row.Progress = strings.TrimSpace(plainString(progress["content"]))
 		}
 		if result := valueMap(item["result"]); eventIDPattern.MatchString(plainString(result["id"])) {
 			row.Result = &chatActivityResult{ID: plainString(result["id"]), Content: plainString(result["content"])}
-			row.Status = "success"
-			if row.Encrypted {
-				row.Result.Content = ""
+			for _, raw := range collaborationSlice(result, "artifacts") {
+				if link, ok := jobArtifactLink(valueMap(raw)); ok {
+					row.Result.Artifacts = append(row.Result.Artifacts, link)
+				}
 			}
+		}
+		if failure := valueMap(item["error"]); eventIDPattern.MatchString(plainString(failure["id"])) {
+			row.Error = &chatActivityResult{ID: plainString(failure["id"]), Content: plainString(failure["content"])}
+		}
+		if row.State == "" {
+			row.State = "open"
 		}
 		if row.Status == "" {
 			row.Status = "queued"
@@ -165,6 +160,29 @@ func nativeActivityAnswer(content string, options []chatActivityOption) string {
 		return content
 	}
 	return result
+}
+
+// jobArtifactLink turns one artifact reference of a result into a link:
+// an event id opens the event, a coordinate opens the addressable event
+// and an http or https URL opens as given.
+func jobArtifactLink(artifact map[string]any) (chatActivityLink, bool) {
+	value := strings.TrimSpace(plainString(artifact["value"]))
+	switch plainString(artifact["type"]) {
+	case "e":
+		if eventIDPattern.MatchString(value) {
+			return chatActivityLink{Href: "/e/" + value, Label: "Event " + value[:8]}, true
+		}
+	case "a":
+		parts := strings.SplitN(value, ":", 3)
+		if len(parts) == 3 && eventIDPattern.MatchString(parts[1]) && parts[2] != "" {
+			return chatActivityLink{Href: "/a/" + parts[0] + ":" + parts[1] + ":" + url.PathEscape(parts[2]), Label: parts[2]}, true
+		}
+	case "r":
+		if strings.HasPrefix(value, "https://") || strings.HasPrefix(value, "http://") {
+			return chatActivityLink{Href: value, Label: value}, true
+		}
+	}
+	return chatActivityLink{}, false
 }
 
 func eventHasTag(item map[string]any, name string) bool {

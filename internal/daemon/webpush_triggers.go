@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/FelineStateMachine/tinyrelay/internal/event"
+	"github.com/FelineStateMachine/tinyrelay/internal/gates"
 	"github.com/FelineStateMachine/tinyrelay/internal/storage"
 )
 
@@ -99,7 +100,7 @@ func (t *Tenant) pushNotices(ctx context.Context, e event.Event) []pushNotice {
 	// A job result, or feedback that needs the requester's attention,
 	// reaches the requester as a mention.
 	if status, ok := jobNotice(e); ok {
-		body := "job " + t.jobRequestKind(ctx, e) + " " + status
+		body := t.jobLabel(ctx, e) + " " + status
 		for _, recipient := range pushRecipients(e) {
 			notices = append(notices, pushNotice{recipient: recipient, category: pushMentions, body: body, url: base + "/e/" + e.ID})
 		}
@@ -160,36 +161,35 @@ func (t *Tenant) pushNotices(ctx context.Context, e event.Event) []pushNotice {
 	return notices
 }
 
-// jobNotice reports whether a long task event wakes its requester and with
-// which status: every result does, and feedback does when it asks for
-// payment or reports an error. Progress and success feedback stay quiet,
-// since the result follows.
+// jobNotice reports whether a long task event wakes its requester and how
+// it ended: a result reads as done and an error as failed. Accepted and
+// progress answers stay quiet, since the end follows.
 func jobNotice(e event.Event) (string, bool) {
-	if event.IsJobResult(e.Kind) {
-		return "result", true
+	switch e.Kind {
+	case event.KIND_JOB_RESULT:
+		return "done", true
+	case event.KIND_JOB_ERROR:
+		return "failed", true
 	}
-	if e.Kind != event.KIND_JOB_FEEDBACK {
-		return "", false
-	}
-	status := event.Tag(e, "status")
-	return status, status == "error" || status == "payment-required"
+	return "", false
 }
 
-// jobRequestKind names the request kind an answer belongs to: a result
-// says it by its own kind, and feedback by the request the relay holds.
-func (t *Tenant) jobRequestKind(ctx context.Context, e event.Event) string {
-	if event.IsJobResult(e.Kind) {
-		return strconv.Itoa(e.Kind - 1000)
-	}
-	id := event.Tag(e, "e")
+// jobLabel names the request an answer belongs to: its subject when the
+// relay holds the request and it has one, otherwise a short form of the
+// request id.
+func (t *Tenant) jobLabel(ctx context.Context, e event.Event) string {
+	id := gates.JobRequestID(e)
 	if len(id) != 64 {
-		return strconv.Itoa(e.Kind)
+		return "task"
 	}
+	label := id[:8]
 	rows, err := t.store.Query(ctx, event.Filter{IDs: []string{id}, Tags: map[string][]string{}}, storage.QueryOptions{Now: time.Now().Unix(), Access: storage.Access{All: true}, Limit: 1})
-	if err != nil || len(rows.Events) == 0 || !event.IsJobRequest(rows.Events[0].Kind) {
-		return strconv.Itoa(e.Kind)
+	if err == nil && len(rows.Events) == 1 && event.IsJobRequest(rows.Events[0].Kind) {
+		if subject := strings.TrimSpace(event.Tag(rows.Events[0], "subject")); subject != "" {
+			label = excerpt(subject)
+		}
 	}
-	return strconv.Itoa(rows.Events[0].Kind)
+	return "task " + label
 }
 
 // pushRecipients lists the addressed keys other than the author, bounded so

@@ -102,9 +102,6 @@ func (g *Gate) agentAdmission(ctx context.Context, e event.Event, now int64) err
 			return err
 		}
 	}
-	if err := g.jobReply(ctx, e, now, true); err != nil {
-		return err
-	}
 	if !g.agents.allow(e.PubKey, grant.Scope.Rate, now) {
 		return fmt.Errorf("restricted: agent grant does not allow more than %d events per minute", grant.Scope.Rate)
 	}
@@ -261,7 +258,7 @@ func (g *Gate) Write(ctx context.Context, e event.Event, s relay.Session, now in
 	if err := jobWriter(e, writeAccess); err != nil {
 		return err
 	}
-	if err := g.jobReply(ctx, e, now, false); err != nil {
+	if err := g.jobReply(ctx, e, now); err != nil {
 		return err
 	}
 	ownerReplaceable := writeAccess.Owner && (event.IsReplaceable(e.Kind) || event.IsAddressable(e.Kind))
@@ -357,6 +354,9 @@ func (g *Gate) Import(ctx context.Context, e event.Event, now int64) error {
 		return err
 	}
 	if err := g.agentAdmission(ctx, e, now); err != nil {
+		return err
+	}
+	if err := g.jobReply(ctx, e, now); err != nil {
 		return err
 	}
 	if where := blockedWord(p, e); where != "" && !g.isModerator(ctx, e.PubKey) {

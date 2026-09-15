@@ -103,7 +103,7 @@ func (t *Tenant) activityInThread(ctx context.Context, actor, root string, row e
 	}
 	reference := event.RoomReplyRoot(row)
 	if reference == "" && event.IsJobRequest(row.Kind) {
-		reference = event.Tag(row, "e")
+		reference = jobRoot(row)
 	}
 	if reference == root {
 		return true

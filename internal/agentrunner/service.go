@@ -2,7 +2,6 @@ package agentrunner
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"slices"
@@ -91,22 +90,23 @@ func (s *service) handle(parent context.Context, batch []Mention) error {
 	// Keep the canonical root on the batch so permission requests emitted
 	// while this task runs stay attached to the same top-level conversation.
 	batch[0].Root = root
-	tags := [][]string{{"h", first.Room}, {"e", first.Root}, {"p", s.relay.PubKey}, {"output", "text/plain"}, {"subject", shortText(first.Prompt, 100)}, {"expiration", strconv.FormatInt(time.Now().Add(s.options.Timeout).Unix(), 10)}}
+	// The runner records its work as a long task it assigns to itself, so
+	// the room's task card follows progress, the result or the error.
+	tags := [][]string{{"h", first.Room}, {"e", first.Root, "", "root"}, {"p", s.relay.PubKey}, {"subject", shortText(first.Prompt, 100)}, {"expiration", strconv.FormatInt(time.Now().Add(s.options.Timeout).Unix(), 10)}}
 	var prompt strings.Builder
 	prompt.WriteString("These are messages addressed to you in a Nostr chat. Reply to the users' request. Room: " + first.Room + "\n\n")
 	for _, m := range batch {
-		tags = append(tags, []string{"i", m.EventID, "event"})
 		fmt.Fprintf(&prompt, "Author: %s\nMessage: %s\n%s\n\n", m.Author, m.EventID, m.Prompt)
 	}
-	request, err := s.relay.Publish(ctx, event.Event{Kind: 5000, CreatedAt: first.CreatedAt, Tags: tags, Content: shortText(first.Prompt, 1000)})
+	request, err := s.relay.Publish(ctx, event.Event{Kind: event.KIND_JOB_REQUEST, CreatedAt: first.CreatedAt, Tags: tags, Content: shortText(first.Prompt, 1000)})
 	if err != nil {
 		return err
 	}
-	feedback := func(status, info string) error {
-		_, err := s.relay.Publish(ctx, event.Event{Kind: 7000, Tags: [][]string{{"h", first.Room}, {"e", request.ID}, {"p", request.PubKey}, {"status", status, shortText(info, 500)}}, Content: shortText(info, 4000)})
+	answer := func(ctx context.Context, kind int, text string) error {
+		_, err := s.relay.Publish(ctx, event.Event{Kind: kind, Tags: [][]string{{"h", first.Room}, {"e", request.ID}, {"p", request.PubKey}}, Content: shortText(text, 4000)})
 		return err
 	}
-	if err := feedback("processing", "Working on your request"); err != nil {
+	if err := answer(ctx, event.KIND_JOB_PROGRESS, "Working on your request"); err != nil {
 		return err
 	}
 	process := s.options.Process
@@ -116,7 +116,7 @@ func (s *service) handle(parent context.Context, batch []Mention) error {
 			return
 		}
 		last = time.Now()
-		if err := feedback("processing", info); err != nil {
+		if err := answer(ctx, event.KIND_JOB_PROGRESS, info); err != nil {
 			cancel()
 		}
 	}
@@ -137,8 +137,7 @@ func (s *service) handle(parent context.Context, batch []Mention) error {
 		if errors.Is(runErr, context.Canceled) {
 			message = "Canceled"
 		}
-		_, publishErr := s.relay.Publish(finishCtx, event.Event{Kind: 7000, Tags: [][]string{{"h", first.Room}, {"e", request.ID}, {"p", request.PubKey}, {"status", "error"}}, Content: shortText(message, 1000)})
-		if publishErr != nil {
+		if publishErr := answer(finishCtx, event.KIND_JOB_ERROR, shortText(message, 1000)); publishErr != nil {
 			return errors.Join(runErr, publishErr)
 		}
 		return runErr
@@ -147,9 +146,7 @@ func (s *service) handle(parent context.Context, batch []Mention) error {
 	if output == "" {
 		output = "Task completed."
 	}
-	raw, _ := json.Marshal(request)
-	_, err = s.relay.Publish(ctx, event.Event{Kind: 6000, Tags: [][]string{{"h", first.Room}, {"e", request.ID}, {"p", request.PubKey}, {"request", string(raw)}}, Content: output})
-	if err != nil {
+	if err := answer(ctx, event.KIND_JOB_RESULT, output); err != nil {
 		return err
 	}
 	replyTags := [][]string{{"h", first.Room}, {"e", first.Root, "", "root"}}

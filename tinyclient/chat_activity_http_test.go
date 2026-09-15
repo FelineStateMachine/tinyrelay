@@ -22,7 +22,8 @@ func (b *activityHTTPBackend) ReadChatActivity(_ context.Context, actor, room, r
 	if b.denied {
 		return nil, errors.New("private details that must stay hidden")
 	}
-	return map[string]any{"approvals": []any{map[string]any{"id": roomReply, "asker": roomAgent, "asked": []string{roomOwner}, "kind": 9, "state": "open", "subject": "Approve <script>bad()</script>", "content": "Review the preview", "type": "question", "interaction": "approval", "selection": "single", "options": []any{map[string]any{"id": "yes", "label": "Yes"}, map[string]any{"id": "no", "label": "No"}}}}}, nil
+	job := map[string]any{"id": roomThread, "requester": roomOwner, "assignees": []any{roomAgent}, "subject": "Build the preview", "content": "Build it with the dark palette.", "state": "done", "status": "done", "created_at": 1, "result": map[string]any{"id": roomReply, "provider": roomAgent, "content": "Preview is up.", "artifacts": []any{map[string]any{"type": "r", "value": "https://preview.example/site"}, map[string]any{"type": "e", "value": roomReply}}}}
+	return map[string]any{"jobs": []any{job}, "approvals": []any{map[string]any{"id": roomReply, "asker": roomAgent, "asked": []string{roomOwner}, "kind": 9, "state": "open", "subject": "Approve <script>bad()</script>", "content": "Review the preview", "type": "question", "interaction": "approval", "selection": "single", "options": []any{map[string]any{"id": "yes", "label": "Yes"}, map[string]any{"id": "no", "label": "No"}}}}}, nil
 }
 
 func TestChatActivityEndpointScopesAndEscapesServerRenderedCards(t *testing.T) {
@@ -40,7 +41,7 @@ func TestChatActivityEndpointScopesAndEscapesServerRenderedCards(t *testing.T) {
 	if res.Code != 200 || res.Header().Get("Cache-Control") != "private, no-store" || b.seenActor != roomOwner || b.seenRoom != "general" || b.seenRoot != roomThread {
 		t.Fatalf("request context: %d %v %#v body=%s", res.Code, res.Header(), b, res.Body.String())
 	}
-	for _, want := range []string{`<chat-decision`, `type="radio"`, `value="yes"`, `interaction="approval"`, `selection="single"`, `<strong>Approval request</strong>`, `href="/r/team/approvals/` + roomReply, `Approve &lt;script&gt;bad()&lt;/script&gt;`, `<noscript>`} {
+	for _, want := range []string{`<chat-decision`, `type="radio"`, `value="yes"`, `interaction="approval"`, `selection="single"`, `<strong>Approval request</strong>`, `href="/r/team/approvals/` + roomReply, `Approve &lt;script&gt;bad()&lt;/script&gt;`, `<noscript>`, `data-activity="job"`, `data-state="done"`, `<strong>Build the preview</strong>`, `data-status="done"`, `<h4>Result</h4>`, `href="https://preview.example/site"`, `href="/r/team/e/` + roomReply + `">Event `, `href="/r/team/e/` + roomThread + `">Open task</a>`} {
 		if !strings.Contains(body, want) {
 			t.Errorf("missing %q in %s", want, body)
 		}

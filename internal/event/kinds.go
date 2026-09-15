@@ -64,63 +64,41 @@ const (
 	KIND_AGENT_GRANT   = 30392
 )
 
-// NIP-90 long tasks use request kinds 5000 to 5127 and 5129 to 5999.
-// Each request is answered by a result kind 1000 higher and by feedback
-// of kind 7000. Kind 5128 belongs to NIP-5A site snapshots.
+// Long tasks use the six job kinds Buzz reserves. A requester publishes a
+// request; the keys it asks answer while they work and finish with a result
+// or an error; the requester may cancel. Kind 5128 belongs to NIP-5A site
+// snapshots and is unrelated.
 const (
-	KIND_JOB_REQUEST_MIN = 5000
-	KIND_JOB_REQUEST_MAX = 5999
-	KIND_JOB_RESULT_MIN  = 6000
-	KIND_JOB_RESULT_MAX  = 6999
-	KIND_JOB_FEEDBACK    = 7000
+	KIND_JOB_REQUEST  = 43001
+	KIND_JOB_ACCEPTED = 43002
+	KIND_JOB_PROGRESS = 43003
+	KIND_JOB_RESULT   = 43004
+	KIND_JOB_CANCEL   = 43005
+	KIND_JOB_ERROR    = 43006
 )
 
-// JobFeedbackStatuses is the NIP-90 vocabulary of the feedback status tag.
-var JobFeedbackStatuses = []string{"payment-required", "processing", "error", "success", "partial"}
+// IsJobRequest reports whether kind is a long-task request.
+func IsJobRequest(kind int) bool { return kind == KIND_JOB_REQUEST }
 
-// JobInputTypes is the NIP-90 vocabulary of the i tag's input type.
-var JobInputTypes = []string{"url", "event", "job", "text"}
+// IsJobResult reports whether kind is a long-task result.
+func IsJobResult(kind int) bool { return kind == KIND_JOB_RESULT }
 
-// IsJobRequest reports whether kind belongs to long-task requests.
-// NIP-5A site snapshots have their own admission and manifest rules.
-func IsJobRequest(kind int) bool {
-	return kind >= KIND_JOB_REQUEST_MIN && kind <= KIND_JOB_REQUEST_MAX && kind != KIND_SITE_SNAPSHOT
+// IsJobAnswer reports whether kind is one of the answers an asked key
+// publishes: accepted, progress, result or error.
+func IsJobAnswer(kind int) bool {
+	return kind == KIND_JOB_ACCEPTED || kind == KIND_JOB_PROGRESS || kind == KIND_JOB_RESULT || kind == KIND_JOB_ERROR
 }
 
-// IsJobResult reports whether kind is a NIP-90 result kind.
-func IsJobResult(kind int) bool { return kind >= KIND_JOB_RESULT_MIN && kind <= KIND_JOB_RESULT_MAX }
+// IsJobCancel reports whether kind is a requester's cancel.
+func IsJobCancel(kind int) bool { return kind == KIND_JOB_CANCEL }
 
-// IsJobKind reports whether the kind is a job request, result or feedback.
+// IsJobTerminal reports whether kind ends a long task: result, cancel or
+// error.
+func IsJobTerminal(kind int) bool {
+	return kind == KIND_JOB_RESULT || kind == KIND_JOB_CANCEL || kind == KIND_JOB_ERROR
+}
+
+// IsJobKind reports whether kind is any of the six long-task kinds.
 func IsJobKind(kind int) bool {
-	return IsJobRequest(kind) || IsJobResult(kind) || kind == KIND_JOB_FEEDBACK
-}
-
-// JobResultKind returns the result kind for a request kind, or 0 for other
-// kinds.
-func JobResultKind(request int) int {
-	if !IsJobRequest(request) {
-		return 0
-	}
-	return request + 1000
-}
-
-// IsJobFeedbackStatus reports whether status is in the NIP-90 feedback
-// vocabulary.
-func IsJobFeedbackStatus(status string) bool {
-	for _, known := range JobFeedbackStatuses {
-		if known == status {
-			return true
-		}
-	}
-	return false
-}
-
-// IsJobInputType reports whether kind is a supported NIP-90 input type.
-func IsJobInputType(kind string) bool {
-	for _, known := range JobInputTypes {
-		if known == kind {
-			return true
-		}
-	}
-	return false
+	return IsJobRequest(kind) || IsJobAnswer(kind) || IsJobCancel(kind)
 }

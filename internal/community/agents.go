@@ -127,10 +127,10 @@ func (g AgentGrant) AllowsKind(kind int) bool {
 			return true
 		}
 	}
-	if event.IsJobRequest(kind) && g.RequestsJobs() {
+	if (event.IsJobRequest(kind) || event.IsJobCancel(kind)) && g.RequestsJobs() {
 		return true
 	}
-	if (event.IsJobResult(kind) || kind == event.KIND_JOB_FEEDBACK) && g.ServesJobs() {
+	if event.IsJobAnswer(kind) && g.ServesJobs() {
 		return true
 	}
 	if siteManifestKind(kind) && len(g.Scope.Sites) > 0 {

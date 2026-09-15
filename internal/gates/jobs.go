@@ -1,74 +1,114 @@
 package gates
 
-// Long tasks follow NIP-90: a member or agent publishes a job request
-// (kind 5000 to 5127 or 5129 to 5999), and a serving agent or member answers it with
-// feedback (kind 7000) and a result (the request kind plus 1000). The relay
-// keeps every event signed by its author; it only checks that requests,
-// feedback and results carry the tags the protocol needs, that they are
-// published by members or agents, and that an agent's answers name a
-// request the relay holds.
+// Long tasks use the six job kinds Buzz reserves. A member or agent
+// publishes a request (kind 43001) in a room, naming the keys it asks in p
+// tags. An asked key answers with accepted (43002), progress (43003) and
+// finally a result (43004) or an error (43006); the requester may cancel
+// (43005). The relay keeps every event signed by its author; it checks
+// that requests, answers and cancels carry the tags the protocol needs,
+// that they come from members or agents, and that every answer or cancel
+// names a request the relay holds, from a key the request allows.
 
 import (
 	"context"
 	"errors"
 	"fmt"
-	"strconv"
 
+	"github.com/FelineStateMachine/tinyrelay/internal/community"
 	"github.com/FelineStateMachine/tinyrelay/internal/event"
 	"github.com/FelineStateMachine/tinyrelay/internal/policy"
 	"github.com/FelineStateMachine/tinyrelay/internal/relay"
 	"github.com/FelineStateMachine/tinyrelay/internal/storage"
 )
 
-// JobShape checks the tags of a job request, result or feedback event. It
+// JobShape checks the tags of a job request, answer or cancel event. It
 // returns nil for other event kinds.
 func JobShape(e event.Event) error {
 	switch {
 	case event.IsJobRequest(e.Kind):
 		return jobRequestShape(e)
-	case event.IsJobResult(e.Kind):
-		return jobReplyShape(e, "job result")
-	case e.Kind == event.KIND_JOB_FEEDBACK:
-		if err := jobReplyShape(e, "job feedback"); err != nil {
-			return err
-		}
-		if !event.IsJobFeedbackStatus(event.Tag(e, "status")) {
-			return errors.New("invalid: job feedback status must be payment-required, processing, error, success or partial")
-		}
+	case event.IsJobAnswer(e.Kind):
+		return jobAnswerShape(e, JobKindName(e.Kind))
+	case event.IsJobCancel(e.Kind):
+		return jobCancelShape(e)
 	}
 	return nil
+}
+
+// JobKindName names a job kind the way messages and cards refer to it.
+func JobKindName(kind int) string {
+	switch kind {
+	case event.KIND_JOB_REQUEST:
+		return "job request"
+	case event.KIND_JOB_ACCEPTED:
+		return "job accepted"
+	case event.KIND_JOB_PROGRESS:
+		return "job progress"
+	case event.KIND_JOB_RESULT:
+		return "job result"
+	case event.KIND_JOB_CANCEL:
+		return "job cancel"
+	case event.KIND_JOB_ERROR:
+		return "job error"
+	}
+	return "job event"
+}
+
+// JobRequestID returns the request an answer or cancel names: its first e
+// tag. Later e tags on a result reference artifacts.
+func JobRequestID(e event.Event) string {
+	return event.Tag(e, "e")
 }
 
 func jobRequestShape(e event.Event) error {
+	if !community.ValidRoomID(event.Tag(e, "h")) {
+		return errors.New("invalid: job request must name its room in an h tag")
+	}
+	asked := 0
 	for _, tag := range e.Tags {
-		if len(tag) == 0 || tag[0] != "i" {
+		if len(tag) < 2 {
 			continue
 		}
-		if len(tag) < 3 || !event.IsJobInputType(tag[2]) {
-			return errors.New("invalid: job input i tag needs data and a type of url, event, job or text")
-		}
-		if (tag[2] == "event" || tag[2] == "job") && !jobID(tag[1]) {
-			return errors.New("invalid: job input of type event or job must name an event id")
+		switch tag[0] {
+		case "p":
+			if !jobID(tag[1]) {
+				return errors.New("invalid: job request p tags must be hex public keys")
+			}
+			asked++
+		case "e":
+			if !jobID(tag[1]) {
+				return errors.New("invalid: job request e tag must name the thread root event id")
+			}
 		}
 	}
-	if hasTag(e, "encrypted") && !jobID(event.Tag(e, "p")) {
-		return errors.New("invalid: encrypted job request must name the service provider in a p tag")
-	}
-	if bid := event.Tag(e, "bid"); bid != "" && !jobAmount(bid) {
-		return errors.New("invalid: job bid must be an amount in millisats")
+	if asked == 0 {
+		return errors.New("invalid: job request must name at least one asked key in a p tag")
 	}
 	return nil
 }
 
-func jobReplyShape(e event.Event, what string) error {
-	if !jobID(event.Tag(e, "e")) {
+func jobAnswerShape(e event.Event, what string) error {
+	if !jobID(JobRequestID(e)) {
 		return fmt.Errorf("invalid: %s must name the job request in an e tag", what)
 	}
 	if !jobID(event.Tag(e, "p")) {
 		return fmt.Errorf("invalid: %s must name the requester in a p tag", what)
 	}
-	if amount := event.Tag(e, "amount"); amount != "" && !jobAmount(amount) {
-		return fmt.Errorf("invalid: %s amount must be in millisats", what)
+	if !community.ValidRoomID(event.Tag(e, "h")) {
+		return fmt.Errorf("invalid: %s must keep the request's room in an h tag", what)
+	}
+	return nil
+}
+
+func jobCancelShape(e event.Event) error {
+	if !jobID(JobRequestID(e)) {
+		return errors.New("invalid: job cancel must name the job request in an e tag")
+	}
+	if !community.ValidRoomID(event.Tag(e, "h")) {
+		return errors.New("invalid: job cancel must keep the request's room in an h tag")
+	}
+	if p := event.Tag(e, "p"); p != "" && !jobID(p) {
+		return errors.New("invalid: job cancel p tag must be a hex public key")
 	}
 	return nil
 }
@@ -90,54 +130,59 @@ func jobWriter(e event.Event, a policy.Access) error {
 	return nil
 }
 
-// jobReply checks a result or feedback against the request it names. When
-// the relay holds the request, the result kind must match it and the p tag
-// must name its author. An agent may only answer a request the relay holds
-// and the agent may read; a member may also answer requests made elsewhere.
-func (g *Gate) jobReply(ctx context.Context, e event.Event, now int64, agent bool) error {
-	if !event.IsJobResult(e.Kind) && e.Kind != event.KIND_JOB_FEEDBACK {
+// jobReply checks an answer or cancel against the request it names. The
+// relay must hold the request and the publisher must be able to read it.
+// An answer must come from a key the request asked, name the requester in
+// p and keep the request's room; a cancel must come from the requester.
+func (g *Gate) jobReply(ctx context.Context, e event.Event, now int64) error {
+	if !event.IsJobAnswer(e.Kind) && !event.IsJobCancel(e.Kind) {
 		return nil
 	}
-	missing := errors.New("restricted: agent grant allows job results and feedback only for requests this relay holds")
+	what := JobKindName(e.Kind)
+	missing := fmt.Errorf("restricted: %s must name a request this relay holds", what)
 	if g.cfg.Store == nil {
-		if agent {
-			return missing
-		}
-		return nil
+		return missing
 	}
-	result, err := g.cfg.Store.Query(ctx, event.Filter{IDs: []string{event.Tag(e, "e")}}, storage.QueryOptions{Now: now, Access: storage.Access{All: true}, Limit: 1})
+	result, err := g.cfg.Store.Query(ctx, event.Filter{IDs: []string{JobRequestID(e)}}, storage.QueryOptions{Now: now, Access: storage.Access{All: true}, Limit: 1})
 	if err != nil {
 		return fmt.Errorf("check job request: %w", err)
 	}
 	if len(result.Events) == 0 || !event.IsJobRequest(result.Events[0].Kind) {
-		if agent {
-			return missing
+		return missing
+	}
+	request := result.Events[0]
+	if !g.CanSee(ctx, request, relay.Session{PubKeys: []string{e.PubKey}}, nil) {
+		return missing
+	}
+	if event.Tag(e, "h") != event.Tag(request, "h") {
+		return fmt.Errorf("invalid: %s must keep the request's room h tag", what)
+	}
+	if event.IsJobCancel(e.Kind) {
+		if e.PubKey != request.PubKey {
+			return errors.New("restricted: only the requester may cancel a long task")
 		}
 		return nil
 	}
-	request := result.Events[0]
-	if agent && !g.CanSee(ctx, request, relay.Session{PubKeys: []string{e.PubKey}}, nil) {
-		return missing
-	}
-	if event.IsJobResult(e.Kind) && e.Kind != event.JobResultKind(request.Kind) {
-		return fmt.Errorf("invalid: job result kind %d does not answer a kind %d request", e.Kind, request.Kind)
-	}
-	if room := event.Tag(request, "h"); room != "" && event.Tag(e, "h") != room {
-		return errors.New("invalid: job result or feedback must keep the request's room h tag")
-	}
 	if event.Tag(e, "p") != request.PubKey {
-		return errors.New("invalid: job result or feedback p tag must name the requester")
+		return fmt.Errorf("invalid: %s p tag must name the requester", what)
+	}
+	if !containsValue(event.TagValues(request, "p"), e.PubKey) {
+		return fmt.Errorf("restricted: %s must come from a key the request asked", what)
 	}
 	return nil
 }
 
-func jobID(value string) bool {
-	return len(value) == 64 && isLowerHex(value)
+func containsValue(values []string, want string) bool {
+	for _, value := range values {
+		if value == want {
+			return true
+		}
+	}
+	return false
 }
 
-func jobAmount(value string) bool {
-	_, err := strconv.ParseUint(value, 10, 64)
-	return err == nil
+func jobID(value string) bool {
+	return len(value) == 64 && isLowerHex(value)
 }
 
 func isLowerHex(value string) bool {

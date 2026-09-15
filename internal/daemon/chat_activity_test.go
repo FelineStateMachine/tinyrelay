@@ -8,8 +8,8 @@ import (
 
 func TestChatActivitySharesApprovalStateAndScopesRooms(t *testing.T) {
 	h := newRoomHarness(t)
-	request := h.must("alice", 5000, [][]string{{"h", "main"}, {"p", h.keys["bob"]}, {"subject", "Build preview"}}, "Build preview")
-	h.must("bob", 7000, [][]string{{"h", "main"}, {"e", request.ID}, {"p", h.keys["alice"]}, {"status", "processing", "Running checks"}}, "2 of 3 checks complete")
+	request := h.must("alice", event.KIND_JOB_REQUEST, [][]string{{"h", "main"}, {"p", h.keys["bob"]}, {"subject", "Build preview"}}, "Build preview")
+	h.must("bob", event.KIND_JOB_PROGRESS, [][]string{{"h", "main"}, {"e", request.ID}, {"p", h.keys["alice"]}}, "2 of 3 checks complete")
 	decision := h.must("alice", 9, [][]string{{"h", "main"}, {"request", "approve"}, {"p", h.keys["bob"]}, {"subject", "Publish preview"}}, "Publish it?")
 	read := func(who, room string) map[string]any {
 		t.Helper()
@@ -21,7 +21,7 @@ func TestChatActivitySharesApprovalStateAndScopesRooms(t *testing.T) {
 	}
 	data := read("bob", "main")
 	jobs := data["jobs"].([]jobItem)
-	if len(jobs) != 1 || jobs[0].Status != "processing" {
+	if len(jobs) != 1 || jobs[0].Status != "running" || jobs[0].Progress == nil || jobs[0].Progress.Content != "2 of 3 checks complete" {
 		t.Fatalf("jobs=%v", jobs)
 	}
 	approvals := data["approvals"].([]approvalItem)
@@ -41,7 +41,7 @@ func TestChatActivitySharesApprovalStateAndScopesRooms(t *testing.T) {
 		t.Fatal("Approvals disagrees")
 	}
 	h.must("alice", event.KIND_CREATE_GROUP, [][]string{{"h", "private-chat"}, {"name", "Private"}, {"visibility", "members"}}, "")
-	private := h.must("alice", 5000, [][]string{{"h", "private-chat"}, {"p", h.keys["alice"]}}, "Private work")
+	private := h.must("alice", event.KIND_JOB_REQUEST, [][]string{{"h", "private-chat"}, {"p", h.keys["alice"]}}, "Private work")
 	if _, err := h.tenant.Execute(h.ctx, h.keys["bob"], "browsechatactivity", []json.RawMessage{rawJSON(map[string]string{"room": "private-chat"})}); err == nil {
 		t.Fatal("outsider read private activity")
 	}
@@ -50,8 +50,11 @@ func TestChatActivitySharesApprovalStateAndScopesRooms(t *testing.T) {
 			t.Fatal("private job leaked")
 		}
 	}
-	if _, err := h.publish("alice", 7000, [][]string{{"e", private.ID}, {"p", h.keys["alice"]}, {"status", "processing"}}, "private progress"); err == nil {
+	if _, err := h.publish("alice", event.KIND_JOB_PROGRESS, [][]string{{"e", private.ID}, {"p", h.keys["alice"]}}, "private progress"); err == nil {
 		t.Fatal("unscoped progress accepted for a private room task")
+	}
+	if _, err := h.publish("alice", event.KIND_JOB_PROGRESS, [][]string{{"h", "main"}, {"e", private.ID}, {"p", h.keys["alice"]}}, "private progress"); err == nil {
+		t.Fatal("progress in another room accepted for a private room task")
 	}
 }
 func TestChatPresenceIsEphemeralAndRoomAuthorized(t *testing.T) {
@@ -73,7 +76,7 @@ func TestChatActivityIncludesParentOnlyRequestsInCanonicalThread(t *testing.T) {
 	root := h.must("alice", 9, [][]string{{"h", "main"}}, "Root")
 	parent := h.must("bob", 9, [][]string{{"h", "main"}, {"e", root.ID, "", "reply"}}, "Parent")
 	approval := h.must("alice", 9, [][]string{{"h", "main"}, {"e", parent.ID, "", "reply"}, {"request", "approve"}, {"p", h.keys["bob"]}}, "Approve the nested action?")
-	job := h.must("alice", 5000, [][]string{{"h", "main"}, {"e", parent.ID}, {"p", h.keys["bob"]}}, "Nested job")
+	job := h.must("alice", event.KIND_JOB_REQUEST, [][]string{{"h", "main"}, {"e", parent.ID, "", "root"}, {"p", h.keys["bob"]}}, "Nested job")
 	other := h.must("alice", 9, [][]string{{"h", "main"}}, "Another root")
 	h.must("alice", 9, [][]string{{"h", "main"}, {"e", other.ID, "", "root"}, {"request", "approve"}, {"p", h.keys["bob"]}}, "Unrelated action")
 	raw, err := h.tenant.Execute(h.ctx, h.keys["bob"], "browsechatactivity", []json.RawMessage{rawJSON(map[string]string{"room": "main", "root": root.ID})})

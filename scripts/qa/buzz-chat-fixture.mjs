@@ -23,8 +23,8 @@ if(process.argv[1]?.endsWith('buzz-chat-fixture.mjs')) {
  const root=await publish('alice',9,'Could you prepare a preview?',[['h','work']]);
  const reply=await publish('owner',9,'Keep the existing color palette.',[['h','work'],['e',root.id,'','reply',pub.alice]]);
  await publish('alice',9,'And check the layout on mobile.',[['h','work'],['e',reply.id,'','reply',pub.owner]]);
- const task=await publish('owner',5000,'Prepare the site preview',[['h','work'],['e',root.id],['p',pub.agent],['subject','Prepare the site preview']]);
- await publish('agent',7000,'Desktop checks passed. Checking mobile navigation next.',[['h','work'],['e',task.id],['p',pub.owner],['status','processing','2 of 3 checks complete']]);
+ const task=await publish('owner',43001,'Prepare the site preview',[['h','work'],['e',root.id,'','root'],['p',pub.agent],['subject','Prepare the site preview']]);
+ await publish('agent',43003,'Desktop checks passed. Checking mobile navigation next.',[['h','work'],['e',task.id],['p',pub.owner]]);
  const approval=await publish('agent',9,'Publish the preview with the existing palette and updated mobile navigation?',[['h','work'],['e',root.id,'','root'],['request','approve'],['p',pub.owner],['subject','Publish preview']]);
  const question=await publish('agent',9,'Which title should the preview use?',[['h','work'],['request','question'],['p',pub.owner],['subject','Preview title']]);
  await publish('owner',9,'The task card holds progress updates. Replies stay in their thread.',[['h','work']]);

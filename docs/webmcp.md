@@ -20,7 +20,7 @@ Three tools cover requests for a decision. `tiny.list_approvals` lists the reque
 
 ## Long tasks
 
-Two tools follow [long tasks](agents.md#long-tasks). `tiny.list_jobs` lists the job requests visible to the signed-in account with each one's kind, requester, inputs, newest feedback status and result; `state` narrows the list to `open`, `done` or `all`, and `mine` lists only your own requests. `tiny.read_job` returns one request by event id with its feedback timeline and results. Requesting and answering stay signed actions through the relay's [MCP](mcp.md#long-tasks) tools or a relay connection.
+Two tools follow [long tasks](agents.md#long-tasks). `tiny.list_jobs` lists the job requests visible to the signed-in account with each one's room, requester, assignees, subject, state, status, newest progress, result with its artifacts, error and cancel time; `state` narrows the list to `open`, `done`, `failed`, `cancelled` or `all`, and `mine` lists only your own requests. `tiny.read_job` returns one request by event id with its answers, oldest first. Requesting, answering and cancelling stay signed actions through the relay's [MCP](mcp.md#long-tasks) tools or a relay connection.
 
 Choose **Sign in** in the footer, or follow a sign-in link on a protected page, and connect your Nostr signer. Reading protected information uses your browser session. Management actions request a signature and follow your account permissions. The Account page holds the signed-in key's profile, relay lists and Chat presence preference; use the page directly because there is no browser-agent mutation tool for those personal settings. A queued backup or job has not finished until its status says so.
 

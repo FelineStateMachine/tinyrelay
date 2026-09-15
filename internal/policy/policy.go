@@ -56,8 +56,9 @@ type Features struct {
 	// not a repository visibility hint: all reads require current membership.
 	Grasp08 bool `json:"grasp08"`
 	Push    bool `json:"push"`
-	// Jobs admits NIP-90 job requests, results and feedback from members
-	// and agents. It is on unless the owner switches it off.
+	// Jobs admits long-task requests, answers and cancels (kinds 43001 to
+	// 43006) from members and agents. It is on unless the owner switches it
+	// off.
 	Jobs bool `json:"jobs"`
 }
 

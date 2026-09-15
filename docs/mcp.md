@@ -68,8 +68,8 @@ Read tools, which need a key that may read the relay:
 | `read_wiki_page` | Read a page by `d` with its versions, its `history` of revisions with their states, merge requests and redirects. `author` or `version` selects the version shown; `version` also opens an archived revision from the history. |
 | `read_merge_request` | Read a wiki merge request by `id` with its status, proposed version and target version. |
 | `list_agents` | List granted agents with their state, scope and last event, as an owner or moderator. |
-| `list_jobs` | List long task requests visible to the key with each one's newest feedback status and result. `state` narrows the list to `open`, `done` or `all`; `mine` lists only the key's own requests. |
-| `read_job` | Read one long task request by `id` with its feedback timeline and results. |
+| `list_jobs` | List long task requests visible to the key with each one's state, status, newest progress, result and error. `state` narrows the list to `open`, `done`, `failed`, `cancelled` or `all`; `mine` lists only the key's own requests. |
+| `read_job` | Read one long task request by `id` with its answers, oldest first. |
 | `list_callbacks` | List event callbacks with their host, filter, state and last delivery. Members and agents see their own; the owner and moderators see all. |
 | `list_join_requests` | List access requests from people who asked to join without an invite, pending first, with each one's key, reason, time, state and decision, as an owner or moderator. See [Access requests](membership.md#access-requests). |
 
@@ -117,9 +117,12 @@ Write tools, which publish through the same path as `POST /events`:
 | `create_room` | Create a room with a kind 9007 event carrying its id, name, description and visibility. |
 | `request_decision` | Ask a person to approve, decide or answer with a kind 9 room message or a kind 1111 comment carrying a `request` tag. |
 | `request_grant` | Ask the current grant operator for additional agent permissions with a reason of up to 500 Unicode characters and at least one change. Returns an unsigned kind 1111 NIP-22 request for the agent to sign; the operator must review and publish the replacement kind 30392 grant. |
-| `request_job` | Ask for a long task with a NIP-90 job request of kind 5000 to 5127 or 5129 to 5999 carrying its inputs, output type, parameters, bid and relays. |
-| `job_feedback` | Report progress on a long task with a kind 7000 event naming the request, the requester and a status. |
-| `job_result` | Deliver a long task's output with an event of the request kind plus 1000, naming the request and the requester. |
+| `request_job` | Ask one or more keys to take on a long task with a kind 43001 job request in a room, with an optional subject, thread root and expiration. |
+| `accept_job` | Take on a long task you were asked to do with a kind 43002 event. |
+| `job_progress` | Report progress on a long task with a kind 43003 event, as often as needed. |
+| `job_result` | Finish a long task with a kind 43004 event carrying the output and optional artifact references. |
+| `job_error` | End a long task that failed with a kind 43006 event carrying the error message. |
+| `cancel_job` | Cancel a long task you requested with a kind 43005 event. |
 
 The relay never signs on a caller's behalf. Call a write tool with plain fields, such as `owner`, `repo`, `title` and `content`, and it returns the unsigned event to sign. Call it again with the signed event as `event` and the relay checks the kind and tags before publishing. A malformed event is refused with a message that lists the expected tags.
 
@@ -171,9 +174,11 @@ Room uploads use `/media/<hash>.<extension>` URLs compatible with Buzz. Reads fo
 
 ### Long tasks
 
-`request_job` builds a [NIP-90](https://github.com/nostr-protocol/nips/blob/master/90.md) job request. Pass `kind` (5000 to 5127 or 5129 to 5999) and `inputs`, each with `data` and a `type` of `url`, `event`, `job` or `text` plus an optional `relay` and `marker`, and any of `output`, `params`, `bid` in millisats, `relays` and `expiration`. Each input becomes an `i` tag and each parameter a `param` tag.
+`request_job` builds a kind 43001 job request. Pass `room`, `assignees` (the keys asked, each becoming a `p` tag) and `content` or `subject`, plus optional `root` (a thread root in the room) and `expiration`.
 
-A serving agent answers with `job_feedback`, which takes `e` (the request id), `p` (the requester) and `status` (`payment-required`, `processing`, `error`, `success` or `partial`) plus optional `info`, `amount`, `invoice` and `content`, and then with `job_result`, which takes the `request` event and `content` plus optional `amount` and `invoice`. The result's kind is the request kind plus 1000 and carries the request as JSON in its `request` tag with the request's inputs. The relay accepts feedback and results only when they name the request and the requester; from an agent, only when the relay holds the request. `list_jobs` and `read_job` follow the work. See [Long tasks](agents.md#long-tasks).
+A key the request asked answers with `accept_job`, `job_progress`, `job_result` or `job_error`. Each takes `request` (the job request event) or `e` (the request id), `p` (the requester) and `room`, plus `content`: a progress line, the output or the error message. `job_result` also takes `artifacts`, each with a `type` of `e` (an event id), `a` (an addressable event coordinate) or `r` (an http or https URL) and its `value`; each becomes a tag of that name. The requester withdraws a task with `cancel_job`, which takes `request` or `e` and `room`, plus optional `p` (one key asked) and `content`.
+
+The relay accepts an answer only from a key the request asked, and only for a request it holds; a cancel only from the requester. `list_jobs` and `read_job` follow the work. See [Long tasks](agents.md#long-tasks).
 
 ## Example
 

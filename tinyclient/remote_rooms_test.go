@@ -14,7 +14,7 @@ func (remoteTypedBackend) Query(context.Context, string, []json.RawMessage, stri
 	return nil, nil
 }
 func (remoteTypedBackend) ReadChatActivity(context.Context, string, string, string) (any, error) {
-	return map[string]any{"jobs": []any{map[string]any{"id": strings.Repeat("b", 64), "content": "A visible agent task", "kind": 5000, "created_at": 1}}}, nil
+	return map[string]any{"jobs": []any{map[string]any{"id": strings.Repeat("b", 64), "content": "A visible agent task", "state": "open", "status": "queued", "created_at": 1}}}, nil
 }
 
 func TestRemotePreservesTypedRoomAndActivityRendering(t *testing.T) {

@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/FelineStateMachine/tinyrelay/internal/event"
-	"github.com/FelineStateMachine/tinyrelay/internal/mcp"
 	"github.com/FelineStateMachine/tinyrelay/internal/sites"
 )
 
@@ -19,7 +18,7 @@ func TestSiteSnapshotStaysOutOfJobReads(t *testing.T) {
 	paths := [][]string{{"path", "/index.html", strings.Repeat("a", 64)}}
 	tags := append(paths, []string{"x", sites.Aggregate(paths), "aggregate"}, []string{"a", "15128:" + owner + ":"})
 	snapshot := wikiPublish(t, tenant, wikiOwnerSecret, event.KIND_SITE_SNAPSHOT, now, "", tags...)
-	job := wikiPublish(t, tenant, wikiOwnerSecret, 5001, now-1, "", []string{"i", "hello", "text"})
+	job := wikiPublish(t, tenant, wikiOwnerSecret, event.KIND_JOB_REQUEST, now-1, "hello", []string{"h", jobTestRoom}, []string{"p", owner})
 
 	result, err := tenant.browseJobs(ctx, owner, jobBrowseRequest{Limit: 1})
 	if err != nil {
@@ -37,12 +36,9 @@ func TestSiteSnapshotStaysOutOfJobReads(t *testing.T) {
 	}
 }
 
-func TestSiteSnapshotCannotBuildJobRequest(t *testing.T) {
-	if err := mcp.Validate(mcpJobKind, float64(event.KIND_SITE_SNAPSHOT)); err == nil {
-		t.Fatal("site snapshot kind accepted by the advertised job schema")
-	}
-	if _, err := mcpBuildJobRequest(mcp.Call{Arguments: map[string]any{"kind": float64(event.KIND_SITE_SNAPSHOT)}}); err == nil {
-		t.Fatal("site snapshot kind accepted by the job request builder")
+func TestSiteSnapshotIsNotAJobRequest(t *testing.T) {
+	if event.IsJobKind(event.KIND_SITE_SNAPSHOT) {
+		t.Fatal("site snapshot kind classified as a long task")
 	}
 	if err := mcpCheckJobRequest(event.Event{Kind: event.KIND_SITE_SNAPSHOT}); err == nil {
 		t.Fatal("site snapshot accepted by the signed job request checker")
