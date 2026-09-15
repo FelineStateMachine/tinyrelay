@@ -585,7 +585,10 @@ func (t *NostrTransport) QueryNegentropy(ctx context.Context, target string, fil
 			_ = json.Unmarshal(raw[2], &body)
 		}
 		if kind == "AUTH" {
-			return nil, errors.New("replication: remote relay requires authentication")
+			// An unsolicited NIP-42 challenge is informational; the relay still
+			// answers public queries. A CLOSED with an auth-required reason is
+			// the actual refusal.
+			continue
 		}
 		if messageID != id {
 			continue
@@ -812,10 +815,17 @@ func readEvents(ctx context.Context, socket Socket, subscription string, timeout
 			}
 		case "CLOSED":
 			if id == subscription {
+				reason := ""
+				if len(raw) > 2 {
+					_ = json.Unmarshal(raw[2], &reason)
+				}
+				if strings.HasPrefix(reason, "auth-required:") || strings.HasPrefix(reason, "restricted:") {
+					return items, errors.New("replication: remote relay requires authentication: " + reason)
+				}
 				return items, errors.New("replication: remote query closed")
 			}
 		case "AUTH":
-			return items, errors.New("replication: remote relay requires authentication")
+			// See the negentropy reader: the challenge alone is not a refusal.
 		}
 	}
 }
