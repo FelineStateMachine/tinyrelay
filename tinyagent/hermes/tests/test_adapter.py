@@ -23,11 +23,18 @@ OTHER = "c" * 64
 class FakeRPC:
     def __init__(self):
         self.events = []
+        self.rows = []
+
+    async def query(self, filter):
+        return [row for row in self.rows if row["id"] in filter.get("ids", [])]
 
     async def publish(self, event):
         result = {"id": f"{len(self.events) + 1:064x}", "created_at": int(time.time()), "pubkey": BOT, **event}
         self.events.append(result)
         return result
+
+    async def query(self, _filter):
+        return []
 
 
 @pytest.fixture
@@ -49,7 +56,8 @@ def adapter(monkeypatch, tmp_path):
 def response(request, content, author=OWNER):
     event_id = request["id"]
     return {"kind": 1111, "pubkey": author, "created_at": int(time.time()), "content": content,
-            "tags": [["h", "room"], ["e", event_id], ["E", event_id], ["p", BOT], ["P", BOT], ["k", "9"], ["K", "9"]]}
+            "tags": [["h", "room"], ["e", event_id], ["E", event_id], ["p", BOT], ["P", BOT],
+                     ["k", str(request["kind"])], ["K", str(request["kind"])]]}
 
 
 def test_real_inbound_source_tracks_human_session(adapter):
@@ -69,7 +77,9 @@ def test_real_inbound_source_tracks_human_session(adapter):
 
 @pytest.mark.parametrize("multiple,content,expected", [(False, "c1", "beta"),
     (True, '["c0"]', '["alpha"]'), (True, '["c0","c1"]', '["alpha", "beta"]'),
-    (False, '{"text":"my own answer"}', "my own answer")])
+    (False, '{"text":"my own answer"}', "my own answer"),
+    (False, '{"choices":["c1"],"text":"because it is safer"}', "beta\nbecause it is safer"),
+    (True, '{"choices":["c0","c1"],"text":"both apply"}', '["alpha", "beta"]\nboth apply')])
 def test_clarify_resolves_exact_real_waiter(adapter, multiple, content, expected):
     async def run():
         entry = clarify_gateway.register("question-id", "session", "Pick", ["alpha", "beta"], multiple)
@@ -169,6 +179,114 @@ def test_native_prompt_mentions_assignee_only_when_explicit(adapter):
         clarify_gateway.register("q", "session", "Pick", ["yes"])
         await adapter.send_clarify("room", f"@{OWNER} Pick", ["yes"], "q", "session")
         assert ["mention", OWNER] in adapter.rpc.events[-1]["tags"]
+    asyncio.run(run())
+
+
+def test_native_prompt_stays_in_current_thread(adapter):
+    async def run():
+        clarify_gateway.register("q", "session", "Pick", ["yes"])
+        result = await adapter.send_clarify("room", "Pick", ["yes"], "q", "session",
+                                            metadata={"thread_id": "r" * 64, "message_id": "m" * 64})
+        assert result.success
+        event = adapter.rpc.events[-1]
+        assert event["kind"] == 12
+        assert ["e", "r" * 64, "", "root"] in event["tags"]
+        assert ["e", "m" * 64, "", "reply"] in event["tags"]
+    asyncio.run(run())
+
+
+@pytest.mark.parametrize("kind", [9, 12])
+def test_real_inbound_reply_keeps_prompt_and_answer_in_existing_thread(adapter, kind):
+    async def run():
+        root, parent, incoming = "d" * 64, "e" * 64, "f" * 64
+        adapter.rpc.rows = [{"id": parent, "kind": kind, "pubkey": BOT, "content": "Earlier reply",
+                             "tags": [["h", "room"], ["e", root, "", "root"]]}]
+        async def handle(message):
+            session = adapter._event_session_key(message)
+            assert (message.source.thread_id is None) == (kind == 9)
+            entry = clarify_gateway.register("thread-question", session, "Pick", ["Yes", "No"])
+            # A newer queued message must not steal the active turn's assignee.
+            adapter._session_assignees[session] = OTHER
+            current_route = adapter._turn_routes[session]
+            adapter._turn_routes[session] = {**current_route, "user_id": OTHER, "reply_to_message_id": "1" * 64}
+            # Hermes forwards only thread_id for Tiny, and nothing for kind 9.
+            metadata = {"thread_id": message.source.thread_id} if message.source.thread_id else None
+            await adapter.send_clarify("room", "Pick", ["Yes", "No"], "thread-question", session, metadata)
+            request = adapter.rpc.events[-1]
+            assert ["p", OWNER] in request["tags"]
+            assert request["kind"] == kind
+            assert ["e", root, "", "root"] in request["tags"]
+            assert ["e", incoming, "", "reply"] in request["tags"]
+            await adapter._on_answer(response(request, '{"choices":["c1"],"text":"Keep this thread."}'))
+            assert entry.event.is_set() and entry.response == "No\nKeep this thread."
+            adapter._turn_routes[session] = current_route
+            await adapter.send("room", "Acknowledged", metadata=metadata)
+            assert ["e", root, "", "root"] in adapter.rpc.events[-1]["tags"]
+        adapter.set_message_handler(handle)
+        adapter.handle_message = adapter._message_handler
+        await adapter._on_event({"kind": kind, "id": incoming, "pubkey": OWNER,
+            "created_at": int(time.time()), "content": "Ask here", "tags": [
+                ["h", "room"], ["p", BOT], ["e", root, "", "root"], ["e", parent, "", "reply"]]})
+        # The final gateway send occurs after the handler completes.
+        await adapter.send("room", "Final reply", reply_to=incoming)
+        event = adapter.rpc.events[-1]
+        assert event["kind"] == kind
+        assert ["e", root, "", "root"] in event["tags"]
+        assert ["e", incoming, "", "reply"] in event["tags"]
+        assert not adapter._turn_routes and adapter._turn_route.get() is None
+    asyncio.run(run())
+
+
+def test_gateway_final_attachment_keeps_the_turn_route(adapter, tmp_path):
+    async def run():
+        import hashlib
+        root, incoming = "d" * 64, "e" * 64
+        note = tmp_path / "answer.txt"
+        note.write_text("Details for this answer.")
+        async def upload(room, filename, mime, data):
+            return {"url": "https://tiny.test/answer.txt", "sha256": hashlib.sha256(data).hexdigest()}
+        adapter.rpc.upload = upload
+        async def handler(message):
+            return f"Here is the answer.\nMEDIA:{note}"
+        adapter.set_message_handler(handler)
+        async def process(message):
+            await adapter._process_message_background(message, adapter._event_session_key(message))
+        adapter.handle_message = process
+        await adapter._on_event({"kind": 9, "id": incoming, "pubkey": OWNER,
+            "created_at": int(time.time()), "content": "Respond here", "tags": [
+                ["h", "room"], ["p", BOT], ["e", root, "", "root"]]})
+        replies = [event for event in adapter.rpc.events if event["kind"] == 9]
+        assert len(replies) > 1
+        assert all(["e", root, "", "root"] in event["tags"] for event in replies)
+        assert not adapter._turn_routes and adapter._turn_route.get() is None
+    asyncio.run(run())
+
+
+def test_threaded_kind9_reply_keeps_root_session(adapter):
+    async def run():
+        received = []
+        async def handle(message):
+            received.append(message)
+        adapter.handle_message = handle
+        root = "r" * 64
+        event_id = "e" * 64
+        await adapter._on_event({"kind": 9, "id": event_id, "pubkey": OWNER,
+                                 "created_at": int(time.time()), "content": "follow-up",
+                                 "tags": [["h", "room"], ["e", root], ["p", BOT]]})
+        assert len(received) == 1
+        assert received[0].source.thread_id is None
+        assert received[0].reply_to_message_id == root
+    asyncio.run(run())
+
+
+def test_threaded_question_callback_uses_kind12_correlation(adapter):
+    async def run():
+        entry = clarify_gateway.register("question-id", "session", "Pick", ["yes"])
+        await adapter.send_clarify("room", "Pick", ["yes"], "question-id", "session",
+                                   metadata={"thread_id": "r" * 64})
+        request = adapter.rpc.events[-1]
+        await adapter._on_answer(response(request, "c0"))
+        assert entry.response == "yes"
     asyncio.run(run())
 
 

@@ -78,9 +78,10 @@ class Client:
 
 
 def answer(client, request, content):
+    request_kind = str(request["kind"])
     return client.publish(1111, content, [
-        ["h", tag(request, "h")], ["E", request["id"]], ["K", "9"], ["P", request["pubkey"]],
-        ["e", request["id"]], ["k", "9"], ["p", request["pubkey"]],
+        ["h", tag(request, "h")], ["E", request["id"]], ["K", request_kind], ["P", request["pubkey"]],
+        ["e", request["id"]], ["k", request_kind], ["p", request["pubkey"]],
     ])
 
 

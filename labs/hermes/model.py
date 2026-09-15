@@ -35,9 +35,11 @@ def _scenario(messages: list[dict[str, Any]]) -> tuple[str | None, int | None]:
         message = messages[index]
         if message.get("role") != "user":
             continue
-        found = MARKER.search(_text(message.get("content")))
+        # Hermes prepends a quote of the replied-to message, which can contain
+        # an older scenario marker. The current user's marker follows that quote.
+        found = list(MARKER.finditer(_text(message.get("content"))))
         if found:
-            return found.group(1), index
+            return found[-1].group(1), index
         return None, None
     return None, None
 

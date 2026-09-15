@@ -14,6 +14,15 @@ def tag(event, name):
     return next((row[1] for row in event.get("tags", []) if len(row) > 1 and row[0] == name), None)
 
 
+def _reject_duplicate_keys(pairs):
+    result = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError("duplicate JSON key")
+        result[key] = value
+    return result
+
+
 @dataclass
 class Pending:
     room: str
@@ -25,6 +34,8 @@ class Pending:
     options: dict[str, str]
     created_at: int
     expires: int
+    metadata: dict
+    request_kind: int = 9
 
 
 class InteractionMixin:
@@ -50,8 +61,12 @@ class InteractionMixin:
             chat_id=chat_id, command=command, session_key=session_key, text=text,
             metadata=metadata, actions=actions))
 
+    def _request_route(self, session_key):
+        current = self._turn_route.get() or {}
+        return current if current.get("session") == session_key else self._turn_routes.get(session_key, {})
+
     def _assignee(self, session_key, metadata):
-        return self._session_assignees.get(session_key) or (metadata or {}).get("user_id", "")
+        return self._request_route(session_key).get("user_id") or self._session_assignees.get(session_key) or (metadata or {}).get("user_id", "")
 
     async def _request(self, pending, content, subject=""):
         if not self._authorized(pending.assignee):
@@ -69,15 +84,19 @@ class InteractionMixin:
         # Assignment and notification are separate even when the same key appears in both.
         if pending.assignee in self._mentions(content):
             tags.append(["mention", pending.assignee])
-        result = await self._publish(pending.room, content, tags)
+        reply_tags, request_kind = await self._reply_tags(pending.room, metadata=pending.metadata)
+        pending.request_kind = request_kind
+        result = await self._publish(pending.room, content, [*reply_tags, *tags], kind=request_kind)
         if result.success and result.message_id:
             self._pending[result.message_id] = pending
         return result
 
     def _pending_request(self, room, session, callback, interaction, options, selection, metadata, ttl=300):
         now = int(time.time())
+        route = self._request_route(session)
+        metadata = {**(route if route.get("room") == room else {}), **(metadata or {})}
         return Pending(room, self._assignee(session, metadata), session, callback, interaction,
-                       selection, options, now, now + ttl)
+                       selection, options, now, now + ttl, metadata)
 
     async def send_clarify(self, chat_id, question, choices, clarify_id, session_key, metadata=None):
         from tools import clarify_gateway
@@ -135,7 +154,7 @@ class InteractionMixin:
             if resolved:
                 result = await slash_confirm.resolve(pending.session, pending.callback_id, response)
                 if result:
-                    await self.send(pending.room, result)
+                    await self.send(pending.room, result, metadata=pending.metadata)
         # Waiters are process-local in Hermes. Never apply a late answer to another request.
         self._pending.pop(event_id, None)
 
@@ -151,7 +170,8 @@ class InteractionMixin:
         created = event.get("created_at", 0)
         if not isinstance(created, int) or not pending.created_at <= created < pending.expires or created > now + 60:
             return False
-        expected = {"h": pending.room, "e": event_id, "E": event_id, "k": "9", "K": "9",
+        expected = {"h": pending.room, "e": event_id, "E": event_id,
+                    "k": str(pending.request_kind), "K": str(pending.request_kind),
                     "p": self.pubkey, "P": self.pubkey}
         return all(tag(event, key) == value for key, value in expected.items())
 
@@ -162,12 +182,30 @@ class InteractionMixin:
         if pending.selection == "text":
             return content
         try:
-            decoded = json.loads(content)
+            decoded = json.loads(content, object_pairs_hook=_reject_duplicate_keys)
         except ValueError:
             decoded = None
         if pending.interaction == "question" and isinstance(decoded, dict):
+            keys = set(decoded)
             text = decoded.get("text")
-            return text if set(decoded) == {"text"} and isinstance(text, str) and text.strip() else None
+            choices = decoded.get("choices")
+            if not isinstance(text, str) or not text.strip() or len(text) > 8000:
+                return None
+            if keys == {"text"}:
+                return text
+            if keys != {"choices", "text"} or not isinstance(choices, list) or not choices:
+                return None
+            if any(not isinstance(key, str) for key in choices) or len(choices) != len(set(choices)):
+                return None
+            if pending.selection == "single" and len(choices) != 1:
+                return None
+            if pending.selection == "multiple" and any(key not in pending.options for key in choices):
+                return None
+            if pending.selection == "single" and choices[0] not in pending.options:
+                return None
+            selected = [pending.options[key] for key in choices]
+            rendered = selected[0] if pending.selection == "single" else json.dumps(selected)
+            return rendered + "\n" + text.strip()
         if pending.selection == "multiple":
             if not isinstance(decoded, list) or not decoded or any(not isinstance(key, str) for key in decoded):
                 return None

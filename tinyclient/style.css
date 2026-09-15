@@ -608,7 +608,14 @@ chat-activity details>div pre{white-space:pre-wrap;overflow-wrap:anywhere;paddin
 chat-activity [data-status=processing],chat-activity [data-status=partial]{color:var(--bark)}
 chat-activity [data-status=success]{color:var(--accent)}
 chat-activity [data-status=error]{color:var(--alert)}
-chat-decision{display:block;margin-top:10px}chat-decision button{margin-right:8px;min-height:36px}
+chat-decision{display:block;margin-top:10px}chat-decision button{margin-right:8px;min-height:44px}
+chat-decision fieldset{min-width:0;margin:0 0 12px;padding:8px;border:1px solid var(--line);border-radius:8px}
+chat-decision legend{padding:0 4px;color:var(--muted)}
+chat-decision fieldset label{display:block;position:relative;box-sizing:border-box;min-height:44px;padding:10px 8px 10px 32px;border-radius:5px;cursor:pointer;overflow-wrap:anywhere}
+chat-decision fieldset label:hover{background:var(--hover)}
+chat-decision fieldset label:has(input:checked){background:var(--soft)}
+chat-decision fieldset input{position:absolute;left:8px;top:10px;margin:3px 0 0;accent-color:var(--accent)}
+chat-decision label:has(textarea){display:block}
 chat-decision textarea{display:block;width:100%;min-width:0;max-width:100%;margin:6px 0}
 chat-decision output{display:block;font:12px var(--mono);margin-top:6px;color:var(--muted)}
 chat-decision output[data-error]{color:var(--alert)}

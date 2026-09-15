@@ -7,6 +7,7 @@ interactive prompts; no Buzz compatibility or prose parsing is involved.
 from __future__ import annotations
 
 import asyncio
+from contextvars import ContextVar
 import json
 import mimetypes
 import hashlib
@@ -83,10 +84,63 @@ class TinyAdapter(InteractionMixin, BasePlatformAdapter):
         self._sent = {}
         self._session_assignees: dict[str, str] = {}
         self._processing: set[str] = set()
+        self._reply_routes: dict[str, dict] = {}
+        self._turn_routes: dict[str, dict] = {}
+        self._turn_route = ContextVar("tinyagent_turn_route", default=None)
 
     @property
     def name(self) -> str:
         return "Tiny"
+
+    def set_message_handler(self, handler):
+        # Bind routing when Hermes actually starts the turn, not when a queued
+        # message arrives. Its public prompt hooks omit reply anchors for Tiny.
+        async def routed(event):
+            session = self._event_session_key(event)
+            route = {**self._reply_routes.get(event.message_id, {}), "session": session}
+            token = self._turn_route.set(route)
+            self._turn_routes[session] = route
+            try:
+                return await handler(event)
+            finally:
+                if self._turn_routes.get(session) is route:
+                    self._turn_routes.pop(session, None)
+                self._turn_route.reset(token)
+        super().set_message_handler(routed)
+
+    async def _process_message_background(self, event, session_key):
+        # Include Hermes' final chunks and attachment sends, which run after the
+        # message handler returns. Each queued turn gets its own task context.
+        token = self._turn_route.set({**self._reply_routes.get(event.message_id, {}), "session": session_key})
+        try:
+            return await super()._process_message_background(event, session_key)
+        finally:
+            self._turn_route.reset(token)
+
+    async def _reply_tags(self, room, reply_to=None, metadata=None):
+        metadata = metadata or {}
+        current = self._turn_route.get() or {}
+        if current.get("room") != room:
+            current = {}
+        reply = reply_to or metadata.get("reply_to_message_id") or metadata.get("message_id") or current.get("reply_to_message_id")
+        if reply and reply != current.get("reply_to_message_id"):
+            current = {}
+        route = self._reply_routes.get(reply, {})
+        if route.get("room") != room:
+            route = {}
+        thread = metadata.get("thread_id") or route.get("thread_id") or current.get("thread_id")
+        root = thread or route.get("root")
+        if reply and not root:
+            # Synthetic sends may refer to messages received before this process.
+            rows = await self.rpc.query({"ids": [reply], "#h": [room], "limit": 1})
+            parent = rows[0] if rows else None
+            root = (event_thread(parent) if parent else None) or reply
+            if parent and parent.get("kind") in (11, 12):
+                thread = root
+        tags = [["e", str(root), "", "root"]] if root else []
+        if reply and reply != root:
+            tags.append(["e", str(reply), "", "reply"])
+        return tags, 12 if thread else 9
 
     async def connect(self, *, is_reconnect: bool = False) -> bool:
         self.rpc = TinyRPC(self.relay_url, cli_path=self.cli_path)
@@ -143,7 +197,8 @@ class TinyAdapter(InteractionMixin, BasePlatformAdapter):
         if self.require_mention and not mentioned and not own_reply:
             return
         event_id = str(event.get("id", ""))
-        # Only thread kinds create a separate thread session. Kind 9 replies stay in the room.
+        # Kind 11/12 carry Tiny thread sessions. Kind 9 remains the room session even when
+        # it carries an e tag, matching Hermes' room routing contract.
         thread_id = event_id if event.get("kind") == 11 else root if event.get("kind") == 12 else None
         source = self.build_source(chat_id=room, chat_name=room, chat_type="group", user_id=author,
                                    thread_id=thread_id, message_id=event_id)
@@ -161,6 +216,10 @@ class TinyAdapter(InteractionMixin, BasePlatformAdapter):
                                reply_to_message_id=parent_id, reply_to_is_own_message=own_reply,
                                reply_to_text=parent.get("content") if parent else None)
         self._session_assignees[self._event_session_key(message)] = author
+        self._reply_routes[event_id] = {"room": room, "root": root or event_id,
+                                         "reply_to_message_id": event_id, "thread_id": thread_id, "user_id": author}
+        if len(self._reply_routes) > 10000:
+            self._reply_routes.pop(next(iter(self._reply_routes)))
         if self._tracker:
             self._tracker.mark(event)
         await self.handle_message(message)
@@ -183,9 +242,7 @@ class TinyAdapter(InteractionMixin, BasePlatformAdapter):
             return SendResult(success=False, error=str(exc), retryable=True)
 
     async def send(self, chat_id: str, content: str, reply_to: str | None = None, metadata: dict | None = None) -> SendResult:
-        tags: list[list[str]] = []
-        if reply_to:
-            tags.append(["e", str(reply_to)])
+        tags, kind = await self._reply_tags(chat_id, reply_to, metadata)
         mentions = _explicit_mentions(content)
         for pubkey in (metadata or {}).get("mentions", []):
             if _HEX.fullmatch(str(pubkey)):
@@ -193,10 +250,7 @@ class TinyAdapter(InteractionMixin, BasePlatformAdapter):
         for pubkey in dict.fromkeys(mentions):
             tags.append(["p", pubkey])
             tags.append(["mention", pubkey])
-        thread_id = (metadata or {}).get("thread_id")
-        if thread_id:
-            tags.insert(0, ["e", str(thread_id), "", "root"])
-        result = await self._publish(chat_id, content, tags, kind=12 if thread_id else 9)
+        result = await self._publish(chat_id, content, tags, kind=kind)
         if result.success:
             self._sent[result.message_id] = tags
             if len(self._sent) > 1000:
@@ -239,15 +293,11 @@ class TinyAdapter(InteractionMixin, BasePlatformAdapter):
             if digest:
                 fields.append("x " + str(digest))
             fields.append("size " + str(len(data)))
-            tags = [["imeta", *fields]]
-            thread_id = (metadata or {}).get("thread_id")
-            if thread_id:
-                tags.insert(0, ["e", str(thread_id), "", "root"])
-            if reply_to:
-                tags.append(["e", str(reply_to), "", "reply"])
+            tags, kind = await self._reply_tags(chat_id, reply_to, metadata)
+            tags.append(["imeta", *fields])
             for key in _explicit_mentions(caption or ""):
                 tags.extend([["p", key], ["mention", key]])
-            return await self._publish(chat_id, caption or "", tags, kind=12 if thread_id else 9)
+            return await self._publish(chat_id, caption or "", tags, kind=kind)
         except Exception as exc:
             return SendResult(success=False, error=str(exc), retryable=True)
 

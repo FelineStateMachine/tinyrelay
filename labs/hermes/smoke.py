@@ -15,12 +15,12 @@ def check(condition, message):
         raise AssertionError(message)
 
 
-def send(client, text, extra=None):
-    return client.publish(9, text, [["h", "lab"], ["p", public("agent")], *(extra or [])])
+def send(client, text, extra=None, kind=9):
+    return client.publish(kind, text, [["h", "lab"], ["p", public("agent")], *(extra or [])])
 
 
 def done(client, marker, since):
-    event = wait_event(client, {"kinds": [9, 40003], "authors": [public("agent")],
+    event = wait_event(client, {"kinds": [9, 12, 40003], "authors": [public("agent")],
                                "#h": ["lab"], "since": since},
                        lambda row: f"LAB_DONE {marker}" in row["content"])
     check(not any(row[0] in ("p", "mention") for row in event["tags"]),
@@ -29,12 +29,26 @@ def done(client, marker, since):
 
 
 def interaction(client, scenario, run):
-    marker = f"LAB_{scenario}_{run}"
-    prior = {row["id"] for row in client.query({"kinds": [9], "#h": ["lab"], "#request": ["question"]})}
-    sent = send(client, marker)
-    request = wait_event(client, {"kinds": [9], "authors": [public("agent")], "#h": ["lab"],
+    model_scenario = {"DETAILS": "QUESTION", "MULTI_DETAILS": "MULTI", "THREAD": "QUESTION", "ROOM_THREAD": "QUESTION"}.get(scenario, scenario)
+    marker = f"LAB_{model_scenario}_{scenario.lower()}_{run}"
+    threaded = scenario in ("THREAD", "ROOM_THREAD")
+    if threaded:
+        root_marker = f"LAB_HELLO_{scenario.lower()}_{run}"
+        root = send(client, root_marker, kind=11 if scenario == "THREAD" else 9)
+        parent = done(client, root_marker, root["created_at"])
+        parent_id = tag(parent, "e") if parent["kind"] == 40003 else parent["id"]
+        sent = send(client, marker, [["e", root["id"], "", "root"], ["e", parent_id, "", "reply"]],
+                    kind=12 if scenario == "THREAD" else 9)
+    else:
+        sent = send(client, marker)
+        root = sent
+    request = wait_event(client, {"kinds": [9, 12], "authors": [public("agent")], "#h": ["lab"],
                                   "#request": ["question"], "since": sent["created_at"]},
-                         lambda row: row["id"] not in prior)
+                         lambda row: marker in row["content"] or (scenario == "APPROVAL" and row["created_at"] >= sent["created_at"]))
+    check(request["kind"] == sent["kind"], "Request changed the conversation type")
+    check(["e", root["id"], "", "root"] in request["tags"], "Request started a new thread")
+    if threaded:
+        check(["e", sent["id"], "", "reply"] in request["tags"], "Request lost its direct reply parent")
     check(tag(request, "tinyagent") == "1", "Request lost its native interaction marker")
     check(tag(request, "p") == public("owner"), "Request does not name its human assignee")
     check(tag(request, "mention") is None, "Assignee was turned into an unsolicited mention")
@@ -50,12 +64,15 @@ def interaction(client, scenario, run):
     else:
         check(tag(request, "interaction") == "question", "Question lost its type")
         choice = next(key for key, label in options.items() if label.startswith("Continue"))
-    if scenario == "MULTI":
+    if scenario in ("MULTI", "MULTI_DETAILS"):
         check(tag(request, "selection") == "multiple", "Multiple choice became single choice")
         choice = json.dumps([key for key, label in options.items() if label.startswith(("Continue", "Stop"))])
     if scenario == "CUSTOM":
         check(tag(request, "freeform") == "true", "Choice question lost its custom input")
         choice = json.dumps({"text": "Custom lab answer"})
+    if scenario in ("DETAILS", "MULTI_DETAILS", "THREAD", "ROOM_THREAD"):
+        selected = list(options) if scenario == "MULTI_DETAILS" else [choice]
+        choice = json.dumps({"choices": selected, "text": "Keep the answer in this thread."})
     # A signed response from another room member must not resolve the operator's request.
     with Client("observer") as observer:
         answer(observer, request, choice)
@@ -67,8 +84,12 @@ def interaction(client, scenario, run):
     final = done(client, marker, sent["created_at"])
     expected = "tinyagent-lab" if scenario == "APPROVAL" else "Custom lab answer" if scenario in ("OPEN", "CUSTOM") else "Continue"
     check(expected in final["content"], "Hermes did not receive the selected response")
-    if scenario == "MULTI":
+    if scenario in ("MULTI", "MULTI_DETAILS"):
         check("Stop" in final["content"], "Hermes lost a selected choice")
+    if scenario in ("DETAILS", "MULTI_DETAILS", "THREAD", "ROOM_THREAD"):
+        check("Keep the answer in this thread." in final["content"], "Hermes lost the explanation")
+    final_message = client.query({"ids": [tag(final, "e")], "limit": 1})[0] if final["kind"] == 40003 else final
+    check(["e", root["id"], "", "root"] in final_message["tags"], "Hermes resumed outside the original thread")
     state = client.browse("browseapproval", {"id": request["id"]})
     check(state["item"]["state"] == "answered", "The valid answer did not settle the card")
     print(f"PASS {scenario.lower()}: native card, silent assignment, authorized answer, Hermes resumed")
@@ -105,7 +126,7 @@ def main():
         sent = send(client, marker)
         done(client, marker, sent["created_at"])
         print("PASS connection: real Hermes replied through Tiny without a mention")
-        for scenario in ("QUESTION", "MULTI", "CUSTOM", "OPEN", "APPROVAL"):
+        for scenario in ("QUESTION", "MULTI", "CUSTOM", "OPEN", "APPROVAL", "DETAILS", "MULTI_DETAILS", "THREAD", "ROOM_THREAD"):
             interaction(client, scenario, run)
         media(client, run)
         marker = f"LAB_MENTION_{run}"

@@ -9,6 +9,7 @@ package daemon
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"sort"
 	"strconv"
 	"strings"
@@ -273,13 +274,21 @@ func nativeAnswerValid(item approvalItem, answer event.Event) bool {
 	if event.Tag(answer, "E") != item.ID || event.Tag(answer, "P") != item.Asker || event.Tag(answer, "K") != strconv.Itoa(item.Kind) || event.Tag(answer, "k") != strconv.Itoa(item.Kind) {
 		return false
 	}
+	if len([]rune(answer.Content)) > 8000 {
+		return false
+	}
 	if selection != "text" && item.Freeform && strings.HasPrefix(strings.TrimSpace(answer.Content), "{") {
-		var custom map[string]any
-		if json.Unmarshal([]byte(answer.Content), &custom) != nil || len(custom) != 1 {
+		if nativeCombinedAnswer(answer.Content, options, selection) {
+			return true
+		}
+	}
+	if selection != "text" && item.Freeform && strings.HasPrefix(strings.TrimSpace(answer.Content), "{") {
+		fields, valid := nativeJSONFields(answer.Content, map[string]bool{"text": true})
+		var text string
+		if !valid || len(fields) != 1 || json.Unmarshal(fields["text"], &text) != nil {
 			return false
 		}
-		text, ok := custom["text"].(string)
-		return ok && len([]rune(strings.TrimSpace(text))) > 0 && len([]rune(text)) <= 8000
+		return len([]rune(strings.TrimSpace(text))) > 0 && len([]rune(text)) <= 8000
 	}
 	if selection == "text" {
 		return len([]rune(strings.TrimSpace(answer.Content))) > 0 && len([]rune(answer.Content)) <= 8000
@@ -317,6 +326,72 @@ func nativeAnswerValid(item approvalItem, answer event.Event) bool {
 		}
 	}
 	return true
+}
+
+func nativeCombinedAnswer(content string, options []nativeOption, selection string) bool {
+	fields, valid := nativeJSONFields(content, map[string]bool{"choices": true, "text": true})
+	if !valid || len(fields) != 2 {
+		return false
+	}
+	var choices []string
+	var text string
+	if json.Unmarshal(fields["choices"], &choices) != nil || json.Unmarshal(fields["text"], &text) != nil {
+		return false
+	}
+	text = strings.TrimSpace(text)
+	if len([]rune(text)) == 0 || len([]rune(text)) > 8000 {
+		return false
+	}
+	if selection == "single" && len(choices) != 1 || selection == "multiple" && (len(choices) == 0 || len(choices) > len(options)) {
+		return false
+	}
+	seen := make(map[string]bool, len(choices))
+	for _, id := range choices {
+		if seen[id] {
+			return false
+		}
+		seen[id] = true
+		found := false
+		for _, option := range options {
+			if option.ID == id {
+				found = true
+				break
+			}
+		}
+		if !found {
+			return false
+		}
+	}
+	return true
+}
+
+func nativeJSONFields(content string, allowed map[string]bool) (map[string]json.RawMessage, bool) {
+	decoder := json.NewDecoder(strings.NewReader(content))
+	token, err := decoder.Token()
+	if err != nil || token != json.Delim('{') {
+		return nil, false
+	}
+	fields := make(map[string]json.RawMessage, len(allowed))
+	for decoder.More() {
+		token, err = decoder.Token()
+		key, ok := token.(string)
+		if err != nil || !ok || !allowed[key] || fields[key] != nil {
+			return nil, false
+		}
+		var value json.RawMessage
+		if err := decoder.Decode(&value); err != nil {
+			return nil, false
+		}
+		fields[key] = value
+	}
+	if _, err = decoder.Token(); err != nil {
+		return nil, false
+	}
+	var extra any
+	if err := decoder.Decode(&extra); err != io.EOF {
+		return nil, false
+	}
+	return fields, true
 }
 
 // approvalSettle fills the answer and state of one request from its answers,

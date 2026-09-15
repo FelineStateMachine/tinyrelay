@@ -115,6 +115,7 @@ func chatActivityView(jobs, approvals any, actor, endpoint, room string) []chatA
 				option := valueMap(rawOption)
 				row.Options = append(row.Options, chatActivityOption{ID: plainString(option["id"]), Label: plainString(option["label"])})
 			}
+			row.Answer = nativeActivityAnswer(row.Answer, row.Options)
 		}
 		items = append(items, row)
 	}
@@ -125,6 +126,45 @@ func chatActivityView(jobs, approvals any, actor, endpoint, room string) []chatA
 		return items[i].CreatedAt < items[j].CreatedAt
 	})
 	return items
+}
+
+func nativeActivityAnswer(content string, options []chatActivityOption) string {
+	if content == "" || len(options) == 0 {
+		return content
+	}
+	var answer struct {
+		Choices []string `json:"choices"`
+		Text    string   `json:"text"`
+	}
+	if err := json.Unmarshal([]byte(content), &answer); err != nil || answer.Text == "" {
+		answer.Text = ""
+		if err := json.Unmarshal([]byte(content), &answer.Choices); err != nil {
+			answer.Choices = []string{content}
+		}
+	}
+	labels := make(map[string]string, len(options))
+	for _, option := range options {
+		labels[option.ID] = option.Label
+	}
+	selected := make([]string, 0, len(answer.Choices))
+	for _, choice := range answer.Choices {
+		label, ok := labels[choice]
+		if !ok {
+			return content
+		}
+		selected = append(selected, label)
+	}
+	result := strings.Join(selected, "\n")
+	if answer.Text != "" {
+		if result != "" {
+			result += "\n\n"
+		}
+		result += answer.Text
+	}
+	if result == "" {
+		return content
+	}
+	return result
 }
 
 func eventHasTag(item map[string]any, name string) bool {

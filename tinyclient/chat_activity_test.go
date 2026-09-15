@@ -70,3 +70,27 @@ func TestChatActivityViewCarriesNativeOptions(t *testing.T) {
 		t.Fatalf("native options = %#v", items)
 	}
 }
+
+func TestChatActivityShowsChoiceLabelsAndExplanation(t *testing.T) {
+	actor, other := strings.Repeat("a", 64), strings.Repeat("b", 64)
+	for _, tt := range []struct{ name, content, want string }{
+		{"choice", "c1", "No, something looks wrong"},
+		{"choices", `["c0","c1"]`, "Yes, it looks right\nNo, something looks wrong"},
+		{"explanation", `{"choices":["c1"],"text":"Keep it in this thread."}`, "No, something looks wrong\n\nKeep it in this thread."},
+		{"custom", `{"text":"A different answer."}`, "A different answer."},
+		{"unknown", `{"choices":["unknown"],"text":"Details."}`, `{"choices":["unknown"],"text":"Details."}`},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			approvals := map[string]any{"items": []any{map[string]any{
+				"id": strings.Repeat("5", 64), "asker": other, "asked": []string{actor}, "kind": 9,
+				"type": "question", "interaction": "question", "state": "answered", "selection": "single",
+				"options": []any{map[string]any{"id": "c0", "label": "Yes, it looks right"}, map[string]any{"id": "c1", "label": "No, something looks wrong"}},
+				"answer":  map[string]any{"decision": "replied", "content": tt.content},
+			}}}
+			items := chatActivityView(nil, approvals, actor, "/chat/activity", "general")
+			if len(items) != 1 || items[0].Answer != tt.want || items[0].CanDecide {
+				t.Fatalf("answered question = %#v; want %q", items, tt.want)
+			}
+		})
+	}
+}

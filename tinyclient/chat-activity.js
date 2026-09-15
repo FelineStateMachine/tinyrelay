@@ -77,10 +77,11 @@
         const freshOptions=[...(allowed.querySelectorAll?.('input[name="option"]') || [])].map(input=>input.value);
         if(selected.some(value=>!freshOptions.includes(value))) { host.schedule(); throw Error("This request's options changed."); }
         if(!selected.length && !custom) throw Error("Choose an option or write an answer.");
-        if(custom && selected.length) throw Error("Choose options or write your own answer, not both.");
+        if(selection === "single" && selected.length > 1) throw Error("Choose one option.");
         if(!custom && (selection === "text" || (selection === "single" && selected.length !== 1))) throw Error("Choose one option.");
         if(custom && custom.length > 8000) throw Error("Your answer is too long.");
-        const content=custom ? (selection === "text" ? custom : JSON.stringify({text:custom})) : (selection === "multiple" ? JSON.stringify(selected) : selected[0]);
+        const content=custom ? (selection === "text" ? custom : JSON.stringify(selected.length ? {choices:selected,text:custom} : {text:custom})) : (selection === "multiple" ? JSON.stringify(selected) : selected[0]);
+        if(content.length > 8000) throw Error("Your answer is too long.");
         unsigned={kind:1111,created_at:Math.floor(Date.now()/1000),tags:[["h",room],["E",id,"",author],["K",this.getAttribute("kind")],["P",author],["e",id,"",author],["k",this.getAttribute("kind")],["p",author]],content};
       } else if(this.hasAttribute("question")) {
         const content=(form.elements.content?.value || "").trim(); if(!content) throw Error("Write an answer first.");

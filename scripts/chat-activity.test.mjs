@@ -113,6 +113,8 @@ for(const [selection,form,expected] of [
   ["multiple",{option:[{value:"c0",checked:true},{value:"c1",checked:true}]},'["c0","c1"]'],
   ["single",{"custom-answer":{value:"custom reply"}},'{"text":"custom reply"}'],
   ["text",{"custom-answer":{value:"plain reply"}},"plain reply"],
+  ["single",{option:{value:"c1",checked:true},"custom-answer":{value:" The question is in the wrong thread. "}},'{"choices":["c1"],"text":"The question is in the wrong thread."}'],
+  ["multiple",{option:[{value:"c0",checked:true},{value:"c1",checked:true}],"custom-answer":{value:"Both apply."}},'{"choices":["c0","c1"],"text":"Both apply."}'],
 ]) test(`native ${selection} question submits the selected or custom answer`,async()=>{
   const {decision,published}=nativeForm(selection);
   await decision.submit({elements:form});
@@ -133,4 +135,20 @@ test("native decisions validate freeform and selection against the fresh card",a
   await assert.rejects(decision.submit({elements:{"custom-answer":{value:"custom"}}}),/options only/);
   await assert.rejects(decision.submit({elements:{option:[{value:"c0",checked:true},{value:"c1",checked:true}]}}),/one option/);
   assert.equal(published.length,0);
+});
+
+test("an explanation cannot bypass the single-choice limit or offered choices",async()=>{
+  const {decision,published}=nativeForm();
+  const comment={value:"Here is why."};
+  await assert.rejects(decision.submit({elements:{option:[{value:"c0",checked:true},{value:"c1",checked:true}],"custom-answer":comment}}),/one option/);
+  await assert.rejects(decision.submit({elements:{option:{value:"unknown",checked:true},"custom-answer":comment}}),/options changed/);
+  assert.equal(published.length,0);
+});
+
+test("combined answers still require freeform permission on the current question",async()=>{
+  for(const interaction of ["question","approval","confirmation"]) {
+    const {decision,published}=nativeForm("single",interaction,false);
+    await assert.rejects(decision.submit({elements:{option:{value:"c1",checked:true},"custom-answer":{value:"An explanation."}}}),/options only/);
+    assert.equal(published.length,0);
+  }
 });

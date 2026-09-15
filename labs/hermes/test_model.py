@@ -32,6 +32,14 @@ class ModelFixtureTests(unittest.TestCase):
         error = model.complete({"messages": body["messages"]})["choices"][0]["message"]["content"]
         self.assertIn("clarify tool is unavailable", error)
 
+    def test_reply_quote_does_not_replace_current_scenario(self):
+        body = {"messages": [{"role": "user", "content":
+            '[Replying to your previous message: "LAB_DONE LAB_HELLO_old"]\n\nLAB_QUESTION_new'}],
+            "tools": [{"type": "function", "function": {"name": "clarify"}}]}
+        message = model.complete(body)["choices"][0]["message"]
+        arguments = json.loads(message["tool_calls"][0]["function"]["arguments"])
+        self.assertIn("LAB_QUESTION_new", arguments["questions"][0]["question"])
+
     def test_multi_and_approval_tool_results_complete_turn(self):
         multi = model.complete({"messages": [{"role": "user", "content": "LAB_MULTI_123"}], "tools": [{"type": "function", "function": {"name": "clarify"}}]})
         args = json.loads(multi["choices"][0]["message"]["tool_calls"][0]["function"]["arguments"])

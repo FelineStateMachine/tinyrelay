@@ -351,7 +351,7 @@ func TestNativeFreeformAllowsBothOptionsAndCustomText(t *testing.T) {
 			item := approvalItemFrom(e, "question", "")
 			answer := event.Event{Kind: 1111, CreatedAt: 110, Tags: [][]string{{"h", "lab"}, {"e", e.ID}, {"E", e.ID}, {"p", e.PubKey}, {"P", e.PubKey}, {"k", "9"}, {"K", "9"}}}
 			valid := []string{`{"text":"custom"}`, "c0"}
-			invalid := []string{`{"text":"custom","extra":true}`, "unknown", `[]`}
+			invalid := []string{`{"text":"custom","extra":true}`, `{"Text":"custom"}`, `{"text":"one","text":"two"}`, "unknown", `[]`}
 			if selection == "multiple" {
 				valid[1] = `["c0"]`
 				invalid = append(invalid, `["c0","c0"]`)
@@ -376,6 +376,39 @@ func TestNativeFreeformAllowsBothOptionsAndCustomText(t *testing.T) {
 			answer.CreatedAt = 200
 			if nativeAnswerValid(item, answer) {
 				t.Error("answer at expiration accepted")
+			}
+		})
+	}
+}
+
+func TestNativeFreeformAcceptsChoiceAndExplanationTogether(t *testing.T) {
+	base := event.Event{Kind: kindChatMessage, ID: strings.Repeat("a", 64), PubKey: strings.Repeat("b", 64), CreatedAt: 100,
+		Tags: [][]string{{"h", "lab"}, {"tinyagent", "1"}, {"interaction", "question"}, {"freeform", "true"}, {"expiration", "200"}, {"option", "yes", "Yes"}, {"option", "no", "No"}}}
+	answerTags := [][]string{{"h", "lab"}, {"e", base.ID}, {"E", base.ID}, {"p", base.PubKey}, {"P", base.PubKey}, {"k", "9"}, {"K", "9"}}
+
+	tests := []struct {
+		name      string
+		selection string
+		content   string
+		valid     bool
+	}{
+		{name: "single", selection: "single", content: `{"choices":["no"],"text":"Needs more context."}`, valid: true},
+		{name: "multiple", selection: "multiple", content: `{"choices":["yes","no"],"text":"Both apply."}`, valid: true},
+		{name: "unknown choice", selection: "single", content: `{"choices":["maybe"],"text":"No."}`},
+		{name: "duplicate choice", selection: "multiple", content: `{"choices":["yes","yes"],"text":"No."}`},
+		{name: "empty explanation", selection: "single", content: `{"choices":["yes"],"text":"  "}`},
+		{name: "unknown field", selection: "single", content: `{"choices":["yes"],"text":"Yes.","extra":true}`},
+		{name: "duplicate field", selection: "single", content: `{"choices":["yes"],"choices":["no"],"text":"No."}`},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			e := base
+			e.Tags = append([][]string(nil), base.Tags...)
+			e.Tags = append(e.Tags, []string{"selection", test.selection})
+			item := approvalItemFrom(e, "question", "")
+			answer := event.Event{Kind: kindComment, CreatedAt: 110, Content: test.content, Tags: answerTags}
+			if got := nativeAnswerValid(item, answer); got != test.valid {
+				t.Fatalf("nativeAnswerValid = %v, want %v for %s", got, test.valid, test.content)
 			}
 		})
 	}
