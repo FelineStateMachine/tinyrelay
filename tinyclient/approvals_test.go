@@ -25,7 +25,7 @@ func (b *approvalsBackend) Query(_ context.Context, method string, params []json
 	}
 	asker := strings.Repeat("c", 64)
 	open := map[string]any{"id": strings.Repeat("1", 64), "kind": 1111, "type": "approve", "asker": asker, "subject": "Publish release notes 1.4", "content": "Publish release notes 1.4 to the articles feed as drafted?", "created_at": 1788876000, "expires": 1788897600, "state": "open",
-		"about": map[string]any{"coordinate": "30617:" + b.policy.Owner + ":tinyrelay", "event": strings.Repeat("d", 64), "kind": "1621", "url": "http://relay.example/repo?owner=" + b.policy.Owner + "&repo=tinyrelay&view=issue&id=" + strings.Repeat("d", 64)}}
+		"about": map[string]any{"coordinate": "30617:" + b.policy.Owner + ":tinyrelay", "event": strings.Repeat("d", 64), "kind": "1621", "url": "http://relay.example/repos/" + b.policy.Owner + "/tinyrelay/issues/" + strings.Repeat("d", 64)}}
 	question := map[string]any{"id": strings.Repeat("2", 64), "kind": 9, "type": "question", "asker": asker, "content": "Mention the edge?", "created_at": 1788876100, "state": "open", "room": "build"}
 	answered := map[string]any{"id": strings.Repeat("3", 64), "kind": 1111, "type": "decide", "asker": asker, "subject": "Close issue 41 as duplicate of 12", "content": "", "created_at": 1788870000, "state": "answered", "answer": map[string]any{"id": strings.Repeat("e", 64), "kind": 7, "author": b.policy.Owner, "decision": "approved", "content": "+", "created_at": 1788871000}}
 	expired := map[string]any{"id": strings.Repeat("4", 64), "kind": 1111, "type": "approve", "asker": asker, "content": "Create room #release", "created_at": 1788860000, "expires": 1788863600, "state": "expired"}
@@ -67,7 +67,7 @@ func TestApprovalsPageRendersRequestsForTheOwner(t *testing.T) {
 		"<pre>about 30617:" + backend.policy.Owner + ":tinyrelay | kind 1621 dddddddddddd</pre>",
 		`<nostr-react event="` + strings.Repeat("1", 64) + `" pubkey="` + asker + `" kind="1111"><button name="reaction" value="+" data-primary>Approve</button> <button name="reaction" value="-" data-danger>Deny</button></nostr-react>`,
 		`<nostr-compose kind="1111" root="` + strings.Repeat("1", 64) + `" root-pubkey="` + asker + `" root-kind="1111" coordinate="30617:` + backend.policy.Owner + `:tinyrelay">`,
-		`<a href="/repo?owner=` + backend.policy.Owner + `&amp;repo=tinyrelay&amp;view=issue&amp;id=` + strings.Repeat("d", 64) + `">open</a>`,
+		`<a href="/repos/` + backend.policy.Owner + `/tinyrelay/issues/` + strings.Repeat("d", 64) + `">open</a>`,
 		`<approval-item id="approval-` + strings.Repeat("2", 64) + `" data-type="question"`, "in #build", `<a href="/e/` + strings.Repeat("2", 64) + `">open</a>`,
 		"<h3>Answered</h3>", `<tr id="approval-` + strings.Repeat("3", 64) + `" data-state="answered">`, `<status-badge kind="approved">approved</status-badge> <time`, `data-state="expired"><td>`, `<td><status-badge kind="expired">expired</status-badge></td>`,
 		"<h4>Waiting</h4>", "<th>open</th><td>2</td>", "<th>oldest</th><td><time", "<h4>Devices</h4>", "<p><i></i>device 1 | approvals, mentions</p>", "<p><i></i>device 1 | ",
@@ -94,7 +94,7 @@ func TestApprovalsPageRendersRequestsForTheOwner(t *testing.T) {
 	// A notification opens one request; when it has left the first page it
 	// is read on its own and shown first.
 	recorder = httptest.NewRecorder()
-	app.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/approvals?id="+strings.Repeat("5", 64)+"&answer=approve", nil))
+	app.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/approvals/"+strings.Repeat("5", 64)+"?answer=approve", nil))
 	body = recorder.Body.String()
 	if !strings.Contains(strings.Join(backend.calls, ","), "browseapprovals,browseapproval") {
 		t.Fatalf("calls %v", backend.calls)

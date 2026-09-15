@@ -46,9 +46,9 @@ func TestBrowseRoutesUseObjectContractsAndRenderData(t *testing.T) {
 		path, method, marker string
 	}{
 		{"/repos", "browserepos", "notes"},
-		{"/repo?owner=alice&repo=notes&view=file", "browserepo", "one"},
+		{"/repos/alice/notes/file/README", "browserepo", "one"},
 		{"/files", "browsefiles", "deadbeef"},
-		{"/file?hash=deadbeef", "browsefile", "blob"},
+		{"/file/deadbeef", "browsefile", "blob"},
 		{"/manage/health", "browsestatus", "manage this relay"},
 	}
 	for _, test := range tests {
@@ -103,7 +103,7 @@ func TestBrowseRendersTypedGitRelayPage(t *testing.T) {
 		t.Fatal(err)
 	}
 	recorder := httptest.NewRecorder()
-	app.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/repo?owner=alice&repo=notes&view=file", nil))
+	app.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/repos/alice/notes/file/README", nil))
 	body := recorder.Body.String()
 	if recorder.Code != http.StatusOK || !strings.Contains(body, "&lt;script&gt;") || !strings.Contains(body, "line two") || !strings.Contains(body, ">raw</a>") {
 		t.Fatalf("typed browse page status=%d body=%s", recorder.Code, body)
@@ -117,7 +117,7 @@ func TestFileViewerEscapesHashAndExplainsEmptyFiles(t *testing.T) {
 		t.Fatal(err)
 	}
 	recorder := httptest.NewRecorder()
-	app.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/file?hash=a%26b", nil))
+	app.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/file/a%26b", nil))
 	body := recorder.Body.String()
 	if recorder.Code != http.StatusOK || !strings.Contains(body, `fx-ignore href="/files/raw?hash=a%26b"`) {
 		t.Fatalf("file hash was not URL encoded: status=%d body=%s", recorder.Code, body)

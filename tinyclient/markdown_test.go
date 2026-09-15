@@ -21,7 +21,7 @@ func TestMarkdownRendersCommonFormsAndEscapesTheRest(t *testing.T) {
 func TestRepositoryMarkdownResolvesRelativeLinks(t *testing.T) {
 	query := url.Values{"owner": {"alice"}, "repo": {"notes"}, "ref": {"refs/heads/main"}}
 	got := string(renderRepositoryMarkdown("[guide](docs/guide.md) [up](../secret.md) [site](https://example.com)", query))
-	if !strings.Contains(got, `href="/repo?owner=alice&amp;path=docs%2Fguide.md&amp;ref=refs%2Fheads%2Fmain&amp;repo=notes&amp;view=file"`) {
+	if !strings.Contains(got, `href="/repos/alice/notes/file/docs/guide.md?ref=refs%2Fheads%2Fmain"`) {
 		t.Fatalf("relative link was not mapped to repository viewer: %s", got)
 	}
 	if !strings.Contains(got, `href="https://example.com"`) {
@@ -32,7 +32,7 @@ func TestRepositoryMarkdownResolvesRelativeLinks(t *testing.T) {
 func TestRepositoryMarkdownDecodesPathsAndPreservesFragments(t *testing.T) {
 	query := url.Values{"owner": {"alice"}, "repo": {"notes"}, "ref": {"refs/heads/main"}}
 	got := string(renderRepositoryMarkdown("[guide](docs/caf%C3%A9%20guide.md?download=1#L2)", query))
-	want := `href="/repo?download=1&amp;owner=alice&amp;path=docs%2Fcaf%C3%A9+guide.md&amp;ref=refs%2Fheads%2Fmain&amp;repo=notes&amp;view=file#L2"`
+	want := `href="/repos/alice/notes/file/docs/caf%C3%A9%20guide.md?download=1&amp;ref=refs%2Fheads%2Fmain#L2"`
 	if !strings.Contains(got, want) {
 		t.Fatalf("encoded README link lost its resource or fragment: %s", got)
 	}

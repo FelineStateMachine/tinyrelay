@@ -71,10 +71,12 @@ func (a *App) socialPage(w http.ResponseWriter, r *http.Request) {
 	actor, _ := a.resolveActor(r)
 	params := socialParameters(r.URL.Query())
 	method, tab := "browsesocial", "social"
-	if strings.HasPrefix(r.URL.Path, "/social/") {
-		params["id"] = strings.TrimPrefix(r.URL.Path, "/social/")
-		method, tab = "browsesocialthread", "social-thread"
-	} else if r.URL.Query().Get("address") != "" {
+	if rest, ok := strings.CutPrefix(r.URL.Path, "/social/"); ok {
+		if strings.Contains(rest, ":") {
+			params["address"] = unescapeSegment(rest)
+		} else {
+			params["id"] = rest
+		}
 		method, tab = "browsesocialthread", "social-thread"
 	}
 	raw, err := json.Marshal(params)
@@ -139,7 +141,7 @@ func socialContext(value any, data PageData) map[string]any {
 
 func socialReferenceURL(row map[string]any, prefix string) string {
 	if address := plainString(row[prefix+"address"]); strings.HasPrefix(address, "30023:") {
-		return "/social?address=" + url.QueryEscape(address)
+		return "/social/" + url.PathEscape(address)
 	}
 	if id := plainString(row[prefix+"id"]); hexID.MatchString(id) {
 		return "/social/" + id
@@ -148,11 +150,7 @@ func socialReferenceURL(row map[string]any, prefix string) string {
 }
 
 func socialThreadPage(path string, query url.Values, cursor string) string {
-	next := url.Values{}
-	if address := query.Get("address"); address != "" {
-		next.Set("address", address)
-	}
-	next.Set("cursor", cursor)
+	next := url.Values{"cursor": {cursor}}
 	return path + "?" + next.Encode()
 }
 
@@ -195,7 +193,7 @@ func socialQuery(query url.Values, key, value string) string {
 func socialURL(value any) string {
 	row := valueMap(value)
 	if address := plainString(row["address"]); address != "" {
-		return "/social?address=" + url.QueryEscape(address)
+		return "/social/" + url.PathEscape(address)
 	}
 	return "/social/" + url.PathEscape(plainString(row["id"]))
 }

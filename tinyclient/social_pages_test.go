@@ -132,7 +132,7 @@ func TestSocialContextLinksToParentAndRoot(t *testing.T) {
 	}
 	address := "30023:" + root + ":essay:part-one"
 	row = socialContext(map[string]any{"id": parent, "parent_id": root, "parent_address": address, "root_address": address}, data)
-	if row["nested"] != false || !strings.Contains(plainString(row["parent_url"]), "address=30023%3A") {
+	if row["nested"] != false || !strings.HasPrefix(plainString(row["parent_url"]), "/social/30023:") {
 		t.Fatalf("missing article parent: %#v", row)
 	}
 }

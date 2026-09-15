@@ -39,6 +39,17 @@ func (s *Service) MemberByName(ctx context.Context, name string) (Member, error)
 	return member, err
 }
 
+// MemberName returns the member name recorded for the pubkey, or "" when the
+// key is not a member or has no name.
+func (s *Service) MemberName(ctx context.Context, pubkey string) (string, error) {
+	var name string
+	err := s.store.DB().QueryRowContext(ctx, `SELECT name FROM community_members WHERE pubkey=?`, pubkey).Scan(&name)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", nil
+	}
+	return name, err
+}
+
 func (s *Service) NIP05(ctx context.Context, name string, relayURL string) (map[string]any, error) {
 	member, err := s.MemberByName(ctx, name)
 	if err != nil {

@@ -470,22 +470,52 @@ func (a *App) browse(writer http.ResponseWriter, request *http.Request) {
 		return
 	}
 	path, method := request.URL.Path, ""
-	switch path {
-	case "/repos":
+	pageQuery := request.URL.Query()
+	for key := range routeKeys {
+		pageQuery.Del(key)
+	}
+	repo := parseRepoRoute(path)
+	switch {
+	case path == "/repos":
 		method = "browserepos"
-	case "/repo":
+	case repo.ok:
 		method = "browserepo"
-	case "/files":
+		owner := a.person(request.Context(), repo.owner)
+		if owner == "" {
+			http.NotFound(writer, request)
+			return
+		}
+		pageQuery.Set("owner", owner)
+		pageQuery.Set("handle", a.handle(request.Context(), owner))
+		pageQuery.Set("repo", repo.repo)
+		pageQuery.Set("view", repo.view)
+		if repo.path != "" {
+			pageQuery.Set("path", repo.path)
+		}
+		if repo.id != "" {
+			pageQuery.Set("id", repo.id)
+		}
+		if repo.view == "commit" {
+			pageQuery.Set("ref", repo.id)
+		}
+	case path == "/files":
 		method = "browsefiles"
-	case "/file":
+	case filesView(path) != "":
+		method = "browsefiles"
+		pageQuery.Set("view", filesView(path))
+	case fileHash(path) != "":
 		method = "browsefile"
-	case "/approvals":
+		pageQuery.Set("hash", fileHash(path))
+	case path == "/approvals":
 		method = "browseapprovals"
-	case "/profile":
+	case approvalID(path) != "":
+		method = "browseapprovals"
+		pageQuery.Set("id", approvalID(path))
+	case path == "/profile":
 		method = "browseprofile"
-	case "/wiki":
+	case path == "/wiki":
 		method = "browsewiki"
-	case "/manage/health":
+	case path == "/manage/health":
 		method = "browsestatus"
 	}
 	room := roomRoute(path)
@@ -501,7 +531,6 @@ func (a *App) browse(writer http.ResponseWriter, request *http.Request) {
 		method = "browsewikipage"
 	}
 	params := []json.RawMessage{}
-	pageQuery := request.URL.Query()
 	query := map[string]any{"cursor": request.URL.Query().Get("cursor"), "limit": 50, "q": request.URL.Query().Get("q")}
 	if value := request.URL.Query().Get("limit"); value != "" {
 		if parsed, parseErr := strconv.Atoi(value); parseErr == nil && parsed > 0 {
@@ -510,15 +539,15 @@ func (a *App) browse(writer http.ResponseWriter, request *http.Request) {
 	}
 	switch method {
 	case "browsefiles":
-		view := request.URL.Query().Get("view")
+		view := pageQuery.Get("view")
 		if view == "" {
 			view = "library"
 		}
 		query["view"] = view
 		query["path"] = request.URL.Query().Get("path")
 	case "browserepo":
-		view := request.URL.Query().Get("view")
-		if view == "" || view == "home" {
+		view := pageQuery.Get("view")
+		if view == "home" {
 			view = "tree"
 		}
 		offset := 0
@@ -542,16 +571,9 @@ func (a *App) browse(writer http.ResponseWriter, request *http.Request) {
 			method = "browsepull"
 			backendView = ""
 		}
-		eventID := request.URL.Query().Get("id")
-		if eventID == "" && (view == "issue" || view == "pr") {
-			eventID = request.URL.Query().Get("path")
-		}
-		query = map[string]any{"owner": request.URL.Query().Get("owner"), "repo": request.URL.Query().Get("repo"), "event": eventID, "q": request.URL.Query().Get("q"), "state": request.URL.Query().Get("status"), "label": request.URL.Query().Get("label"), "cursor": request.URL.Query().Get("cursor"), "ref": request.URL.Query().Get("ref"), "path": request.URL.Query().Get("path"), "view": backendView, "offset": offset, "limit": 100}
+		query = map[string]any{"owner": pageQuery.Get("owner"), "repo": pageQuery.Get("repo"), "event": pageQuery.Get("id"), "q": request.URL.Query().Get("q"), "state": request.URL.Query().Get("status"), "label": request.URL.Query().Get("label"), "cursor": request.URL.Query().Get("cursor"), "ref": pageQuery.Get("ref"), "path": pageQuery.Get("path"), "view": backendView, "offset": offset, "limit": 100}
 	case "browsefile":
-		query = map[string]any{"hash": request.URL.Query().Get("hash")}
-		if query["hash"] == "" {
-			query["hash"] = request.URL.Query().Get("sha")
-		}
+		query = map[string]any{"hash": pageQuery.Get("hash")}
 	case "browseprofile":
 		query = map[string]any{"pubkey": actor}
 	case "browseapprovals":
@@ -566,6 +588,9 @@ func (a *App) browse(writer http.ResponseWriter, request *http.Request) {
 		// The name travels in the query as well so the page template can
 		// offer to create a page that does not exist yet.
 		pageQuery.Set("d", wikiPageName(path))
+		if id := wikiMergeID(path); id != "" {
+			pageQuery.Set("merge", id)
+		}
 		query = map[string]any{"d": pageQuery.Get("d"), "author": request.URL.Query().Get("author"), "version": request.URL.Query().Get("version")}
 	case "browsestatus":
 		query = map[string]any{}
@@ -577,8 +602,8 @@ func (a *App) browse(writer http.ResponseWriter, request *http.Request) {
 	raw, _ := json.Marshal(query)
 	params = append(params, raw)
 	var tree []any
-	if method == "browserepo" && request.URL.Query().Get("view") == "file" {
-		tree = a.siblings(request.Context(), actor, request.URL.Query())
+	if method == "browserepo" && pageQuery.Get("view") == "file" {
+		tree = a.siblings(request.Context(), actor, pageQuery)
 	}
 	result, err, typedRoom := a.typedRoomResult(request.Context(), room, pageQuery, actor)
 	if !typedRoom {
@@ -592,15 +617,15 @@ func (a *App) browse(writer http.ResponseWriter, request *http.Request) {
 		a.render(writer, request, data)
 		return
 	}
-	if method == "browserepo" && pageQuery.Get("view") == "" {
-		pageQuery.Set("view", "tree")
-	}
 	if method == "browseapprovals" && pageQuery.Get("id") != "" {
 		// A notification opens one request; show it even when it has left
 		// the first page.
 		result = a.includeApproval(request.Context(), actor, result, pageQuery.Get("id"))
 	}
 	data := PageData{Tab: browseTab(path), Feed: browseRows(result), Event: result, Query: pageQuery, View: room.id}
+	if method == "browserepos" {
+		a.addHandles(request.Context(), data.Feed, "owner")
+	}
 	data.Title = browseTitle(path, pageQuery, result, a.backend.Slug())
 	if id := pageQuery.Get("merge"); method == "browsewikipage" && len(id) == 64 {
 		raw, _ := json.Marshal(map[string]any{"id": id})
@@ -639,7 +664,7 @@ func browseTitle(path string, query url.Values, result any, slug string) string 
 			label += " | thread"
 		}
 	}
-	if path == "/repo" {
+	if parseRepoRoute(path).ok {
 		label = query.Get("repo")
 		if label == "" {
 			label = plainString(valueMap(result)["identifier"])
@@ -702,19 +727,24 @@ func browseTab(path string) string {
 		return "wiki"
 	case "/repos":
 		return "repos"
-	case "/repo":
-		return "repo"
 	case "/files":
 		return "files"
-	case "/file":
-		return "file"
 	case "/approvals":
 		return "approvals"
 	case "/profile":
 		return "profile"
-	default:
-		return "health"
 	}
+	switch {
+	case parseRepoRoute(path).ok:
+		return "repo"
+	case filesView(path) != "":
+		return "files"
+	case fileHash(path) != "":
+		return "file"
+	case approvalID(path) != "":
+		return "approvals"
+	}
+	return "health"
 }
 func browseRows(value any) []any {
 	encoded, err := json.Marshal(value)
@@ -883,7 +913,15 @@ func (a *App) agentsPage(request *http.Request, actor string, data *PageData) {
 	if callbacks, err := a.backend.Query(request.Context(), "listcallbacks", nil, actor); err == nil {
 		data.Callbacks = browseRows(callbacks)
 	}
-	selected := request.URL.Query().Get("agent")
+	a.addHandles(request.Context(), data.Feed, "pubkey")
+	selected := ""
+	if rest, ok := strings.CutPrefix(request.URL.Path, "/manage/agents/"); ok {
+		selected = a.person(request.Context(), rest)
+		if selected == "" {
+			data.Error = "not found: agent " + rest
+			return
+		}
+	}
 	if selected == "" {
 		// Without a choice, show the first agent that can still publish.
 		for _, agent := range data.Feed {
@@ -1258,6 +1296,18 @@ func tabForPath(path string) string {
 	if strings.HasPrefix(path, "wiki/") {
 		return "wikipage"
 	}
+	switch {
+	case parseRepoRoute("/" + path).ok:
+		return "repo"
+	case filesView("/"+path) != "":
+		return "files"
+	case fileHash("/"+path) != "":
+		return "file"
+	case approvalID("/"+path) != "":
+		return "approvals"
+	case strings.HasPrefix(path, "agents/"):
+		return "agents"
+	}
 	switch path {
 	case "manage":
 		return "owner"
@@ -1265,12 +1315,8 @@ func tabForPath(path string) string {
 		return "wiki"
 	case "repos":
 		return "repos"
-	case "repo":
-		return "repo"
 	case "files":
 		return "files"
-	case "file":
-		return "file"
 	case "approvals":
 		return "approvals"
 	case "profile":

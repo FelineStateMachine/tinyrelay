@@ -16,7 +16,7 @@
 {{else}}<tr><td colspan="3">No commits.</td></tr>
 {{end}}</tbody>
 </table>
-<p id="pages">{{if .Query.Get "offset"}}<a href="{{repoURL .Query "history" ""}}">first page</a> {{end}}{{if hasNextOffset (index $repo "next_offset")}}<a href="{{browsePageURL "/repo" .Query "offset" (index $repo "next_offset")}}">next page</a>{{end}}</p>
+<p id="pages">{{if .Query.Get "offset"}}<a href="{{repoURL .Query "history" ""}}">first page</a> {{end}}{{if hasNextOffset (index $repo "next_offset")}}<a href="{{repoPageURL .Query "offset" (index $repo "next_offset")}}">next page</a>{{end}}</p>
 </section>
 {{else if eq $view "commit"}}<section>
 <h1>Commit <code>{{shortID (index $repo "commit")}}</code></h1>
@@ -36,5 +36,5 @@
 {{range $e := $entries}}{{$entry := asMap $e}}<li>{{if eq (str (index $entry "type")) "tree"}}<a href="{{repoURL $.Query "tree" (str (index $entry "path"))}}">{{str (index $entry "name")}}/</a>{{else if eq (str (index $entry "type")) "commit"}}{{str (index $entry "name")}} <span>(submodule)</span>{{else}}<a href="{{repoURL $.Query "file" (str (index $entry "path"))}}"{{if eq (str (index $entry "path")) ($.Query.Get "path")}} aria-current="page"{{end}}>{{str (index $entry "name")}}</a>{{end}}</li>
 {{else}}<li><span>no published files here</span></li>
 {{end}}</ul>
-<p id="pages">{{if .Query.Get "offset"}}<a href="{{repoURL .Query "tree" (.Query.Get "path")}}">first page</a> {{end}}{{if hasNextOffset (index $repo "next_offset")}}<a href="{{browsePageURL "/repo" .Query "offset" (index $repo "next_offset")}}">more</a>{{end}}</p>
+<p id="pages">{{if .Query.Get "offset"}}<a href="{{repoURL .Query "tree" (.Query.Get "path")}}">first page</a> {{end}}{{if hasNextOffset (index $repo "next_offset")}}<a href="{{repoPageURL .Query "offset" (index $repo "next_offset")}}">more</a>{{end}}</p>
 {{end}}

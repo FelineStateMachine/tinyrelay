@@ -145,10 +145,10 @@ func TestAgentsPageRendersTableCardsActivityAndGrantForm(t *testing.T) {
 	if !strings.Contains(string(backend.params[0]), agentActive) {
 		t.Fatalf("default selection should be the first active agent: %s", backend.params[0])
 	}
-	// ?agent= selects whose activity shows.
+	// The agent segment selects whose activity shows.
 	backend.calls = nil
 	recorder = httptest.NewRecorder()
-	app.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/manage/agents?agent="+agentPaused, nil))
+	app.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/manage/agents/"+agentPaused, nil))
 	if body := recorder.Body.String(); !strings.Contains(body, `<h3>Recent activity of reviewer-bot</h3>`) {
 		t.Fatalf("selected agent activity missing: %s", body[:min(500, len(body))])
 	}
@@ -233,7 +233,7 @@ func TestAgentsPageEditPrefillsTheGrantForm(t *testing.T) {
 		t.Fatal(err)
 	}
 	recorder := httptest.NewRecorder()
-	app.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/manage/agents?agent="+agentActive+"&edit="+agentActive, nil))
+	app.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/manage/agents/"+agentActive+"?edit="+agentActive, nil))
 	body := recorder.Body.String()
 	for _, marker := range []string{
 		`<h3 id="grant">Replace the grant for hermes</h3>`,
@@ -248,7 +248,7 @@ func TestAgentsPageEditPrefillsTheGrantForm(t *testing.T) {
 *</textarea>`,
 		`placeholder="1, 1111, 1621" value="9, 1111, 1621">`,
 		`<button data-primary>Sign the replacement</button>`,
-		`&amp;edit=` + agentActive + `#grant">edit</a>`,
+		`href="/manage/agents/` + agentActive + `?edit=` + agentActive + `#grant">edit</a>`,
 	} {
 		if !strings.Contains(body, marker) {
 			t.Errorf("edit form missing %q", marker)

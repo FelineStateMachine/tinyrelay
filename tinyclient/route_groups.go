@@ -43,8 +43,8 @@ func (a *App) handleBrowseRoute(writer http.ResponseWriter, request *http.Reques
 }
 
 func isBrowsePath(path string) bool {
-	return path == "/repos" || path == "/repo" || path == "/files" || path == "/file" ||
-		path == "/approvals" || path == "/profile" || path == "/wiki" ||
+	return path == "/repos" || parseRepoRoute(path).ok || path == "/files" || filesView(path) != "" || fileHash(path) != "" ||
+		path == "/approvals" || approvalID(path) != "" || path == "/profile" || path == "/wiki" ||
 		strings.HasPrefix(path, "/wiki/") || path == "/manage/health" || roomRoute(path).tab != ""
 }
 

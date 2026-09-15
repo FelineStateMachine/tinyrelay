@@ -281,6 +281,28 @@ func (b backend) Identity() string      { return b.tenant.records.PublicKey() }
 // languages, never a transform or a secret.
 func (b backend) CustomViews() []views.View { return b.tenant.customViews.CustomViews() }
 
+// NameFor and PubKeyFor let web pages write and read people by member name.
+func (b backend) NameFor(ctx context.Context, pubkey string) string {
+	if b.tenant.community == nil {
+		return ""
+	}
+	name, err := b.tenant.community.MemberName(ctx, pubkey)
+	if err != nil {
+		return ""
+	}
+	return name
+}
+func (b backend) PubKeyFor(ctx context.Context, name string) string {
+	if b.tenant.community == nil {
+		return ""
+	}
+	member, err := b.tenant.community.MemberByName(ctx, name)
+	if err != nil {
+		return ""
+	}
+	return member.PubKey
+}
+
 // ReadAllowed is consumed by the web UI private boundary. It deliberately
 // delegates to the same uncached membership check used by private Git and
 // NIP-42, so a revoked browser session cannot retain page access.

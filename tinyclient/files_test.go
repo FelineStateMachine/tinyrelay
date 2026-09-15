@@ -38,7 +38,7 @@ func TestFilesRenderNamedFoldersAndPreserveBrowseQuery(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, target := range []string{"/files", "/files?view=sites&path=Trip&q=snow&cursor=old"} {
+	for _, target := range []string{"/files", "/files/sites?path=Trip&q=snow&cursor=old"} {
 		response := httptest.NewRecorder()
 		app.ServeHTTP(response, httptest.NewRequest(http.MethodGet, target, nil))
 		if response.Code != http.StatusOK {

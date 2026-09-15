@@ -17,8 +17,8 @@ func TestMobileHeaderGeneralRoutes(t *testing.T) {
 		{"/repos", "Repositories | tiny", "Repositories", "tiny", "/"},
 		{"/manage/people", "people | tiny", "People", "Manage", "/"},
 		{"/social/thread/abc", "Social | tiny", "Social", "tiny", "/social"},
-		{"/file", "File | tiny", "File", "tiny", "/files"},
-		{"/repo", "Repository | tiny", "Repository", "tiny", "/repos"},
+		{"/file/9999999999999999999999999999999999999999999999999999999999999999", "File | tiny", "File", "tiny", "/files"},
+		{"/repos/alice/notes", "Repository | tiny", "Repository", "tiny", "/repos"},
 		{"/profile", "Profile | tiny", "Profile", "tiny", "/account"},
 		{"/sites", "sites | tiny", "Sites", "tiny", "/"},
 	}
@@ -88,11 +88,11 @@ func TestMobileHeaderUsesDeepLinkContext(t *testing.T) {
 	if article.Title != "A useful article" || article.Subtitle != "Social" || article.BackURL != "/social" || article.BackLabel != "Back to social" {
 		t.Fatalf("article header = %+v", article)
 	}
-	file := mobileHeader(PageData{Path: "/file", Tab: "file", Slug: "tiny", Event: map[string]any{"name": "photo.mp4"}})
+	file := mobileHeader(PageData{Path: "/file/9999999999999999999999999999999999999999999999999999999999999999", Tab: "file", Slug: "tiny", Event: map[string]any{"name": "photo.mp4"}})
 	if file.Title != "photo.mp4" || file.Subtitle != "Files" || file.BackURL != "/files" || file.BackLabel != "Back to files" {
 		t.Fatalf("file header = %+v", file)
 	}
-	repo := mobileHeader(PageData{Path: "/repo", Tab: "repo", Slug: "tiny", Query: url.Values{"repo": []string{"seedmark"}, "view": []string{"issues"}}})
+	repo := mobileHeader(PageData{Path: "/repos/alice/seedmark", Tab: "repo", Slug: "tiny", Query: url.Values{"repo": []string{"seedmark"}, "view": []string{"issues"}}})
 	if repo.Title != "seedmark" || repo.Subtitle != "issues" || repo.BackURL != "/repos" || repo.BackLabel != "Back to repositories" {
 		t.Fatalf("repo header = %+v", repo)
 	}

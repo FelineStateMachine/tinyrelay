@@ -67,7 +67,7 @@ func TestRenderersShowCustomViewArtifactsWithTheCodeAsFallback(t *testing.T) {
 	// README rendering maps relative links and keeps the figure.
 	query := url.Values{"owner": {"alice"}, "repo": {"notes"}, "ref": {"main"}}
 	repo := string(renderRepositoryMarkdownWith(source+"[guide](docs/guide.md)\n", query, renderer.Block))
-	wantAll(t, "repository", repo, mermaidFigure("diagrams"), `href="/repo?owner=alice&amp;path=docs%2Fguide.md&amp;ref=main&amp;repo=notes&amp;view=file"`)
+	wantAll(t, "repository", repo, mermaidFigure("diagrams"), `href="/repos/alice/notes/file/docs/guide.md?ref=main"`)
 	// The wiki renderer takes the same renderer through its options.
 	article := string(wiki.RenderHTMLWith("# Title\n\n``` Mermaid\n"+mermaidSource+"\n```\n\n~~~\nplain\n~~~\n", wiki.Options{Block: renderer.Block}))
 	wantAll(t, "wiki", article, "<h1>Title</h1>", mermaidFigure("diagrams"), "<pre><code>plain\n</code></pre>")
@@ -94,14 +94,14 @@ func TestPagesRenderCustomViewFiguresFromTheBackendSummary(t *testing.T) {
 	// The repository home renders the README through the same renderer,
 	// and the tenant prefix reaches the object address.
 	recorder := httptest.NewRecorder()
-	app.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/repo?owner="+owner+"&repo=notes&view=home", nil))
+	app.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/repos/"+owner+"/notes", nil))
 	body := recorder.Body.String()
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("repo home: %d %s", recorder.Code, body)
 	}
 	hash := views.Hash("mermaid", "graph TD; a-->b;")
 	figure := `<figure data-view="diagrams"><view-artifact><img src="/views/diagrams/` + hash + `" alt="Rendered mermaid block"><details><summary>Source</summary><pre><code data-lang="mermaid">graph TD; a--&gt;b;</code></pre></details></view-artifact></figure>`
-	wantAll(t, "repo home", body, figure, `href="/repo?owner=`)
+	wantAll(t, "repo home", body, figure, `href="/repos/`)
 	if prefixed := injectBase(figure, "/r/work"); !strings.Contains(prefixed, `<img src="/r/work/views/diagrams/`+hash+`"`) {
 		t.Fatalf("tenant prefix missed the object address: %s", prefixed)
 	}

@@ -167,7 +167,7 @@ func TestWikiPageRendersArticleMergeBarAndPanel(t *testing.T) {
 	}
 	wantAll(t, path, body,
 		`<title>Release notes 1.4 &lt;b&gt; | wiki | demo</title>`, `<h1>Release notes 1.4 &lt;b&gt;</h1>`,
-		`<merge-request><nostr-name pubkey="`+wikiOther+`"`, `proposes a new version of this page`, `href="/wiki/release-notes-1-4?merge=`+wikiMerge+`">compare</a>`,
+		`<merge-request><nostr-name pubkey="`+wikiOther+`"`, `proposes a new version of this page`, `href="/wiki/release-notes-1-4/proposals/`+wikiMerge+`">compare</a>`,
 		`<nostr-react event="`+wikiMerge+`" pubkey="`+wikiOther+`" kind="818"><button name="reaction" value="+">Accept</button><button name="reaction" value="-">Reject</button></nostr-react>`,
 		`<a href="/e/`+wikiMerge+`">Reply</a>`,
 		`<wiki-article><header>wiki | release-notes-1-4 | revision 1 by <nostr-name pubkey="`+wikiOwner+`"`, `version 1 of 2 | 1 fork</header>`,
@@ -187,7 +187,7 @@ func TestWikiPageRendersArticleMergeBarAndPanel(t *testing.T) {
 
 func TestWikiPageCompareEditorAndHistory(t *testing.T) {
 	b := &wikiBackend{fakeBackend: fakeBackend{policy: policy.Defaults(wikiOwner)}}
-	path := "/wiki/release-notes-1-4?merge=" + wikiMerge
+	path := "/wiki/release-notes-1-4/proposals/" + wikiMerge
 	body := wikiGet(t, wikiApp(t, b, wikiOwner), path)
 	if b.params["browsewikimerge"]["id"] != wikiMerge {
 		t.Fatalf("merge lookup params=%v", b.params["browsewikimerge"])

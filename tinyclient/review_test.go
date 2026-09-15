@@ -106,7 +106,7 @@ func TestPullRequestPagePlacesAnchoredCommentsUnderDiffLines(t *testing.T) {
 			t.Fatal("compose was preset without a query anchor")
 		}
 		w = httptest.NewRecorder()
-		app.ServeHTTP(w, httptest.NewRequest(http.MethodGet, link+"&file=README&line=2&side=new", nil))
+		app.ServeHTTP(w, httptest.NewRequest(http.MethodGet, link+"?file=README&line=2&side=new", nil))
 		body = w.Body.String()
 		for _, want := range []string{`<nostr-compose id="reply-compose" kind="1111"`, `<input type="hidden" name="file" value="README">`, `<input type="hidden" name="line" value="2">`, `<input type="hidden" name="side" value="new">`, `<p id="reply-anchor">Commenting on <code>README</code> line 2 (new side).`} {
 			if !strings.Contains(body, want) {
@@ -114,7 +114,7 @@ func TestPullRequestPagePlacesAnchoredCommentsUnderDiffLines(t *testing.T) {
 			}
 		}
 		w = httptest.NewRecorder()
-		app.ServeHTTP(w, httptest.NewRequest(http.MethodGet, link+"&file=README&line=0&side=left", nil))
+		app.ServeHTTP(w, httptest.NewRequest(http.MethodGet, link+"?file=README&line=0&side=left", nil))
 		if strings.Contains(w.Body.String(), `name="file"`) {
 			t.Fatal("an invalid query anchor preset the compose")
 		}

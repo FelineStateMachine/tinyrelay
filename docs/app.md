@@ -54,6 +54,25 @@ The **Account** page is the home for settings that belong to the signed-in key. 
 
 When a protected page sends you to **Sign in**, the sign-in link carries that page's tenant path and query. After the signer connects, the browser returns to the page you opened, including repository, file, wiki and approval context. Fragments are kept by the browser when client-side navigation supplies them.
 
+## Addresses
+
+Every page that names one thing carries that name in its path, so the address stays the same for as long as the thing exists. A person appears by member name when the relay has one, and by public key otherwise. Both forms open the same page, and so does an npub.
+
+| Page | Address |
+| --- | --- |
+| Repository | `/repos/{owner}/{repo}` |
+| Files in a repository | `/repos/{owner}/{repo}/tree/{path}` and `/repos/{owner}/{repo}/file/{path}` |
+| History and one commit | `/repos/{owner}/{repo}/history` and `/repos/{owner}/{repo}/commit/{id}` |
+| Issues and pull requests | `/repos/{owner}/{repo}/issues/{id}` and `/repos/{owner}/{repo}/prs/{id}` |
+| Stored file | `/file/{hash}` |
+| File collections | `/files/sites`, `/files/rooms` and `/files/storage` |
+| Approval request | `/approvals/{id}` |
+| Agent | `/manage/agents/{agent}` |
+| Wiki proposal | `/wiki/{page}/proposals/{id}` |
+| Social thread | `/social/{id}` or `/social/{kind}:{author}:{name}` |
+
+A branch, a search, a page cursor and a folder inside a collection travel in the query, because they narrow a page rather than name it.
+
 ## Copying a page address
 
-On a phone, open **Menu** and choose **Copy page link**. On larger screens, tap the page name in the footer. The control says "copied" for a moment. The address is the relay's public URL with the page's canonical path, so a link copied while browsing over a tailnet or LAN address still opens for anyone: wiki names are normalized the way the relay resolves them, and repositories and files keep the query that names them.
+On a phone, open **Menu** and choose **Copy page link**. On larger screens, tap the page name in the footer. The control says "copied" for a moment. The address is the relay's public URL with the page's canonical path, so a link copied while browsing over a tailnet or LAN address still opens for anyone: wiki names are normalized the way the relay resolves them, and the query keeps only filters such as a search or a branch.

@@ -4,7 +4,7 @@
 {{else if .Feed}}<table id="rows">
 <thead><tr><th>owner</th><th>repository</th><th>head</th></tr></thead>
 <tbody>
-{{range .Feed}}{{$r := asMap .}}<tr><td>{{template "nostrKey" (str (index $r "owner"))}}</td><td><a href="/repo?owner={{urlquery (str (index $r "owner"))}}&repo={{urlquery (str (index $r "identifier"))}}&view=home">{{str (index $r "identifier")}}</a>{{if index $r "private"}} <small>private</small>{{end}}</td><td>{{refName (index $r "head")}}</td></tr>
+{{range .Feed}}{{$r := asMap .}}<tr><td>{{template "nostrKey" (str (index $r "owner"))}}</td><td><a href="{{repoHref (or (str (index $r "handle")) (str (index $r "owner"))) (str (index $r "identifier")) "home" ""}}">{{str (index $r "identifier")}}</a>{{if index $r "private"}} <small>private</small>{{end}}</td><td>{{refName (index $r "head")}}</td></tr>
 {{end}}</tbody>
 </table>
 {{else}}<p data-empty>No repositories were reported.</p>
@@ -14,19 +14,19 @@
 
 {{define "files"}}{{$data := asMap .Event}}{{$view := or (str (index $data "view")) (.Query.Get "view") "library"}}<section id="file-library" data-pubkey="{{.Actor}}">
 <h1>Files</h1>
-{{if not (authRequired .Error)}}<nav id="file-views" aria-label="File collections"><a href="/files"{{if eq $view "library"}} aria-current="page"{{end}}>My files</a><a href="/files?view=sites"{{if eq $view "sites"}} aria-current="page"{{end}}>Sites</a><a href="/files?view=rooms"{{if eq $view "rooms"}} aria-current="page"{{end}}>Rooms</a>{{if index $data "can_manage"}}<a href="/files?view=storage"{{if eq $view "storage"}} aria-current="page"{{end}}>Storage</a>{{end}}</nav>
+{{if not (authRequired .Error)}}<nav id="file-views" aria-label="File collections"><a href="/files"{{if eq $view "library"}} aria-current="page"{{end}}>My files</a><a href="/files/sites"{{if eq $view "sites"}} aria-current="page"{{end}}>Sites</a><a href="/files/rooms"{{if eq $view "rooms"}} aria-current="page"{{end}}>Rooms</a>{{if index $data "can_manage"}}<a href="/files/storage"{{if eq $view "storage"}} aria-current="page"{{end}}>Storage</a>{{end}}</nav>
 <p id="file-context">{{if eq $view "sites"}}Published assets, organized by site.{{else if eq $view "rooms"}}Attachments from rooms you can access.{{else if eq $view "storage"}}All stored files, newest first.{{end}}</p>
-<form method="get" action="/files" id="file-search"><input type="hidden" name="view" value="{{$view}}">{{with .Query.Get "path"}}<input type="hidden" name="path" value="{{.}}">{{end}}<label>Search <input name="q" value="{{.Query.Get "q"}}" placeholder="Name, type or hash" autocomplete="off"></label> <button>Search</button>{{if .Query.Get "q"}} <a href="{{browsePageURL "/files" .Query "q" ""}}">Clear</a>{{end}}</form>{{end}}
+<form method="get" action="{{.Path}}" id="file-search">{{with .Query.Get "path"}}<input type="hidden" name="path" value="{{.}}">{{end}}<label>Search <input name="q" value="{{.Query.Get "q"}}" placeholder="Name, type or hash" autocomplete="off"></label> <button>Search</button>{{if .Query.Get "q"}} <a href="{{browsePageURL .Path .Query "q" ""}}">Clear</a>{{end}}</form>{{end}}
 {{with index $data "breadcrumbs"}}<nav id="file-breadcrumbs" aria-label="Folder path">{{range $i, $raw := .}}{{$crumb := asMap $raw}}{{if $i}} / {{end}}<a href="{{str (index $crumb "open")}}">{{str (index $crumb "name")}}</a>{{end}}</nav>{{end}}
 {{if .Error}}{{template "alert" .Error}}
 {{else if .Feed}}<table id="rows">
 <thead><tr><th scope="col">Name</th><th scope="col">Details</th><th scope="col">Added</th></tr></thead>
 <tbody>
-{{range .Feed}}{{$f := asMap .}}{{$kind := str (index $f "kind")}}{{$hash := str (index $f "sha256")}}{{$name := or (str (index $f "name")) (shortID $hash)}}{{$open := or (str (index $f "open")) (printf "/file?hash=%s" (urlquery $hash))}}<tr data-kind="{{$kind}}" data-hash="{{$hash}}"><td><a href="{{$open}}">{{if and $hash (hasPrefix (str (index $f "type")) "image/")}}<img loading="lazy" src="/files/raw?hash={{urlquery $hash}}" alt="">{{else}}<span data-file-icon aria-hidden="true">{{if or (eq $kind "folder") (eq $kind "site") (eq $kind "room")}}▱{{else}}▤{{end}}</span>{{end}}<span>{{$name}}</span></a>{{with index $f "context_url"}}<small><a href="{{.}}">{{str (index $f "context")}}</a></small>{{end}}</td><td>{{if eq $kind "folder"}}Folder{{else if eq $kind "site"}}Site{{else if eq $kind "room"}}Room{{else}}{{fileSize (index $f "size")}}<small>{{str (index $f "type")}}</small>{{if eq (str (index $f "access")) "members"}}<small>Relay members</small>{{else if eq (str (index $f "purpose")) "file"}}<small>Secret link</small>{{end}}{{end}}</td><td>{{with index $f "uploaded"}}<time datetime="{{datetime .}}">{{when .}}</time>{{end}}</td></tr>
+{{range .Feed}}{{$f := asMap .}}{{$kind := str (index $f "kind")}}{{$hash := str (index $f "sha256")}}{{$name := or (str (index $f "name")) (shortID $hash)}}{{$open := or (str (index $f "open")) (printf "/file/%s" $hash)}}<tr data-kind="{{$kind}}" data-hash="{{$hash}}"><td><a href="{{$open}}">{{if and $hash (hasPrefix (str (index $f "type")) "image/")}}<img loading="lazy" src="/files/raw?hash={{urlquery $hash}}" alt="">{{else}}<span data-file-icon aria-hidden="true">{{if or (eq $kind "folder") (eq $kind "site") (eq $kind "room")}}▱{{else}}▤{{end}}</span>{{end}}<span>{{$name}}</span></a>{{with index $f "context_url"}}<small><a href="{{.}}">{{str (index $f "context")}}</a></small>{{end}}</td><td>{{if eq $kind "folder"}}Folder{{else if eq $kind "site"}}Site{{else if eq $kind "room"}}Room{{else}}{{fileSize (index $f "size")}}<small>{{str (index $f "type")}}</small>{{if eq (str (index $f "access")) "members"}}<small>Relay members</small>{{else if eq (str (index $f "purpose")) "file"}}<small>Secret link</small>{{end}}{{end}}</td><td>{{with index $f "uploaded"}}<time datetime="{{datetime .}}">{{when .}}</time>{{end}}</td></tr>
 {{end}}</tbody>
 </table>
 {{else}}<p id="file-empty">{{if .Query.Get "q"}}No files match this search.{{else if eq $view "sites"}}No site files here yet.{{else if eq $view "rooms"}}No room attachments here yet.{{else if .Query.Get "path"}}This folder is empty.{{else}}No files here yet. Use Upload to add files or a folder.{{end}}</p>
-{{end}}{{with (asMap .Event).next_cursor}}<p id="pages"><a href="{{browsePageURL "/files" $.Query "cursor" .}}">next page</a></p>
+{{end}}{{with (asMap .Event).next_cursor}}<p id="pages"><a href="{{browsePageURL $.Path $.Query "cursor" .}}">next page</a></p>
 {{end}}</section>
 {{end}}
 

@@ -249,10 +249,10 @@ func promptPath(path string, query url.Values) string {
 	switch {
 	case path == "":
 		return "home"
-	case path == "repo" && query.Get("repo") != "":
+	case parseRepoRoute("/" + path).ok:
 		return "repos/" + query.Get("repo") + "/" + repoView(query)
-	case path == "file" && (query.Get("sha") != "" || query.Get("hash") != ""):
-		return "files/" + shortID(query.Get("sha")+query.Get("hash"))
+	case fileHash("/"+path) != "":
+		return "files/" + shortID(fileHash("/"+path))
 	}
 	if room := roomRoute("/" + path); room.tab == "thread" {
 		return "rooms/" + room.id + "/thread/" + shortID(room.event)
@@ -266,7 +266,7 @@ func promptPath(path string, query url.Values) string {
 // pageAddress is the address the crumb copies: the relay's public URL plus
 // the page's canonical path, so a link copied on a tailnet or LAN address
 // still opens for anyone. Wiki names are normalized the way the relay
-// resolves them; repositories and files keep the query that names them.
+// resolves them; the query keeps only what still narrows the page.
 func pageAddress(base, path string, query url.Values) string {
 	path = "/" + strings.Trim(path, "/")
 	if path == "/" {
@@ -274,9 +274,16 @@ func pageAddress(base, path string, query url.Values) string {
 	}
 	if strings.HasPrefix(path, "/wiki/") {
 		path = "/wiki/" + url.PathEscape(wikiPageName(path))
+		if id := wikiMergeID(path); id != "" {
+			path += "/proposals/" + id
+		}
+	}
+	keys := []string{"path", "ref", "q", "author", "version", "kind", "status", "label"}
+	if parseRepoRoute(path).ok {
+		keys = []string{"ref", "q", "status", "label"}
 	}
 	keep := url.Values{}
-	for _, key := range []string{"owner", "repo", "view", "path", "ref", "sha", "hash", "q", "id", "author", "version", "merge", "address", "kind"} {
+	for _, key := range keys {
 		if value := query.Get(key); value != "" {
 			keep.Set(key, value)
 		}
@@ -432,6 +439,9 @@ func parseTemplateBase() (*template.Template, error) {
 		"repoCommitURL":       repoCommitURL,
 		"hasNextOffset":       hasNextOffset,
 		"repoURL":             repoURL,
+		"repoPagePath":        repoPagePath,
+		"repoPageURL":         repoPageURL,
+		"repoHref":            repoHref,
 		"repoBreadcrumbs":     repoBreadcrumbs,
 		"browsePageURL":       browsePageURL,
 		"shortID":             shortID,

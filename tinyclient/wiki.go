@@ -143,6 +143,12 @@ func wikiURL(d string, pairs ...string) string {
 	path := "/wiki/" + url.PathEscape(d)
 	values := url.Values{}
 	for i := 0; i+1 < len(pairs); i += 2 {
+		if pairs[i] == "merge" {
+			if pairs[i+1] != "" {
+				path += "/proposals/" + pairs[i+1]
+			}
+			continue
+		}
 		if pairs[i+1] != "" {
 			values.Set(pairs[i], pairs[i+1])
 		}
@@ -159,9 +165,27 @@ func (a *App) wikiHTML(content any) template.HTML {
 
 // wikiPageName is the name in a /wiki/<d> path, normalized.
 func wikiPageName(path string) string {
-	name, err := url.PathUnescape(strings.TrimPrefix(path, "/wiki/"))
+	rest := strings.TrimPrefix(path, "/wiki/")
+	if i := strings.Index(rest, "/proposals/"); i >= 0 {
+		rest = rest[:i]
+	}
+	name, err := url.PathUnescape(rest)
 	if err != nil {
-		name = strings.TrimPrefix(path, "/wiki/")
+		name = rest
 	}
 	return wiki.Normalize(name)
+}
+
+// wikiMergeID is the merge request behind /wiki/{page}/proposals/{id}, or "".
+func wikiMergeID(path string) string {
+	rest := strings.TrimPrefix(path, "/wiki/")
+	i := strings.Index(rest, "/proposals/")
+	if i < 0 {
+		return ""
+	}
+	id := rest[i+len("/proposals/"):]
+	if !eventIDPattern.MatchString(id) {
+		return ""
+	}
+	return strings.ToLower(id)
 }

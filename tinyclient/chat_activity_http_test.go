@@ -40,7 +40,7 @@ func TestChatActivityEndpointScopesAndEscapesServerRenderedCards(t *testing.T) {
 	if res.Code != 200 || res.Header().Get("Cache-Control") != "private, no-store" || b.seenActor != roomOwner || b.seenRoom != "general" || b.seenRoot != roomThread {
 		t.Fatalf("request context: %d %v %#v body=%s", res.Code, res.Header(), b, res.Body.String())
 	}
-	for _, want := range []string{`<chat-decision`, `type="radio"`, `value="yes"`, `interaction="approval"`, `selection="single"`, `<strong>Approval request</strong>`, `href="/r/team/approvals?id=` + roomReply, `Approve &lt;script&gt;bad()&lt;/script&gt;`, `<noscript>`} {
+	for _, want := range []string{`<chat-decision`, `type="radio"`, `value="yes"`, `interaction="approval"`, `selection="single"`, `<strong>Approval request</strong>`, `href="/r/team/approvals/` + roomReply, `Approve &lt;script&gt;bad()&lt;/script&gt;`, `<noscript>`} {
 		if !strings.Contains(body, want) {
 			t.Errorf("missing %q in %s", want, body)
 		}

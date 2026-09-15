@@ -34,9 +34,9 @@ func TestShellRendersRailPanelAndPrompt(t *testing.T) {
 		t.Fatal(err)
 	}
 	for path, wants := range map[string][]string{
-		"/":                                      {`id="mark"`, `href="/search"`, `<b>demo</b> &raquo; <page-link url="http://relay.example" title="Copy the page address">home</page-link>`, `id="panel"`, `id="topbar"`, `rel="manifest"`},
-		"/manage/rules":                          {`<b>manage</b>`, `href="/manage/rules" aria-current="page"`, `manage/rules</page-link></span>`},
-		"/repo?owner=aa&repo=notes&view=history": {`/history</a>`, `repos/notes/history`},
+		"/":                       {`id="mark"`, `href="/search"`, `<b>demo</b> &raquo; <page-link url="http://relay.example" title="Copy the page address">home</page-link>`, `id="panel"`, `id="topbar"`, `rel="manifest"`},
+		"/manage/rules":           {`<b>manage</b>`, `href="/manage/rules" aria-current="page"`, `manage/rules</page-link></span>`},
+		"/repos/aa/notes/history": {`/history</a>`, `repos/notes/history`},
 	} {
 		recorder := httptest.NewRecorder()
 		app.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, path, nil))
@@ -73,7 +73,7 @@ func TestShellNavigationIsProgressiveAndAccessible(t *testing.T) {
 
 	// The menu is part of the shell, so each viewer and rail context retains
 	// one native control and one shared navigation container.
-	for _, path := range []string{"/search", "/social", "/files", "/repo?owner=alice&repo=notes&view=history", "/e/" + strings.Repeat("1", 64), "/manage/rules"} {
+	for _, path := range []string{"/search", "/social", "/files", "/repos/alice/notes/history", "/e/" + strings.Repeat("1", 64), "/manage/rules"} {
 		recorder := httptest.NewRecorder()
 		app.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, path, nil))
 		if recorder.Code != http.StatusOK {
@@ -176,7 +176,7 @@ func TestRepositoryHomeRendersReadmeAsMarkdown(t *testing.T) {
 		t.Fatal(err)
 	}
 	recorder := httptest.NewRecorder()
-	app.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/repo?owner=alice&repo=notes&view=home", nil))
+	app.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/repos/alice/notes", nil))
 	body := recorder.Body.String()
 	if recorder.Code != http.StatusOK || !strings.Contains(body, `id="readme"`) || !strings.Contains(body, "<p>one two</p>") {
 		t.Fatalf("repository home did not render the README: %d %s", recorder.Code, body)
@@ -264,7 +264,7 @@ func TestPromptPathSpellsOutRepositoriesAndFiles(t *testing.T) {
 	if got := promptPath("/", nil); got != "home" {
 		t.Fatalf("home prompt = %q", got)
 	}
-	if got := promptPath("/repo", url.Values{"repo": {"notes"}, "view": {"file"}}); got != "repos/notes/file" {
+	if got := promptPath("/repos/alice/notes/file/README", url.Values{"repo": {"notes"}, "view": {"file"}}); got != "repos/notes/file" {
 		t.Fatalf("repo prompt = %q", got)
 	}
 	if got := promptPath("/manage/people", nil); got != "manage/people" {
@@ -287,7 +287,7 @@ func TestFilePagePreviewsImages(t *testing.T) {
 		t.Fatal(err)
 	}
 	recorder := httptest.NewRecorder()
-	app.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/file?sha="+strings.Repeat("9", 64), nil))
+	app.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/file/"+strings.Repeat("9", 64), nil))
 	if body := recorder.Body.String(); !strings.Contains(body, `<img src="/files/raw?hash=`+strings.Repeat("9", 64)+`"`) {
 		t.Fatalf("no image preview: %s", body)
 	}

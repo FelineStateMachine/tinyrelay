@@ -143,12 +143,9 @@ func generalMobileHeader(data PageData) mobileHeaderData {
 		result.BackLabel = "Back to manage"
 	case path == "/sites":
 		result.BackURL = "/"
-	case path == "/file":
+	case strings.HasPrefix(path, "/file/"):
 		result.BackURL = "/files"
 		result.BackLabel = "Back to files"
-	case path == "/repo":
-		result.BackURL = "/repos"
-		result.BackLabel = "Back to repositories"
 	case path == "/profile":
 		result.BackURL = "/account"
 		result.BackLabel = "Back to account"
@@ -220,7 +217,7 @@ func shortHeaderText(value string) string {
 }
 
 func mobileTitle(path string, data PageData) string {
-	known := map[string]string{"/": "Home", "/home": "Home", "/search": "Search", "/social": "Social", "/chat": "Chat", "/files": "Files", "/file": "File", "/wiki": "Wiki", "/repos": "Repositories", "/repo": "Repository", "/approvals": "Approvals", "/profile": "Profile", "/account": "Account", "/manage": "Manage", "/manage/people": "People", "/manage/agents": "Agents", "/manage/moderation": "Moderation", "/manage/rules": "Rules", "/manage/identity": "Identity", "/manage/connect": "Connect", "/manage/owner": "Owner", "/manage/sync": "Sync", "/manage/data": "Data", "/manage/views": "Views", "/manage/health": "Health", "/sites": "Sites"}
+	known := map[string]string{"/": "Home", "/home": "Home", "/search": "Search", "/social": "Social", "/chat": "Chat", "/files": "Files", "/wiki": "Wiki", "/repos": "Repositories", "/approvals": "Approvals", "/profile": "Profile", "/account": "Account", "/manage": "Manage", "/manage/people": "People", "/manage/agents": "Agents", "/manage/moderation": "Moderation", "/manage/rules": "Rules", "/manage/identity": "Identity", "/manage/connect": "Connect", "/manage/owner": "Owner", "/manage/sync": "Sync", "/manage/data": "Data", "/manage/views": "Views", "/manage/health": "Health", "/sites": "Sites"}
 	if title, ok := known[path]; ok {
 		return title
 	}
@@ -233,8 +230,14 @@ func mobileTitle(path string, data PageData) string {
 	if strings.HasPrefix(path, "/wiki/") {
 		return "Wiki"
 	}
-	if strings.HasPrefix(path, "/repos/") {
-		return "Repositories"
+	if strings.HasPrefix(path, "/file/") {
+		return "File"
+	}
+	if parseRepoRoute(path).ok {
+		return "Repository"
+	}
+	if strings.HasPrefix(path, "/files/") || strings.HasPrefix(path, "/approvals/") {
+		return known["/"+strings.SplitN(strings.TrimPrefix(path, "/"), "/", 2)[0]]
 	}
 	if title := strings.TrimSuffix(data.Title, " | "+data.Slug); title != "" && !eventIDPattern.MatchString(title) {
 		return title
