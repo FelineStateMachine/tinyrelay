@@ -20,6 +20,11 @@ BOT = "a" * 64
 OTHER = "c" * 64
 
 
+def admit(message):
+    """What Hermes's handle_message records once it starts or queues a turn."""
+    message._gateway_accepted = True
+
+
 class FakeRPC:
     def __init__(self):
         self.events = []
@@ -475,7 +480,9 @@ def test_helper_death_reconnects_from_persisted_cursor(adapter, helper, tmp_path
     # A tracker with history: the floor is old and the cursor moves with delivered events.
     instance._tracker = EventTracker("http://relay", BOT, ["room"], now=now - 1000)
     received = []
-    async def handle(message): received.append(message)
+    async def handle(message):
+        received.append(message)
+        admit(message)
     instance.handle_message = handle
 
     async def run():
@@ -587,7 +594,9 @@ def test_event_is_marked_only_after_hermes_accepts_it(adapter, tmp_path):
     asyncio.run(adapter._on_event(poison))
     assert len(attempts) == 3
     handled = []
-    async def accept(message): handled.append(message.message_id)
+    async def accept(message):
+        handled.append(message.message_id)
+        admit(message)
     adapter.handle_message = accept
     good = {**poison, "id": "e" * 64, "content": "hello"}
     asyncio.run(adapter._on_event(good))
@@ -595,6 +604,275 @@ def test_event_is_marked_only_after_hermes_accepts_it(adapter, tmp_path):
     assert handled == [good["id"]]
     assert not adapter._tracker.should_accept(good)
     assert json.loads(adapter._tracker.path.read_text())["seen"] == {poison["id"]: now, good["id"]: now}
+
+
+def test_event_refused_without_an_admission_receipt_stays_deliverable(adapter, tmp_path):
+    # Hermes returns normally but records no receipt: no turn was started or queued
+    # (no handler installed, for example). The event is a failed attempt, not seen.
+    from ingress import EventTracker
+    now = int(time.time())
+    adapter._tracker = EventTracker("http://relay", BOT, ["room"], state_dir=tmp_path, now=now - 10)
+    event = {"kind": 9, "id": "d" * 64, "pubkey": OWNER, "created_at": now, "content": "hello",
+             "tags": [["h", "room"], ["p", BOT]]}
+    calls = []
+    async def refused(message):
+        calls.append(message.message_id)
+    adapter.handle_message = refused
+    asyncio.run(adapter._on_event(event))
+    assert calls == [event["id"]]
+    assert adapter._tracker.should_accept(event) and adapter._tracker.attempts == {event["id"]: 1}
+    asyncio.run(adapter._on_event(event))
+    asyncio.run(adapter._on_event(event))
+    assert len(calls) == 3 and not adapter._tracker.should_accept(event)
+    # The real handle_message with no gateway handler installed is exactly that case.
+    adapter.handle_message = TinyAdapter.handle_message.__get__(adapter)
+    adapter._message_handler = None
+    other = {**event, "id": "e" * 64}
+    asyncio.run(adapter._on_event(other))
+    assert adapter._tracker.attempts == {other["id"]: 1} and adapter._tracker.should_accept(other)
+    # A slash command during a busy session is dispatched inline without a receipt.
+    async def inline(message):
+        calls.append(message.message_id)
+    adapter.handle_message = inline
+    command = {**event, "id": "f" * 64, "content": "/new"}
+    asyncio.run(adapter._on_event(command))
+    assert not adapter._tracker.should_accept(command) and command["id"] not in adapter._tracker.attempts
+    # An older Hermes without the receipt admits by returning.
+    async def legacy(message):
+        message._gateway_accepted = None
+    adapter.handle_message = legacy
+    old = {**event, "id": "1" * 64}
+    asyncio.run(adapter._on_event(old))
+    assert not adapter._tracker.should_accept(old)
+
+
+def test_task_request_refused_by_hermes_is_not_kept(adapter, tmp_path):
+    from ingress import EventTracker
+    now = int(time.time())
+    adapter._tracker = EventTracker("http://relay", BOT, ["room"], state_dir=tmp_path, now=now - 10)
+    async def refused(message):
+        pass
+    adapter.handle_message = refused
+    event = {"kind": 43001, "id": "d" * 64, "pubkey": OWNER, "created_at": now, "content": "Run it",
+             "tags": [["h", "room"], ["p", BOT]]}
+    asyncio.run(adapter._on_event(event))
+    assert adapter._tasks == {} and adapter._tracker.should_accept(event)
+    assert adapter._tracker.attempts == {event["id"]: 1}
+
+
+class RacingProcess:
+    """A helper that delivers subscription frames before acknowledging the subscribe call,
+    which the Go helper's scheduling permits."""
+
+    def __init__(self, *, events=(), subscribe_error=None, die_on_subscribe=False):
+        from test_client import FakeProcess
+        self.inner = FakeProcess()
+        self.stdout, self.stdin = self.inner.stdout, self.inner.stdin
+        self.stdin.process = self
+        self.events, self.subscribe_error, self.die_on_subscribe = list(events), subscribe_error, die_on_subscribe
+        self.terminated = False
+
+    @property
+    def returncode(self):
+        return self.inner.returncode
+
+    def on_request(self, request):
+        method = request["method"]
+        if method == "identity":
+            reply = {"id": request["id"], "result": {"pubkey": BOT}}
+        elif method == "query":
+            reply = {"id": request["id"], "result": []}
+        elif method == "subscribe" and self.subscribe_error:
+            reply = {"id": request["id"], "error": {"message": self.subscribe_error}}
+        else:
+            reply = {"id": request["id"], "result": {}}
+        if method != "subscribe":
+            self.stdout.feed_data((json.dumps(reply) + "\n").encode())
+            return
+        name = request["params"]["subscription"]
+        frames = [{"event": "connected", "subscription": name}]
+        frames += [{"event": "event", "subscription": name, "data": event} for event in self.events]
+        self.stdout.feed_data("".join(json.dumps(frame) + "\n" for frame in frames).encode())
+        if self.die_on_subscribe:
+            self.inner.die()
+            return
+        asyncio.get_running_loop().call_later(0.01, self.stdout.feed_data, (json.dumps(reply) + "\n").encode())
+
+    def terminate(self):
+        self.terminated = True
+        self.inner.terminate()
+
+    async def wait(self):
+        return self.inner.returncode
+
+
+class Racing:
+    """Plans the next helper process; the process itself is built inside the running loop."""
+
+    def __init__(self):
+        self.kwargs = {}
+        self.process = None
+
+    def __call__(self, **kwargs):
+        self.kwargs = kwargs
+        return self
+
+    @property
+    def terminated(self):
+        return self.process is not None and self.process.terminated
+
+    @property
+    def returncode(self):
+        return None if self.process is None else self.process.returncode
+
+
+@pytest.fixture
+def racing(monkeypatch):
+    import client as module
+    plan = Racing()
+    async def create(*args, **kwargs):
+        plan.process = RacingProcess(**plan.kwargs)
+        return plan.process
+    monkeypatch.setattr(module.asyncio, "create_subprocess_exec", create)
+    return plan
+
+
+def test_events_delivered_before_the_subscribe_acknowledgment_reach_the_session(adapter, racing):
+    now = int(time.time())
+    request = {"kind": 43001, "id": "d" * 64, "pubkey": OWNER, "created_at": now, "content": "Run it",
+               "tags": [["h", "room"], ["p", BOT]]}
+    hello = {"kind": 9, "id": "e" * 64, "pubkey": OWNER, "created_at": now, "content": "hello",
+             "tags": [["h", "room"], ["p", BOT]]}
+    process = racing(events=[request, hello])
+    instance = live_adapter()
+    received, errors = [], []
+    async def handle(message):
+        received.append(message.message_id)
+        admit(message)
+    instance.handle_message = handle
+    original = instance._on_event
+    async def guarded(event):
+        try:
+            await original(event)
+        except Exception as exc:
+            errors.append(f"{type(exc).__name__}: {exc}")
+            raise
+    instance._on_event = guarded
+
+    async def run():
+        await instance.connect()
+        for _ in range(20):
+            await asyncio.sleep(0)
+        assert errors == [] and sorted(received) == sorted([request["id"], hello["id"]])
+        assert instance.is_connected and instance.rpc is not None and instance.rpc.alive
+        assert instance._tracker.attempts == {} and set(instance._tracker.seen) == {request["id"], hello["id"]}
+        assert "d" * 64 in instance._tasks
+        await instance.disconnect()
+        assert process.terminated
+    asyncio.run(run())
+
+
+@pytest.mark.parametrize("failure", ["refused", "died"])
+def test_failed_subscribe_rolls_the_session_back(adapter, racing, failure):
+    now = int(time.time())
+    hello = {"kind": 9, "id": "e" * 64, "pubkey": OWNER, "created_at": now, "content": "hello",
+             "tags": [["h", "room"], ["p", BOT]]}
+    process = racing(events=[hello], subscribe_error="relay refused" if failure == "refused" else None,
+                     die_on_subscribe=failure == "died")
+    instance = live_adapter()
+    received = []
+    async def handle(message):
+        received.append(message.message_id)
+        admit(message)
+    instance.handle_message = handle
+
+    async def run():
+        with pytest.raises(RuntimeError):
+            await instance.connect()
+        for _ in range(10):
+            await asyncio.sleep(0)
+        # The first connect owns nothing afterwards: no helper, no reconnect loop, no lock.
+        assert instance.rpc is None and not instance.is_connected and instance._lock is None
+        assert instance._reconnect_task is None and instance._establishing is None
+        assert process.terminated or process.returncode is not None
+        # The event the helper pushed before failing was handled with the helper it came from.
+        assert received == [hello["id"]] or received == []
+        await instance.disconnect()
+    asyncio.run(run())
+
+
+def test_reconnect_keeps_the_previous_helper_reference_until_the_new_one_subscribes(adapter, helper):
+    instance = live_adapter()
+
+    async def run():
+        await instance.connect()
+        first = helper.instances[-1]
+        first.die()
+        helper.fail_identity = True
+        for _ in range(8):
+            await asyncio.sleep(0)
+        # Every failed attempt leaves the dead helper as the session's reference, so a
+        # late callback from it is refused as stale rather than crashing on None.
+        assert instance.rpc is first and not instance.is_connected
+        helper.fail_identity = False
+        await asyncio.wait_for(instance._reconnect_task, 2)
+        assert instance.rpc is helper.instances[-1] and instance.rpc is not first and instance.is_connected
+        await instance.disconnect()
+    asyncio.run(run())
+
+
+def test_profile_scope_hands_the_helper_its_own_key(adapter, monkeypatch):
+    from agent.secret_scope import reset_secret_scope, set_multiplex_active, set_secret_scope
+    import adapter as module
+    from client import TinyRPC
+    monkeypatch.setenv("TINY_PRIVATE_KEY", "default-profile-key")
+    monkeypatch.setenv("TINY_ALLOWED_USERS", OTHER)
+    monkeypatch.setenv("TINY_RELAY_URL", "http://default")
+    set_multiplex_active(True)
+    token = set_secret_scope({"TINY_PRIVATE_KEY": "secondary-profile-key", "TINY_ALLOWED_USERS": OWNER,
+                              "TINY_RELAY_URL": "http://secondary"})
+    try:
+        env = TinyRPC("http://secondary").helper_env()
+        assert env["TINY_PRIVATE_KEY"] == "secondary-profile-key"
+        assert set(env) <= {"PATH", "HOME", "TMPDIR", "TINY_PRIVATE_KEY", "HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY",
+                            "http_proxy", "https_proxy", "no_proxy"}
+        scoped = TinyAdapter(PlatformConfig(enabled=True, extra={}))
+        assert scoped.allowed == {OWNER} and scoped.relay_url == "http://secondary"
+        assert module._env_enablement()["allowed_users"] == OWNER
+    finally:
+        reset_secret_scope(token)
+    try:
+        # Multiplexing with no scope fails closed for the key; passive probes stay quiet.
+        with pytest.raises(RuntimeError):
+            TinyRPC("http://secondary").helper_env()
+        assert TinyAdapter(PlatformConfig(enabled=True, extra={})).allowed == set()
+        assert module.check_requirements() is False
+    finally:
+        set_multiplex_active(False)
+    plain = TinyAdapter(PlatformConfig(enabled=True, extra={}))
+    assert plain.allowed == {OTHER} and TinyRPC("http://default").helper_env()["TINY_PRIVATE_KEY"] == "default-profile-key"
+
+
+def test_identity_lock_is_shared_by_profile_homes_of_one_installation(adapter, helper, tmp_path, monkeypatch):
+    from hermes_constants import reset_hermes_home_override, set_hermes_home_override
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path / "hermes"))
+    first, second = live_adapter(), live_adapter()
+
+    async def run():
+        token = set_hermes_home_override(tmp_path / "hermes" / "profiles" / "a")
+        try:
+            await first.connect()
+        finally:
+            reset_hermes_home_override(token)
+        token = set_hermes_home_override(tmp_path / "hermes" / "profiles" / "b")
+        try:
+            with pytest.raises(RuntimeError, match="another Hermes gateway already runs this Tiny identity"):
+                await second.connect()
+        finally:
+            reset_hermes_home_override(token)
+        assert first._lock.path.parent == tmp_path / "hermes" / "state" / "tinyagent" / "locks"
+        await first.disconnect()
+    asyncio.run(run())
 
 
 def test_env_enablement_seeds_a_home_channel(adapter, monkeypatch):

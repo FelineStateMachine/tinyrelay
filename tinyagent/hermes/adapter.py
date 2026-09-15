@@ -12,7 +12,6 @@ import json
 import logging
 import mimetypes
 import hashlib
-import os
 import re
 import time
 from datetime import datetime
@@ -24,14 +23,14 @@ from gateway.platforms.base import BasePlatformAdapter, SendResult
 from gateway.platforms.event import MessageEvent, MessageType
 
 try:
-    from .client import TinyRPC
+    from .client import TinyRPC, scoped_secret
     from .interactions import InteractionMixin
     from .media import incoming_media
     from .ingress import EventTracker, IdentityLock, event_thread, reply_parent
     from . import tasks as taskmod
     from .tasks import TaskState, answer_tags, request_root, request_text
 except ImportError:  # Hermes plugin loader may import adapter.py as a top-level module.
-    from client import TinyRPC
+    from client import TinyRPC, scoped_secret
     from interactions import InteractionMixin
     from media import incoming_media
     from ingress import EventTracker, IdentityLock, event_thread, reply_parent
@@ -78,20 +77,24 @@ class TinyAdapter(InteractionMixin, BasePlatformAdapter):
     # Long-task cards: at most one 43003 progress event per task in this many seconds.
     PROGRESS_INTERVAL = 15.0
     MAX_TASKS = 200
+    # Waits before the second and third attempt to publish a task's terminal event.
+    TERMINAL_RETRY_DELAYS = (1.0, 3.0)
 
     def __init__(self, config: PlatformConfig):
         super().__init__(config, Platform("tiny"))
         extra = config.extra or {}
-        self.relay_url = str(extra.get("relay_url") or os.environ.get("TINY_RELAY_URL", "")).strip()
-        self.cli_path = str(extra.get("cli_path") or os.environ.get("TINY_CLI_PATH", "tinyagent"))
-        self.rooms = [x.strip() for x in str(extra.get("rooms") or extra.get("channels") or os.environ.get("TINY_CHANNELS", "")).split(",") if x.strip()]
+        self.relay_url = str(extra.get("relay_url") or scoped_secret("TINY_RELAY_URL")).strip()
+        self.cli_path = str(extra.get("cli_path") or scoped_secret("TINY_CLI_PATH", "tinyagent"))
+        self.rooms = [x.strip() for x in str(extra.get("rooms") or extra.get("channels") or scoped_secret("TINY_CHANNELS")).split(",") if x.strip()]
         home = extra.get("home_channel") or getattr(getattr(config, "home_channel", None), "chat_id", None) \
-            or os.environ.get("TINY_HOME_CHANNEL", "")
+            or scoped_secret("TINY_HOME_CHANNEL")
         if isinstance(home, dict):
             home = home.get("chat_id", "")
         self.home_room = str(home).strip() or (self.rooms[0] if self.rooms else "")
-        self.allowed = {x.strip().lower() for x in str(extra.get("allowed_users") or os.environ.get("TINY_ALLOWED_USERS", "")).split(",") if x.strip()}
-        require_mention = extra.get("require_mention", os.environ.get("TINY_REQUIRE_MENTION", "true"))
+        # Allowed users come from the profile scope, so a multiplexed profile never
+        # inherits another profile's operators from the process environment.
+        self.allowed = {x.strip().lower() for x in str(extra.get("allowed_users") or scoped_secret("TINY_ALLOWED_USERS")).split(",") if x.strip()}
+        require_mention = extra.get("require_mention", scoped_secret("TINY_REQUIRE_MENTION", "true"))
         self.require_mention = str(require_mention).strip().lower() not in {"false", "0", "no", "off"}
         self.rpc: TinyRPC | None = None
         self.pubkey = ""
@@ -108,8 +111,10 @@ class TinyAdapter(InteractionMixin, BasePlatformAdapter):
         self._turn_route = ContextVar("tinyagent_turn_route", default=None)
         self._lock: IdentityLock | None = None
         self._closed = False
+        # The helper whose subscription is being set up; its death is reported by _establish.
+        self._establishing: TinyRPC | None = None
         self._reconnect_task: asyncio.Task | None = None
-        self._last_sweep = 0.0
+        self._last_sweep = float("-inf")
         # request id -> long-task card state, in intake order.
         self._tasks: dict[str, TaskState] = {}
 
@@ -164,6 +169,11 @@ class TinyAdapter(InteractionMixin, BasePlatformAdapter):
         if route.get("room") != room:
             route = {}
         thread = metadata.get("thread_id") or route.get("thread_id") or current.get("thread_id")
+        # A session thread named after a received event (a task request or a kind 11
+        # opener) replies in the thread that event belongs to.
+        anchor = self._reply_routes.get(str(thread or ""), {})
+        if anchor.get("room") == room and anchor.get("thread_id"):
+            thread = anchor["thread_id"]
         root = thread or route.get("root")
         if reply and not root:
             # Synthetic sends may refer to messages received before this process.
@@ -181,12 +191,26 @@ class TinyAdapter(InteractionMixin, BasePlatformAdapter):
         """Start the helper and subscribe. Hermes's watcher calls this on a fresh adapter
         with is_reconnect=True; helper death inside a live adapter reuses _establish."""
         self._closed = False
-        await self._establish()
+        try:
+            await self._establish()
+        except BaseException:
+            if self._lock is not None and self.rpc is None:
+                # No session survived the failure; free the identity for the next attempt.
+                self._lock.release()
+                self._lock = None
+            raise
         return True
 
     async def _establish(self) -> None:
-        """Spawn a helper, prove the identity, take its lock and subscribe from the cursor."""
+        """Spawn a helper, prove the identity, take its lock and subscribe from the cursor.
+
+        The session owns the new helper before the subscription opens: the helper may
+        deliver events before it acknowledges the subscribe call, and those events
+        already need ``self.rpc``. A failure before the subscription is acknowledged
+        restores the previous helper reference and closes the new one."""
         rpc = TinyRPC(self.relay_url, cli_path=self.cli_path, on_exit=self._on_helper_exit)
+        previous = self.rpc
+        self._establishing = rpc
         try:
             identity = await rpc.call("identity")
             pubkey = str((identity or {}).get("pubkey", ""))
@@ -205,18 +229,24 @@ class TinyAdapter(InteractionMixin, BasePlatformAdapter):
                                       **self._tracker.filter_since()}
             if self.rooms:
                 filter["#h"] = self.rooms
+            self.rpc = rpc
             await rpc.subscribe(self._subscription, filter, self._on_event)
+            if not rpc.alive:
+                raise RuntimeError("Tiny helper exited while subscribing")
         except BaseException:
+            if self.rpc is rpc:
+                self.rpc = previous
+            self._establishing = None
             await rpc.close()
             raise
-        previous, self.rpc = self.rpc, rpc
+        self._establishing = None
         if previous is not None and previous is not rpc:
             await previous.close()
         self._mark_connected()
 
     def _on_helper_exit(self, rpc) -> None:
         """TinyRPC reports the helper died on its own; recover in the background."""
-        if self._closed or rpc is not self.rpc:
+        if self._closed or rpc is not self.rpc or rpc is self._establishing:
             return
         logger.warning("Tiny helper exited; reconnecting")
         self._mark_disconnected()
@@ -340,10 +370,13 @@ class TinyAdapter(InteractionMixin, BasePlatformAdapter):
             self._reply_routes.pop(next(iter(self._reply_routes)))
         await self._deliver(message, event)
 
-    async def _deliver(self, message: MessageEvent, event: dict) -> None:
-        """Hand a turn to Hermes. The event counts as delivered only once Hermes has
-        accepted it; a failed hand-off leaves it eligible for redelivery until the
-        attempt budget is spent."""
+    async def _deliver(self, message: MessageEvent, event: dict) -> bool:
+        """Hand a turn to Hermes and return whether it was admitted.
+
+        The event counts as delivered only once Hermes started or queued a turn for it
+        (its admission receipt) or consumed it inline; a failed or refused hand-off
+        leaves it eligible for redelivery until the attempt budget is spent. A Hermes
+        without the receipt admits by returning."""
         event_id = str(event.get("id", ""))
         try:
             await self.handle_message(message)
@@ -352,8 +385,28 @@ class TinyAdapter(InteractionMixin, BasePlatformAdapter):
                 if self._tracker.fail(event):
                     logger.error("Tiny event %s retired after repeated failures", event_id, exc_info=exc)
             raise
+        admitted = getattr(message, "_gateway_accepted", None)
+        if admitted is False and not self._consumed_inline(message):
+            if self._tracker and self._tracker.fail(event):
+                logger.error("Tiny event %s retired: Hermes refused it repeatedly", event_id)
+            else:
+                logger.warning("Tiny event %s was not admitted by Hermes; it stays eligible for redelivery", event_id)
+            return False
         if self._tracker:
             self._tracker.mark(event)
+        return True
+
+    def _consumed_inline(self, message: MessageEvent) -> bool:
+        """True for events Hermes dispatches inline without an admission receipt: slash
+        commands during a busy session and text answers to a pending question."""
+        if message.get_command() is not None:
+            return True
+        try:
+            from tools import clarify_gateway
+            return clarify_gateway.get_pending_for_session(self._event_session_key(message),
+                                                           include_choice_prompts=True) is not None
+        except Exception:
+            return False
 
     # -- long-task cards -------------------------------------------------
 
@@ -373,8 +426,11 @@ class TinyAdapter(InteractionMixin, BasePlatformAdapter):
                 self._tracker.mark(event)
             return
         root = request_root(event)
+        # Every request runs in its own session, named by the request id, so Hermes
+        # never merges two requests into one turn. Replies still land in the thread
+        # the request belongs to (see _reply_tags).
         source = self.build_source(chat_id=room, chat_name=room, chat_type="group", user_id=author,
-                                   thread_id=root, message_id=request_id)
+                                   thread_id=request_id, message_id=request_id)
         message = MessageEvent(text=request_text(event), message_type=MessageType.TEXT, source=source,
                                raw_message=event, message_id=request_id,
                                timestamp=datetime.fromtimestamp(int(event.get("created_at", time.time()))))
@@ -387,10 +443,12 @@ class TinyAdapter(InteractionMixin, BasePlatformAdapter):
         self._reply_routes[request_id] = {"room": room, "root": root, "reply_to_message_id": request_id,
                                           "thread_id": root, "user_id": author}
         try:
-            await self._deliver(message, event)
+            admitted = await self._deliver(message, event)
         except BaseException:
             self._forget_task(request_id)
             raise
+        if not admitted:
+            self._forget_task(request_id)
 
     def _forget_task(self, request_id: str) -> None:
         task = self._tasks.pop(request_id, None)
@@ -398,8 +456,19 @@ class TinyAdapter(InteractionMixin, BasePlatformAdapter):
             self._stop_progress_timer(task)
 
     def _task_for_send(self, room: str, tags: list[list[str]]) -> TaskState | None:
-        """Return the running task whose thread a send lands in, if any."""
-        root = next((row[1] for row in tags if len(row) >= 4 and row[0] == "e" and row[3] == "root"), None)
+        """Return the task a send belongs to: the request it answers, else the task of
+        the current turn, else the running task of the thread it lands in."""
+        marked = {row[3]: row[1] for row in tags if len(row) >= 4 and row[0] == "e"}
+        for key in ("reply", "root"):
+            task = self._tasks.get(str(marked.get(key) or ""))
+            if task is not None and not task.terminal and task.room == room:
+                return task
+        current = self._turn_route.get() or {}
+        if current.get("room") == room and current.get("session"):
+            task = self._task_for_session(current["session"])
+            if task is not None:
+                return task
+        root = marked.get("root")
         if not root:
             return None
         matches = [task for task in self._tasks.values()
@@ -478,14 +547,27 @@ class TinyAdapter(InteractionMixin, BasePlatformAdapter):
                 self._schedule_progress(task)
 
     async def _publish_terminal(self, task: TaskState, kind: int, content: str, extra: list[list[str]] = ()) -> None:
-        """Publish exactly one terminal event for a task, whatever happens to the send."""
+        """Publish exactly one terminal event for a task, retrying a failed send.
+
+        The task stays known until the event is on the relay or the attempts are
+        spent, so nothing else can end it twice."""
         if not task.end():
             return
         self._stop_progress_timer(task)
-        result = await self._publish(task.room, content, [*answer_tags(task), *extra], kind=kind)
-        if not result.success:
-            logger.error("Tiny task %s terminal event %d failed: %s", task.request_id[:8], kind, result.error)
-        self._forget_task(task.request_id)
+        tags = [*answer_tags(task), *extra]
+        try:
+            for attempt, delay in enumerate((0.0, *self.TERMINAL_RETRY_DELAYS), 1):
+                if delay:
+                    await asyncio.sleep(delay)
+                result = await self._publish(task.room, content, tags, kind=kind)
+                if result.success:
+                    return
+                logger.warning("Tiny task %s terminal event %d failed (attempt %d): %s",
+                               task.request_id[:8], kind, attempt, result.error)
+            logger.error("Tiny task %s terminal event %d gave up after %d attempts", task.request_id[:8], kind,
+                         1 + len(self.TERMINAL_RETRY_DELAYS))
+        finally:
+            self._forget_task(task.request_id)
 
     async def on_processing_start(self, event: MessageEvent) -> None:
         await super().on_processing_start(event)
@@ -504,15 +586,38 @@ class TinyAdapter(InteractionMixin, BasePlatformAdapter):
             return
         name = str(getattr(outcome, "value", outcome)).lower()
         if task.terminal:
-            self._forget_task(task.request_id)
             return
-        if name == "success":
+        merged = self._merged_tasks(task)
+        # Hermes 0.21.1 grades a turn without counting attachment delivery, so a
+        # file-only reply reports failure. The adapter saw the posts itself: with no
+        # handler error and no failed send, what reached the room is the result.
+        if name == "success" or (name == "failure" and task.delivered and not task.error):
             content, extra = task.result()
             await self._publish_terminal(task, taskmod.KIND_JOB_RESULT, content, extra)
         elif name == "cancelled":
             await self._publish_terminal(task, taskmod.KIND_JOB_ERROR, "Cancelled")
         else:
             await self._publish_terminal(task, taskmod.KIND_JOB_ERROR, task.failure())
+        for other, carrier in merged:
+            await self._publish_terminal(other, taskmod.KIND_JOB_ERROR, f"Merged into task {carrier}")
+
+    def _merged_tasks(self, task: TaskState) -> list[tuple[TaskState, str]]:
+        """Return tasks Hermes folded into another turn of this task's session.
+
+        Sessions are unique per request, so this is a safety net: a request that
+        shares the finished task's session, never started and is not the session's
+        queued follow-up has lost its own turn. Its text travelled with the queued
+        follow-up when there is one, else with the finished turn."""
+        queued = getattr(self, "_pending_messages", {}).get(task.session_key)
+        store = getattr(self, "_text_debounce_store", None)
+        state = store().get(task.session_key) if callable(store) else None
+        if queued is None and state is not None:
+            queued = getattr(state, "event", None)
+        queued_id = str(getattr(queued, "message_id", "") or "")
+        carrier = queued_id or task.request_id
+        return [(other, carrier) for other in list(self._tasks.values())
+                if other is not task and not other.terminal and not other.accepted
+                and other.session_key == task.session_key and other.request_id != queued_id]
 
     async def _on_task_cancel(self, event: dict, author: str) -> None:
         """A 43005 from the requester ends the task; the cancel itself is the terminal event."""
@@ -683,25 +788,25 @@ class TinyAdapter(InteractionMixin, BasePlatformAdapter):
 
 
 def check_requirements() -> bool:
-    return bool(os.environ.get("TINY_RELAY_URL") and os.environ.get("TINY_PRIVATE_KEY"))
+    return bool(scoped_secret("TINY_RELAY_URL") and scoped_secret("TINY_PRIVATE_KEY"))
 
 
 def validate_config(config: PlatformConfig) -> bool:
     extra = config.extra or {}
-    return bool(extra.get("relay_url") or os.environ.get("TINY_RELAY_URL"))
+    return bool(extra.get("relay_url") or scoped_secret("TINY_RELAY_URL"))
 
 
 def _env_enablement() -> dict | None:
-    relay = os.environ.get("TINY_RELAY_URL", "").strip()
-    key = os.environ.get("TINY_PRIVATE_KEY", "").strip()
+    relay = scoped_secret("TINY_RELAY_URL").strip()
+    key = scoped_secret("TINY_PRIVATE_KEY").strip()
     if not relay or not key:
         return None
     result = {"relay_url": relay}
     for env, key_name in (("TINY_ALLOWED_USERS", "allowed_users"), ("TINY_CLI_PATH", "cli_path"),
                           ("TINY_REQUIRE_MENTION", "require_mention")):
-        if os.environ.get(env):
-            result[key_name] = os.environ[env]
-    home = os.environ.get("TINY_HOME_CHANNEL", "").strip()
+        if scoped_secret(env):
+            result[key_name] = scoped_secret(env)
+    home = scoped_secret("TINY_HOME_CHANNEL").strip()
     if home:
         # Hermes lifts this dict into a HomeChannel for cron and standalone delivery.
         result["home_channel"] = {"chat_id": home, "name": "Home"}
@@ -711,8 +816,8 @@ def _env_enablement() -> dict | None:
 async def _standalone_send(pconfig, chat_id: str, message: str, *, thread_id=None, media_files=None,
                            force_document=False):
     extra = getattr(pconfig, "extra", {}) or {}
-    rpc = TinyRPC(str(extra.get("relay_url") or os.environ.get("TINY_RELAY_URL", "")),
-                  cli_path=str(extra.get("cli_path") or os.environ.get("TINY_CLI_PATH", "tinyagent")))
+    rpc = TinyRPC(str(extra.get("relay_url") or scoped_secret("TINY_RELAY_URL")),
+                  cli_path=str(extra.get("cli_path") or scoped_secret("TINY_CLI_PATH", "tinyagent")))
     try:
         await rpc.connect()
         adapter = TinyAdapter(pconfig)

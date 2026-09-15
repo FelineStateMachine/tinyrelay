@@ -15,6 +15,29 @@ _HELPER_ENV = ("PATH", "HOME", "TMPDIR", "HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY"
                "http_proxy", "https_proxy", "no_proxy")
 
 
+def scoped_secret(name: str, default: str = "", *, strict: bool = False) -> str:
+    """Resolve a TINY_* setting through Hermes's profile secret scope.
+
+    A multiplexed gateway serves several profiles from one process and keeps each
+    profile's ``.env`` in a context-local scope rather than in ``os.environ``; reading
+    through ``get_secret`` hands a profile its own key. Outside Hermes, or on a Hermes
+    without the scope API, the process environment is the source. ``strict`` lets the
+    fail-closed error of an unscoped read in multiplex mode propagate; passive probes
+    use the default instead.
+    """
+    try:
+        from agent.secret_scope import get_secret
+    except ImportError:
+        return os.environ.get(name, default)
+    try:
+        value = get_secret(name, default)
+    except RuntimeError:
+        if strict:
+            raise
+        return default
+    return default if value is None else str(value)
+
+
 class TinyRPC:
     def __init__(self, relay_url: str, key_env: str = "TINY_PRIVATE_KEY", cli_path: str = "tinyagent",
                  on_exit: Callable[["TinyRPC"], Any] | None = None):
@@ -34,9 +57,15 @@ class TinyRPC:
         self._exited = False
 
     def helper_env(self) -> dict[str, str]:
-        """Return the scoped environment handed to the helper process."""
-        keep = set(_HELPER_ENV) | {self.key_env}
-        return {name: value for name, value in os.environ.items() if name in keep}
+        """Return the scoped environment handed to the helper process.
+
+        The signing key is resolved through the active profile scope and reaches the
+        helper only through its environment variable."""
+        env = {name: value for name, value in os.environ.items() if name in _HELPER_ENV}
+        key = scoped_secret(self.key_env, "", strict=True)
+        if key:
+            env[self.key_env] = key
+        return env
 
     @property
     def alive(self) -> bool:

@@ -32,6 +32,9 @@ class FakeRPC:
         self.rows = []
         self.terminal = []
         self.fail_kinds = set()
+        # kind -> number of publishes of that kind still to refuse
+        self.fail_times = {}
+        self.attempts = []
 
     async def query(self, filter):
         if "ids" in filter:
@@ -42,7 +45,9 @@ class FakeRPC:
         return []
 
     async def publish(self, event):
-        if event["kind"] in self.fail_kinds:
+        self.attempts.append(event["kind"])
+        if event["kind"] in self.fail_kinds or self.fail_times.get(event["kind"], 0) > 0:
+            self.fail_times[event["kind"]] = self.fail_times.get(event["kind"], 0) - 1
             raise RuntimeError("relay refused the event")
         result = {"id": f"{len(self.events) + 1:064x}", "created_at": int(time.time()), "pubkey": BOT, **event}
         self.events.append(result)
@@ -96,10 +101,16 @@ async def settle(rounds=5):
         await asyncio.sleep(0)
 
 
+def admit(message):
+    """What Hermes's handle_message records once it starts or queues a turn."""
+    message._gateway_accepted = True
+
+
 def capture(adapter):
     received = []
     async def handle(message):
         received.append(message)
+        admit(message)
     adapter.handle_message = handle
     return received
 
@@ -115,9 +126,17 @@ def test_request_becomes_a_thread_turn_anchored_at_the_request(adapter):
     assert task.requester == OWNER and task.thread_root == REQUEST and not task.accepted
     assert adapter._session_assignees[task.session_key] == OWNER
     assert adapter.rpc.events == []
+    # A request inside an existing thread keeps its own session, named by the request,
+    # while its replies sit in that thread under the request.
     asyncio.run(adapter._on_event(request("e" * 64, root="7" * 64, content="Continue here")))
-    assert received[1].text == "Continue here" and received[1].source.thread_id == "7" * 64
+    assert received[1].text == "Continue here" and received[1].source.thread_id == "e" * 64
     assert adapter._tasks["e" * 64].thread_root == "7" * 64
+    assert adapter._tasks["e" * 64].session_key != task.session_key
+    reply = asyncio.run(adapter.send("room", "On it", reply_to="e" * 64, metadata={"thread_id": "e" * 64}))
+    assert reply.success and adapter.rpc.events[-1]["kind"] == 12
+    assert ["e", "7" * 64, "", "root"] in adapter.rpc.events[-1]["tags"]
+    assert ["e", "e" * 64, "", "reply"] in adapter.rpc.events[-1]["tags"]
+    assert adapter._tasks["e" * 64].classes == {reply.message_id: "chrome"}
 
 
 @pytest.mark.parametrize("mutation", ["author", "assignee", "room"])
@@ -196,9 +215,29 @@ def pipeline(adapter, handler):
         return await handler(message)
     adapter.set_message_handler(wrapped)
     async def process(message):
+        admit(message)
         await adapter._process_message_background(message, adapter._event_session_key(message))
     adapter.handle_message = process
     return seen
+
+
+def grade_like_0_21_1(adapter):
+    """Hermes 0.21.1 does not count attachment delivery: a file-only turn grades as failure."""
+    original = adapter.on_processing_complete
+    async def complete(event, outcome):
+        posted_text = any(event["kind"] == 12 and not any(row[0] == "imeta" for row in event["tags"])
+                          for event in adapter.rpc.events)
+        if outcome == ProcessingOutcome.SUCCESS and not posted_text:
+            outcome = ProcessingOutcome.FAILURE
+        await original(event, outcome)
+    adapter.on_processing_complete = complete
+
+
+async def finish_turns(adapter, timeout=5):
+    tasks = list(adapter._session_tasks.values())
+    if tasks:
+        await asyncio.wait_for(asyncio.gather(*tasks, return_exceptions=True), timeout)
+    await settle()
 
 
 def test_success_publishes_one_result_linking_the_thread_reply(adapter):
@@ -220,18 +259,43 @@ def test_success_publishes_one_result_linking_the_thread_reply(adapter):
     assert len(adapter.rpc.kinds(43004)) == 1
 
 
-def test_file_only_result_names_and_links_the_files(adapter, tmp_path):
+@pytest.mark.parametrize("hermes", ["0.21.3", "0.21.1"])
+def test_file_only_result_names_and_links_the_files(adapter, tmp_path, hermes):
     note = tmp_path / "report.txt"
     note.write_text("build log")
     async def handler(message):
         return f"MEDIA:{note}"
     pipeline(adapter, handler)
+    if hermes == "0.21.1":
+        grade_like_0_21_1(adapter)
     asyncio.run(adapter._on_event(request()))
     files = [event for event in adapter.rpc.events if any(row[0] == "imeta" for row in event["tags"])]
     assert len(files) == 1 and files[0]["kind"] == 12
     results = adapter.rpc.kinds(43004)
     assert len(results) == 1 and results[0]["content"] == "Posted report.txt"
     assert ["e", files[0]["id"]] in results[0]["tags"]
+    assert adapter.rpc.kinds(43006) == [] and REQUEST not in adapter._tasks
+
+
+@pytest.mark.parametrize("shape", ["nothing-delivered", "send-failed"])
+def test_true_failures_still_publish_an_error(adapter, shape):
+    async def handler(message):
+        return "Build passed."
+    seen = pipeline(adapter, handler)
+    if shape == "nothing-delivered":
+        # Hermes graded the turn as failed and the adapter saw no reply reach the room.
+        original = adapter.on_processing_complete
+        async def complete(event, outcome):
+            adapter._tasks[REQUEST].classes.clear()
+            await original(event, ProcessingOutcome.FAILURE)
+        adapter.on_processing_complete = complete
+    else:
+        adapter.rpc.fail_kinds = {12}
+    asyncio.run(adapter._on_event(request()))
+    errors = adapter.rpc.kinds(43006)
+    assert len(errors) == 1 and adapter.rpc.kinds(43004) == [] and REQUEST not in adapter._tasks
+    expected = "The task failed" if shape == "nothing-delivered" else "relay refused the event"
+    assert errors[0]["content"] == expected
 
 
 def test_failure_publishes_one_error_with_the_exposed_text(adapter):
@@ -247,18 +311,105 @@ def test_failure_publishes_one_error_with_the_exposed_text(adapter):
     assert adapter.rpc.kinds(43004) == [] and REQUEST not in adapter._tasks
 
 
-def test_terminal_publication_happens_once_even_when_the_send_fails(adapter):
+def test_terminal_publication_is_retried_and_happens_once(adapter):
     async def handler(message):
         return "Done"
     seen = pipeline(adapter, handler)
-    adapter.rpc.fail_kinds = {43004}
+    adapter.TERMINAL_RETRY_DELAYS = (0, 0)
+    adapter.rpc.fail_times = {43004: 2}
     asyncio.run(adapter._on_event(request()))
-    assert adapter.rpc.kinds(43004) == [] and adapter.rpc.kinds(43006) == []
+    assert adapter.rpc.attempts.count(43004) == 3
+    assert len(adapter.rpc.kinds(43004)) == 1 and adapter.rpc.kinds(43006) == []
     assert REQUEST not in adapter._tasks
-    adapter.rpc.fail_kinds = set()
     asyncio.run(adapter.on_processing_complete(seen[0], ProcessingOutcome.SUCCESS))
     asyncio.run(adapter.on_processing_complete(seen[0], ProcessingOutcome.FAILURE))
+    assert len(adapter.rpc.kinds(43004)) == 1 and adapter.rpc.kinds(43006) == []
+
+
+def test_terminal_publication_gives_up_after_three_attempts(adapter):
+    async def handler(message):
+        return "Done"
+    seen = pipeline(adapter, handler)
+    adapter.TERMINAL_RETRY_DELAYS = (0, 0)
+    adapter.rpc.fail_kinds = {43004}
+    forgotten = []
+    original = adapter._forget_task
+    def forget(request_id):
+        forgotten.append(request_id in adapter._tasks)
+        original(request_id)
+    adapter._forget_task = forget
+    asyncio.run(adapter._on_event(request()))
+    assert adapter.rpc.attempts.count(43004) == 3
+    # The task stayed known until the last attempt, then was dropped exactly once.
+    assert forgotten[0] and REQUEST not in adapter._tasks
     assert adapter.rpc.kinds(43004) == [] and adapter.rpc.kinds(43006) == []
+    adapter.rpc.fail_kinds = set()
+    asyncio.run(adapter.on_processing_complete(seen[0], ProcessingOutcome.SUCCESS))
+    assert adapter.rpc.kinds(43004) == []
+
+
+def test_requests_sharing_a_thread_run_as_separate_turns(adapter):
+    # Three requests in one thread arrive while the first still runs. Each gets its
+    # own session, so Hermes never folds two requests into one turn: three handler
+    # calls, three accepted events, three results, no orphaned card.
+    adapter._busy_text_mode = "queue"
+    adapter._busy_text_debounce_seconds = 0
+    release = asyncio.Event()
+    seen = []
+    async def handler(message):
+        seen.append(message)
+        if len(seen) == 1:
+            await release.wait()
+        return f"Finished {message.text}"
+    adapter.set_message_handler(handler)
+    common = "7" * 64
+    ids = [f"{index + 10:064x}" for index in range(3)]
+    async def run():
+        for index, request_id in enumerate(ids):
+            await adapter._on_event(request(request_id, root=common, content=f"job {index}"))
+            await settle()
+        assert [message.text for message in seen] == ["job 0", "job 1", "job 2"]
+        assert adapter._pending_messages == {}
+        release.set()
+        await finish_turns(adapter)
+    asyncio.run(run())
+    assert sorted(tag(event, "e") for event in adapter.rpc.kinds(43002)) == ids
+    results = adapter.rpc.kinds(43004)
+    assert sorted(tag(event, "e") for event in results) == ids
+    assert adapter.rpc.kinds(43006) == [] and adapter._tasks == {}
+    replies = [event for event in adapter.rpc.events if event["kind"] == 12]
+    assert len(replies) == 3
+    assert all(["e", common, "", "root"] in event["tags"] for event in replies)
+    assert sorted(row[1] for event in replies for row in event["tags"] if len(row) > 3 and row[3] == "reply") == ids
+    for result in results:
+        reply = next(event for event in replies if ["e", tag(result, "e"), "", "reply"] in event["tags"])
+        assert ["e", reply["id"]] in result["tags"] and result["content"] == reply["content"]
+
+
+def test_requests_merged_by_hermes_end_with_an_error_naming_the_carrier(adapter):
+    # Safety net for a Hermes that still coalesces two requests into one turn: the
+    # request that lost its turn gets an error card naming the turn that carried it.
+    received = capture(adapter)
+    ids = [f"{index + 10:064x}" for index in range(3)]
+    async def run():
+        for index, request_id in enumerate(ids):
+            await adapter._on_event(request(request_id, content=f"job {index}"))
+        first, second, third = (adapter._tasks[request_id] for request_id in ids)
+        second.session_key = third.session_key = first.session_key
+        await adapter.on_processing_start(received[0])
+        # The third request is still queued under the session: it keeps its card.
+        adapter._pending_messages[first.session_key] = received[2]
+        await adapter.on_processing_complete(received[0], ProcessingOutcome.SUCCESS)
+        errors = adapter.rpc.kinds(43006)
+        assert [tag(event, "e") for event in errors] == [ids[1]]
+        assert errors[0]["content"] == f"Merged into task {ids[2]}"
+        assert [tag(event, "e") for event in adapter.rpc.kinds(43004)] == [ids[0]]
+        assert ids[0] not in adapter._tasks and ids[1] not in adapter._tasks and ids[2] in adapter._tasks
+        adapter._pending_messages.clear()
+        await adapter.on_processing_start(received[2])
+        await adapter.on_processing_complete(received[2], ProcessingOutcome.SUCCESS)
+        assert adapter._tasks == {} and len(adapter.rpc.kinds(43004)) == 2
+    asyncio.run(run())
 
 
 def slow_turn(adapter):

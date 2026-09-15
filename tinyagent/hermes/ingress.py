@@ -20,6 +20,8 @@ from typing import Iterable
 _EVENT_ID = re.compile(r"^[0-9a-f]{64}$", re.I)
 _REPLAY_WINDOW = 300
 _FUTURE_SKEW = 300
+# Hard ceiling on remembered IDs, far above anything the replay window holds in practice.
+MAX_SEEN = 100000
 # A poison event is retired after this many failed hand-offs to Hermes.
 MAX_ATTEMPTS = 3
 _MAX_ATTEMPT_ENTRIES = 256
@@ -43,8 +45,42 @@ def state_root(state_dir: str | Path | None = None) -> Path:
 
 
 def adapter_state_dir(root: str | Path | None = None) -> Path:
-    """Return the directory holding tracker state and identity locks."""
+    """Return the directory holding tracker state for the active Hermes home."""
     return state_root(root) / "state" / "tinyagent"
+
+
+def shared_root() -> Path:
+    """Return the Hermes root every profile shares: the parent of ``profiles`` when the
+    process home is a named profile, else the process home itself."""
+    try:
+        from hermes_constants import get_default_hermes_root
+        return Path(get_default_hermes_root()).expanduser()
+    except Exception:
+        home = Path(os.environ.get("HERMES_HOME", "").strip() or "~/.hermes").expanduser()
+        return home.parent.parent if home.parent.name == "profiles" else home
+
+
+def lock_dir(root: str | Path | None = None) -> Path:
+    """Return the directory holding identity locks.
+
+    Locks live under the shared Hermes root so two profiles cannot run the same
+    identity. When that root cannot be written, the system temporary directory
+    holds them instead.
+    """
+    if root:
+        return adapter_state_dir(root) / "locks"
+    candidate = shared_root() / "state" / "tinyagent" / "locks"
+    try:
+        candidate.mkdir(parents=True, exist_ok=True)
+        os.chmod(candidate, 0o700)
+        if os.access(candidate, os.W_OK):
+            return candidate
+    except OSError:
+        pass
+    fallback = Path(tempfile.gettempdir()) / "tinyagent-locks"
+    fallback.mkdir(parents=True, exist_ok=True)
+    logger.warning("Tiny identity locks use %s because %s is not writable", fallback, candidate)
+    return fallback
 
 
 def _tag_values(event: dict, name: str) -> list[list[str]]:
@@ -62,16 +98,21 @@ def _expiration(event: dict) -> int | None:
 
 
 class EventTracker:
-    """Bounded persistent event cursor and ID set for one Tiny subscription.
+    """Persistent event cursor and ID set for one Tiny subscription.
 
     State file (JSON): ``floor`` and ``cursor`` are Unix seconds; ``seen`` maps a
     delivered event ID to its ``created_at``; ``attempts`` maps an event ID to the
     number of failed hand-offs. Older files stored ``seen`` as a list of IDs and
     load with every listed ID pinned to the cursor.
+
+    ``seen`` keeps every ID inside the replay window (``cursor - 300`` seconds, never
+    below ``floor``); the window is what bounds correctness, so a burst of events in
+    one second is never forgotten. ``max_seen`` is only a hard ceiling: when it is hit
+    the oldest seconds are retired, the floor moves past them and a warning is logged.
     """
 
     def __init__(self, relay: str, identity: str, rooms: Iterable[str], *, state_dir: str | Path | None = None,
-                 now: int | None = None, max_seen: int = 10000):
+                 now: int | None = None, max_seen: int = MAX_SEEN):
         self.relay, self.identity = str(relay), str(identity).lower()
         self.rooms = tuple(sorted(str(room) for room in rooms))
         key = hashlib.sha256((self.relay + "\0" + self.identity + "\0" + "\0".join(self.rooms)).encode()).hexdigest()[:24]
@@ -127,7 +168,7 @@ class EventTracker:
         return max(self.floor, self.cursor - _REPLAY_WINDOW)
 
     def _prune(self) -> None:
-        """Drop IDs the window already rejects; raise the floor only when still over budget."""
+        """Drop IDs the window already rejects; the hard ceiling alone may raise the floor."""
         start = self._window_start()
         self.seen = {key: stamp for key, stamp in self.seen.items() if stamp >= start}
         if len(self.seen) > self.max_seen:
@@ -138,7 +179,7 @@ class EventTracker:
                 threshold += 1
             self.seen = {key: stamp for key, stamp in self.seen.items() if stamp >= threshold}
             self.floor = max(self.floor, threshold)
-            logger.warning("Tiny replay cache exceeded %d IDs; events before %d are now ignored",
+            logger.warning("Tiny replay cache hit its hard ceiling of %d IDs; events before %d are now ignored",
                            self.max_seen, self.floor)
         self.attempts = {key: count for key, count in self.attempts.items() if key not in self.seen}
         while len(self.attempts) > _MAX_ATTEMPT_ENTRIES:
@@ -204,11 +245,15 @@ class EventTracker:
 
 
 class IdentityLock:
-    """Exclusive per-identity lock so one gateway consumes a Tiny key at a time."""
+    """Exclusive per-identity lock so one gateway consumes a Tiny key at a time.
+
+    The lock file is keyed by relay and public key and lives in ``lock_dir()``, which
+    every profile of one Hermes installation shares.
+    """
 
     def __init__(self, relay: str, pubkey: str, *, state_dir: str | Path | None = None):
         key = hashlib.sha256((str(relay) + "\0" + str(pubkey).lower()).encode()).hexdigest()[:24]
-        self.path = adapter_state_dir(state_dir) / f"{key}.lock"
+        self.path = lock_dir(state_dir) / f"{key}.lock"
         self._fd: int | None = None
 
     @property
@@ -266,5 +311,5 @@ def is_reply_to_own(event: dict, own_ids: set[str]) -> bool:
     return any(tag[1] in own_ids for tag in _tag_values(event, "e"))
 
 
-__all__ = ["EventTracker", "IdentityLock", "MAX_ATTEMPTS", "event_thread", "reply_parent", "is_reply_to_own",
-           "state_root", "adapter_state_dir"]
+__all__ = ["EventTracker", "IdentityLock", "MAX_ATTEMPTS", "MAX_SEEN", "event_thread", "reply_parent",
+           "is_reply_to_own", "state_root", "adapter_state_dir", "shared_root", "lock_dir"]

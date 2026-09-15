@@ -1,5 +1,6 @@
 import json
 import hashlib
+import os
 import subprocess
 import sys
 import textwrap
@@ -32,18 +33,35 @@ def test_persisted_cursor_overlaps_timestamp_and_deduplicates(tmp_path):
     assert not second.should_accept(event("one", 101))
 
 
-def test_expiration_and_bounded_seen(tmp_path):
+def test_expiration_and_the_hard_ceiling(tmp_path, caplog):
     tracker = EventTracker("r", "a", ["lab"], state_dir=tmp_path, now=100, max_seen=2)
     assert not tracker.should_accept(event("expired", 100, [["expiration", "100"]]))
-    for index in range(3):
-        tracker.mark(event(str(index), 101 + index))
-    # The persisted set stays bounded. Over budget, the oldest second (101) is retired
-    # and the floor moves to the oldest retained second (102), so the two newest IDs
-    # remain deduplicated instead of being forgotten.
+    with caplog.at_level("WARNING", logger="ingress"):
+        for index in range(3):
+            tracker.mark(event(str(index), 101 + index))
+    # Only the hard ceiling retires IDs. Over it, the oldest second (101) is retired,
+    # the floor moves to the oldest retained second (102) and the hit is logged, so the
+    # two newest IDs remain deduplicated instead of being forgotten.
     state = json.loads(tracker.path.read_text())
     assert len(state["seen"]) == 2
     assert set(state["seen"].values()) == {102, 103}
     assert state["floor"] == 102
+    assert any("hard ceiling of 2" in record.getMessage() for record in caplog.records)
+
+
+def test_same_second_burst_stays_inside_the_window(tmp_path):
+    # The replay window bounds correctness: every ID in it is kept whatever the
+    # burst size, so an unseen event from a busy second is still accepted and the
+    # seen ones are still rejected. The default ceiling sits far above the window.
+    assert ingress.MAX_SEEN == 100000
+    tracker = EventTracker("r", "a", ["lab"], state_dir=tmp_path, now=100)
+    for index in range(4):
+        tracker.mark(event(f"burst-{index}", 101))
+    assert tracker.floor == 100 and len(tracker.seen) == 4
+    assert tracker.should_accept(event("unseen", 101), now=101)
+    assert all(not tracker.should_accept(event(f"burst-{index}", 101), now=101) for index in range(4))
+    restored = EventTracker("r", "a", ["lab"], state_dir=tmp_path, now=101)
+    assert len(restored.seen) == 4 and not restored.should_accept(event("burst-0", 101), now=101)
 
 
 def test_nip10_root_reply_and_own_parent():
@@ -160,6 +178,48 @@ def test_state_root_uses_hermes_active_home(tmp_path, monkeypatch):
     monkeypatch.setitem(sys.modules, "hermes_cli.config", fake)
     monkeypatch.setenv("HERMES_HOME", str(tmp_path / "ignored"))
     assert ingress.state_root() == tmp_path / "profile"
+
+
+def test_identity_lock_is_shared_across_profile_homes(tmp_path, monkeypatch):
+    # Two profiles of one Hermes installation resolve the same lock file, so they
+    # cannot run the same identity at once; tracker state stays per profile home.
+    root = tmp_path / "hermes"
+    monkeypatch.setenv("HERMES_HOME", str(root / "profiles" / "a"))
+    first = IdentityLock("http://relay", "a" * 64)
+    tracker_a = EventTracker("r", "a" * 64, ["lab"], now=100)
+    monkeypatch.setenv("HERMES_HOME", str(root / "profiles" / "b"))
+    second = IdentityLock("http://relay", "a" * 64)
+    tracker_b = EventTracker("r", "a" * 64, ["lab"], now=100)
+    assert first.path == second.path == root / "state" / "tinyagent" / "locks" / first.path.name
+    assert tracker_a.path.parent == root / "profiles" / "a" / "state" / "tinyagent"
+    assert tracker_b.path.parent == root / "profiles" / "b" / "state" / "tinyagent"
+    first.acquire()
+    with pytest.raises(RuntimeError, match="another Hermes gateway already runs this Tiny identity"):
+        second.acquire()
+    first.release()
+    second.acquire()
+    assert second.held
+    second.release()
+    monkeypatch.setenv("HERMES_HOME", str(root))
+    assert IdentityLock("http://relay", "a" * 64).path == first.path
+
+
+def test_identity_lock_falls_back_to_the_temp_dir_when_the_root_is_read_only(tmp_path, monkeypatch):
+    if hasattr(os, "geteuid") and os.geteuid() == 0:
+        pytest.skip("root can write anywhere")
+    frozen = tmp_path / "frozen"
+    frozen.mkdir()
+    frozen.chmod(0o500)
+    monkeypatch.setattr(ingress, "shared_root", lambda: frozen)
+    monkeypatch.setattr(ingress.tempfile, "gettempdir", lambda: str(tmp_path / "tmp"))
+    try:
+        lock = IdentityLock("http://relay", "a" * 64)
+        assert lock.path.parent == tmp_path / "tmp" / "tinyagent-locks"
+        lock.acquire()
+        assert lock.held
+        lock.release()
+    finally:
+        frozen.chmod(0o700)
 
 
 def test_identity_lock_is_exclusive_in_process(tmp_path):

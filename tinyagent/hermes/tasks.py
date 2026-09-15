@@ -125,6 +125,11 @@ class TaskState:
         if text:
             self.error = text
 
+    @property
+    def delivered(self) -> bool:
+        """True once a reply or a file of this task reached the room."""
+        return any(cls in (TEXT, FILE) for cls in self.classes.values())
+
     # -- progress --------------------------------------------------------
 
     @property
