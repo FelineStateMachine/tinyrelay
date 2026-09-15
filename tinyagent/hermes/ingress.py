@@ -6,8 +6,10 @@ agent identity and subscribed rooms, so reconnects cannot replay old commands.
 
 from __future__ import annotations
 
+import fcntl
 import hashlib
 import json
+import logging
 import os
 import re
 import tempfile
@@ -18,6 +20,31 @@ from typing import Iterable
 _EVENT_ID = re.compile(r"^[0-9a-f]{64}$", re.I)
 _REPLAY_WINDOW = 300
 _FUTURE_SKEW = 300
+# A poison event is retired after this many failed hand-offs to Hermes.
+MAX_ATTEMPTS = 3
+_MAX_ATTEMPT_ENTRIES = 256
+
+logger = logging.getLogger(__name__)
+
+
+def state_root(state_dir: str | Path | None = None) -> Path:
+    """Return the Hermes home used for adapter state.
+
+    The active Hermes home wins when the CLI package is importable (profiles may
+    override the environment); otherwise HERMES_HOME, then ~/.hermes.
+    """
+    if state_dir:
+        return Path(state_dir).expanduser()
+    try:
+        from hermes_cli.config import get_hermes_home
+        return Path(get_hermes_home()).expanduser()
+    except Exception:
+        return Path(os.environ.get("HERMES_HOME", "").strip() or "~/.hermes").expanduser()
+
+
+def adapter_state_dir(root: str | Path | None = None) -> Path:
+    """Return the directory holding tracker state and identity locks."""
+    return state_root(root) / "state" / "tinyagent"
 
 
 def _tag_values(event: dict, name: str) -> list[list[str]]:
@@ -35,21 +62,26 @@ def _expiration(event: dict) -> int | None:
 
 
 class EventTracker:
-    """Bounded persistent event cursor and ID set for one Tiny subscription."""
+    """Bounded persistent event cursor and ID set for one Tiny subscription.
+
+    State file (JSON): ``floor`` and ``cursor`` are Unix seconds; ``seen`` maps a
+    delivered event ID to its ``created_at``; ``attempts`` maps an event ID to the
+    number of failed hand-offs. Older files stored ``seen`` as a list of IDs and
+    load with every listed ID pinned to the cursor.
+    """
 
     def __init__(self, relay: str, identity: str, rooms: Iterable[str], *, state_dir: str | Path | None = None,
                  now: int | None = None, max_seen: int = 10000):
         self.relay, self.identity = str(relay), str(identity).lower()
         self.rooms = tuple(sorted(str(room) for room in rooms))
-        root = Path(state_dir or os.environ.get("HERMES_HOME", "~/.hermes")).expanduser()
         key = hashlib.sha256((self.relay + "\0" + self.identity + "\0" + "\0".join(self.rooms)).encode()).hexdigest()[:24]
-        self.path = root / "state" / "tinyagent" / f"{key}.json"
+        self.path = adapter_state_dir(state_dir) / f"{key}.json"
         self.max_seen = max(1, int(max_seen))
         self.now = int(time.time() if now is None else now)
         self.floor = self.now
         self.cursor = self.now
-        self.seen: list[str] = []
-        self._seen: set[str] = set()
+        self.seen: dict[str, int] = {}
+        self.attempts: dict[str, int] = {}
         self._load()
         # Establish the first-start floor immediately, including a clean restart before
         # any event arrives. This prevents a later process from treating its own startup
@@ -61,15 +93,23 @@ class EventTracker:
             data = json.loads(self.path.read_text())
             self.floor = int(data.get("floor", data.get("cursor", self.floor)))
             self.cursor = int(data.get("cursor", self.cursor))
-            self.seen = [str(value) for value in data.get("seen", [])][-self.max_seen:]
-            self._seen = set(self.seen)
-        except (OSError, ValueError, TypeError):
+            seen = data.get("seen", {})
+            if isinstance(seen, list):
+                # Legacy format: IDs without timestamps stay in the replay window.
+                self.seen = {str(value): self.cursor for value in seen}
+            else:
+                self.seen = {str(key): int(value) for key, value in dict(seen).items()}
+            attempts = data.get("attempts", {})
+            self.attempts = {str(key): int(value) for key, value in dict(attempts).items()}
+        except (OSError, ValueError, TypeError, AttributeError):
             return
+        self._prune()
 
     def _save(self) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         os.chmod(self.path.parent, 0o700)
-        payload = json.dumps({"floor": self.floor, "cursor": self.cursor, "seen": self.seen[-self.max_seen:]}, separators=(",", ":"))
+        payload = json.dumps({"floor": self.floor, "cursor": self.cursor, "seen": self.seen,
+                              "attempts": self.attempts}, separators=(",", ":"))
         fd, temporary = tempfile.mkstemp(prefix="tinyagent-", dir=self.path.parent)
         try:
             with os.fdopen(fd, "w") as stream:
@@ -83,16 +123,37 @@ class EventTracker:
             except FileNotFoundError:
                 pass
 
+    def _window_start(self) -> int:
+        return max(self.floor, self.cursor - _REPLAY_WINDOW)
+
+    def _prune(self) -> None:
+        """Drop IDs the window already rejects; raise the floor only when still over budget."""
+        start = self._window_start()
+        self.seen = {key: stamp for key, stamp in self.seen.items() if stamp >= start}
+        if len(self.seen) > self.max_seen:
+            stamps = sorted(self.seen.values(), reverse=True)
+            threshold = stamps[self.max_seen - 1]
+            if sum(1 for stamp in stamps if stamp >= threshold) > self.max_seen:
+                # More IDs share the oldest retained second than fit; retire that second.
+                threshold += 1
+            self.seen = {key: stamp for key, stamp in self.seen.items() if stamp >= threshold}
+            self.floor = max(self.floor, threshold)
+            logger.warning("Tiny replay cache exceeded %d IDs; events before %d are now ignored",
+                           self.max_seen, self.floor)
+        self.attempts = {key: count for key, count in self.attempts.items() if key not in self.seen}
+        while len(self.attempts) > _MAX_ATTEMPT_ENTRIES:
+            self.attempts.pop(next(iter(self.attempts)))
+
     def should_accept(self, event: dict, *, now: int | None = None) -> bool:
         """Return true only for unseen, non-expired events at/after the cursor."""
         event_id = str(event.get("id", ""))
-        if not _EVENT_ID.fullmatch(event_id) or event_id in self._seen:
+        if not _EVENT_ID.fullmatch(event_id) or event_id in self.seen:
             return False
         try:
             created = int(event.get("created_at"))
         except (TypeError, ValueError):
             return False
-        if created < max(self.floor, self.cursor - _REPLAY_WINDOW):
+        if created < self._window_start():
             return False
         if created > int(time.time() if now is None else now) + _FUTURE_SKEW:
             return False
@@ -109,27 +170,77 @@ class EventTracker:
         if not _EVENT_ID.fullmatch(event_id):
             return
         try:
-            self.cursor = max(self.cursor, int(event.get("created_at", self.cursor)))
+            created = int(event.get("created_at", self.cursor))
         except (TypeError, ValueError):
-            pass
-        if event_id not in self._seen:
-            self._seen.add(event_id)
-            self.seen.append(event_id)
-            if len(self.seen) > self.max_seen:
-                # Retire the overlap instead of forgetting IDs still eligible for replay.
-                self.floor = self.cursor + 1
-                self._seen = set(self.seen[-self.max_seen:])
-                self.seen = self.seen[-self.max_seen:]
+            created = self.cursor
+        self.cursor = max(self.cursor, created)
+        self.seen.setdefault(event_id, created)
+        self.attempts.pop(event_id, None)
+        self._prune()
         self._save()
+
+    def fail(self, event: dict) -> bool:
+        """Count a failed hand-off; retire the event after MAX_ATTEMPTS and return True."""
+        event_id = str(event.get("id", ""))
+        if not _EVENT_ID.fullmatch(event_id):
+            return False
+        count = self.attempts.pop(event_id, 0) + 1
+        if count >= MAX_ATTEMPTS:
+            self.mark(event)
+            return True
+        self.attempts[event_id] = count
+        self._prune()
+        self._save()
+        return False
 
     def filter_since(self) -> dict:
         """Return an overlapping subscription filter; same-timestamp IDs are retained."""
         # Match should_accept's bounded overlap. A one-second overlap is insufficient
         # when the helper returns events out of order or the gateway was offline.
-        result = {"since": max(self.floor, self.cursor - _REPLAY_WINDOW)}
+        result = {"since": self._window_start()}
         if self.rooms:
             result["#h"] = list(self.rooms)
         return result
+
+
+class IdentityLock:
+    """Exclusive per-identity lock so one gateway consumes a Tiny key at a time."""
+
+    def __init__(self, relay: str, pubkey: str, *, state_dir: str | Path | None = None):
+        key = hashlib.sha256((str(relay) + "\0" + str(pubkey).lower()).encode()).hexdigest()[:24]
+        self.path = adapter_state_dir(state_dir) / f"{key}.lock"
+        self._fd: int | None = None
+
+    @property
+    def held(self) -> bool:
+        return self._fd is not None
+
+    def acquire(self) -> None:
+        if self._fd is not None:
+            return
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        os.chmod(self.path.parent, 0o700)
+        fd = os.open(self.path, os.O_RDWR | os.O_CREAT, 0o600)
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError:
+            os.close(fd)
+            raise RuntimeError("another Hermes gateway already runs this Tiny identity") from None
+        try:
+            os.ftruncate(fd, 0)
+            os.write(fd, str(os.getpid()).encode())
+        except OSError:
+            pass
+        self._fd = fd
+
+    def release(self) -> None:
+        if self._fd is None:
+            return
+        fd, self._fd = self._fd, None
+        try:
+            fcntl.flock(fd, fcntl.LOCK_UN)
+        finally:
+            os.close(fd)
 
 
 def event_thread(event: dict) -> str | None:
@@ -155,4 +266,5 @@ def is_reply_to_own(event: dict, own_ids: set[str]) -> bool:
     return any(tag[1] in own_ids for tag in _tag_values(event, "e"))
 
 
-__all__ = ["EventTracker", "event_thread", "reply_parent", "is_reply_to_own"]
+__all__ = ["EventTracker", "IdentityLock", "MAX_ATTEMPTS", "event_thread", "reply_parent", "is_reply_to_own",
+           "state_root", "adapter_state_dir"]

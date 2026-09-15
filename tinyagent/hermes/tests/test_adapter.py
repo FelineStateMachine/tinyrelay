@@ -402,3 +402,272 @@ def test_public_approval_hook_preserves_scopes_on_older_hermes(adapter, monkeypa
         await adapter._on_answer(response(request, 'once'))
         assert entry.event.is_set() and entry.result == 'once'
     asyncio.run(run())
+
+
+class FakeHelper:
+    """Stands in for TinyRPC: answers identity, records filters and dies on demand."""
+
+    instances = []
+    fail_identity = False
+
+    def __init__(self, relay_url, key_env="TINY_PRIVATE_KEY", cli_path="tinyagent", on_exit=None):
+        self.relay_url, self.on_exit = relay_url, on_exit
+        self.filters, self.subscriptions, self.events = [], {}, []
+        self.closed = self.dead = False
+        FakeHelper.instances.append(self)
+
+    @property
+    def alive(self):
+        return not (self.closed or self.dead)
+
+    async def call(self, method, params=None, timeout=30):
+        if FakeHelper.fail_identity:
+            raise RuntimeError("helper unavailable")
+        return {"pubkey": BOT} if method == "identity" else {}
+
+    async def subscribe(self, name, filter, callback):
+        self.filters.append(filter)
+        self.subscriptions[name] = callback
+
+    async def unsubscribe(self, name):
+        self.subscriptions.pop(name, None)
+
+    async def query(self, _filter):
+        return []
+
+    async def close(self):
+        self.closed = True
+
+    def die(self):
+        self.dead = True
+        self.on_exit(self)
+
+
+@pytest.fixture
+def helper(monkeypatch):
+    import adapter as module
+    FakeHelper.instances.clear()
+    FakeHelper.fail_identity = False
+    monkeypatch.setattr(module, "TinyRPC", FakeHelper)
+    yield FakeHelper
+    FakeHelper.fail_identity = False
+
+
+def live_adapter(marks=None):
+    instance = TinyAdapter(PlatformConfig(enabled=True, extra={"relay_url": "http://relay", "rooms": "room",
+                                                               "allowed_users": OWNER}))
+    instance.RECONNECT_MIN = 0.01
+    instance.RECONNECT_MAX = 0.03
+    if marks is not None:
+        original = instance._mark_connected
+        def marked(**kwargs):
+            marks.append("connected")
+            original(**kwargs)
+        instance._mark_connected = marked
+    return instance
+
+
+def test_helper_death_reconnects_from_persisted_cursor(adapter, helper, tmp_path):
+    from ingress import EventTracker
+    marks = []
+    instance = live_adapter(marks)
+    now = int(time.time())
+    # A tracker with history: the floor is old and the cursor moves with delivered events.
+    instance._tracker = EventTracker("http://relay", BOT, ["room"], now=now - 1000)
+    received = []
+    async def handle(message): received.append(message)
+    instance.handle_message = handle
+
+    async def run():
+        assert await instance.connect()
+        first = helper.instances[-1]
+        assert instance.is_connected and instance._lock.held
+        assert first.filters == [{"kinds": [9, 11, 12, 1111], "since": now - 1000, "#h": ["room"]}]
+        await first.subscriptions["tinyagent"]({"kind": 9, "id": "d" * 64, "pubkey": OWNER, "created_at": now,
+                                                "content": "hello", "tags": [["h", "room"], ["p", BOT]]})
+        assert len(received) == 1 and instance._tracker.cursor == now
+        first.die()
+        assert not instance.is_connected
+        await asyncio.wait_for(instance._reconnect_task, 2)
+        second = helper.instances[-1]
+        assert second is not first and first.closed and instance.rpc is second
+        assert second.filters == [{"kinds": [9, 11, 12, 1111], "since": now - 300, "#h": ["room"]}]
+        assert instance.is_connected and instance._lock.held and marks == ["connected", "connected"]
+        # The same tracker persists across the reconnect: the delivered event stays deduplicated.
+        assert not instance._tracker.should_accept({"id": "d" * 64, "created_at": now, "tags": []})
+        await instance.disconnect()
+        assert not instance.is_connected and instance._lock is None and second.closed
+    asyncio.run(run())
+
+
+def test_reconnect_backs_off_and_disconnect_cancels_it(adapter, helper, monkeypatch):
+    import adapter as module
+    instance = live_adapter()
+    delays = []
+    real_sleep = asyncio.sleep
+    async def sleep(delay, *args):
+        delays.append(delay)
+        await real_sleep(0)
+    monkeypatch.setattr(module.asyncio, "sleep", sleep)
+
+    async def run():
+        await instance.connect()
+        first = helper.instances[-1]
+        helper.fail_identity = True
+        first.die()
+        task = instance._reconnect_task
+        for _ in range(12):
+            await real_sleep(0)
+        assert delays[:4] == [0.01, 0.02, 0.03, 0.03]
+        assert not instance.is_connected
+        await instance.disconnect()
+        assert task.cancelled() and instance._reconnect_task is None
+        spawned = len(helper.instances)
+        helper.fail_identity = False
+        for _ in range(5):
+            await real_sleep(0)
+        assert len(helper.instances) == spawned
+        assert not instance.is_connected
+    asyncio.run(run())
+
+
+def test_watcher_reconnect_uses_the_same_path(adapter, helper):
+    instance = live_adapter()
+
+    async def run():
+        await instance.connect()
+        first = helper.instances[-1]
+        tracker = instance._tracker
+        await instance.disconnect()
+        assert first.closed and not instance.is_connected
+        # Hermes's watcher calls connect(is_reconnect=True); the persisted cursor is reused.
+        assert await instance.connect(is_reconnect=True)
+        second = helper.instances[-1]
+        assert second is not first and instance.is_connected and instance._lock.held
+        assert second.filters[0]["since"] == tracker.filter_since()["since"]
+        await instance.disconnect()
+    asyncio.run(run())
+
+
+def test_identity_lock_refuses_a_second_gateway(adapter, helper):
+    first, second = live_adapter(), live_adapter()
+
+    async def run():
+        await first.connect()
+        with pytest.raises(RuntimeError, match="another Hermes gateway already runs this Tiny identity"):
+            await second.connect()
+        assert helper.instances[-1].closed and not second.is_connected and second._lock is None
+        await first.disconnect()
+        assert await second.connect()
+        assert second.is_connected
+        await second.disconnect()
+    asyncio.run(run())
+
+
+def test_event_is_marked_only_after_hermes_accepts_it(adapter, tmp_path):
+    from ingress import EventTracker
+    now = int(time.time())
+    adapter._tracker = EventTracker("http://relay", BOT, ["room"], state_dir=tmp_path, now=now - 10)
+    poison = {"kind": 9, "id": "d" * 64, "pubkey": OWNER, "created_at": now, "content": "boom",
+              "tags": [["h", "room"], ["p", BOT]]}
+    attempts = []
+    async def failing(message):
+        attempts.append(message.message_id)
+        raise RuntimeError("Hermes rejected the turn")
+    adapter.handle_message = failing
+    for attempt in (1, 2):
+        with pytest.raises(RuntimeError):
+            asyncio.run(adapter._on_event(poison))
+        assert adapter._tracker.should_accept(poison)
+        assert adapter._tracker.attempts == {poison["id"]: attempt}
+    with pytest.raises(RuntimeError):
+        asyncio.run(adapter._on_event(poison))
+    assert len(attempts) == 3
+    assert not adapter._tracker.should_accept(poison) and adapter._tracker.attempts == {}
+    asyncio.run(adapter._on_event(poison))
+    assert len(attempts) == 3
+    handled = []
+    async def accept(message): handled.append(message.message_id)
+    adapter.handle_message = accept
+    good = {**poison, "id": "e" * 64, "content": "hello"}
+    asyncio.run(adapter._on_event(good))
+    asyncio.run(adapter._on_event(good))
+    assert handled == [good["id"]]
+    assert not adapter._tracker.should_accept(good)
+    assert json.loads(adapter._tracker.path.read_text())["seen"] == {poison["id"]: now, good["id"]: now}
+
+
+def test_env_enablement_seeds_a_home_channel(adapter, monkeypatch):
+    import adapter as module
+    from gateway.config import GatewayConfig, HomeChannel, Platform
+    from gateway.config_env import _enable_plugin_platform
+    monkeypatch.setenv("TINY_RELAY_URL", "http://relay")
+    monkeypatch.setenv("TINY_PRIVATE_KEY", "k" * 64)
+    monkeypatch.setenv("TINY_HOME_CHANNEL", "home-room")
+    assert module._env_enablement()["home_channel"] == {"chat_id": "home-room", "name": "Home"}
+    class Ctx:
+        def register_platform(self, **kwargs):
+            platform_registry.register(PlatformEntry(**kwargs))
+    module.register(Ctx())
+    config = GatewayConfig()
+    _enable_plugin_platform(config, platform_registry.get("tiny"))
+    home = config.platforms[Platform("tiny")].home_channel
+    assert isinstance(home, HomeChannel) and home.chat_id == "home-room" and home.name == "Home"
+    assert "home_channel" not in config.platforms[Platform("tiny")].extra
+    assert TinyAdapter(config.platforms[Platform("tiny")]).home_room == "home-room"
+
+
+def test_answers_resume_typing_after_waits(adapter):
+    async def run():
+        entry = _ApprovalEntry({"command": "ls", "request_id": "approval-id"})
+        approval._gateway_queues["session"] = [entry]
+        adapter.pause_typing_for_chat("room")
+        await adapter.send_exec_approval("room", "ls", "session")
+        request = adapter.rpc.events[-1]
+        assert "room" in adapter._typing_paused
+        await adapter._on_answer(response(request, "once"))
+        assert entry.event.is_set() and "room" not in adapter._typing_paused
+        async def handler(choice): return None
+        slash_confirm.register("session", "confirm-id", "reload", handler)
+        adapter.pause_typing_for_chat("room")
+        await adapter.send_slash_confirm("room", "Reload?", "Confirm", "session", "confirm-id")
+        await adapter._on_answer(response(adapter.rpc.events[-1], "once"))
+        assert "room" not in adapter._typing_paused
+    asyncio.run(run())
+
+
+def test_pending_requests_are_bounded_and_swept(adapter, monkeypatch):
+    import interactions
+    monkeypatch.setattr(interactions, "MAX_PENDING", 3)
+    async def run():
+        for index in range(5):
+            clarify_gateway.register(f"q{index}", "session", "Pick", ["yes"])
+            await adapter.send_clarify("room", "Pick", ["yes"], f"q{index}", "session")
+        assert [entry.callback_id for entry in adapter._pending.values()] == ["q2", "q3", "q4"]
+        stale = next(iter(adapter._pending.values()))
+        stale.expires = int(time.time()) - 1
+        adapter._sweep_pending()
+        assert [entry.callback_id for entry in adapter._pending.values()] == ["q3", "q4"]
+        # An answer sweeps too, so an expired card never lingers.
+        list(adapter._pending.values())[0].expires = int(time.time()) - 1
+        await adapter._on_answer({"kind": 1111, "tags": [["e", "0" * 64]], "pubkey": OWNER,
+                                  "created_at": int(time.time()), "content": "c0"})
+        assert [entry.callback_id for entry in adapter._pending.values()] == ["q4"]
+    asyncio.run(run())
+
+
+def test_receive_path_sweeps_pending_once_a_minute(adapter, monkeypatch):
+    sweeps = []
+    monkeypatch.setattr(adapter, "_sweep_pending", lambda now=None: sweeps.append(now))
+    async def handle(message): pass
+    adapter.handle_message = handle
+    base = {"kind": 9, "pubkey": OWNER, "created_at": int(time.time()), "content": "hello",
+            "tags": [["h", "room"], ["p", BOT]]}
+    async def run():
+        await adapter._on_event({**base, "id": "d" * 64})
+        await adapter._on_event({**base, "id": "e" * 64})
+    asyncio.run(run())
+    assert len(sweeps) == 1
+    adapter._last_sweep = time.monotonic() - adapter.SWEEP_INTERVAL
+    asyncio.run(adapter._on_event({**base, "id": "f" * 64}))
+    assert len(sweeps) == 2

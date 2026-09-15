@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 from contextvars import ContextVar
 import json
+import logging
 import mimetypes
 import hashlib
 import os
@@ -26,12 +27,14 @@ try:
     from .client import TinyRPC
     from .interactions import InteractionMixin
     from .media import incoming_media
-    from .ingress import EventTracker, event_thread, reply_parent
+    from .ingress import EventTracker, IdentityLock, event_thread, reply_parent
 except ImportError:  # Hermes plugin loader may import adapter.py as a top-level module.
     from client import TinyRPC
     from interactions import InteractionMixin
     from media import incoming_media
-    from ingress import EventTracker, event_thread, reply_parent
+    from ingress import EventTracker, IdentityLock, event_thread, reply_parent
+
+logger = logging.getLogger(__name__)
 
 _HEX = re.compile(r"\b[0-9a-f]{64}\b", re.I)
 _MENTION = re.compile(r"(?<![0-9A-Za-z])@([0-9a-f]{64})(?![0-9A-Za-z])", re.I)
@@ -62,6 +65,10 @@ class TinyAdapter(InteractionMixin, BasePlatformAdapter):
     supports_async_delivery = True
     MAX_MESSAGE_LENGTH = 12000
     MAX_INTERACTION_OPTIONS = 12
+    # Helper-death recovery backoff in seconds; Hermes's own watcher starts at 30s.
+    RECONNECT_MIN = 1.0
+    RECONNECT_MAX = 30.0
+    SWEEP_INTERVAL = 60.0
 
     def __init__(self, config: PlatformConfig):
         super().__init__(config, Platform("tiny"))
@@ -69,7 +76,10 @@ class TinyAdapter(InteractionMixin, BasePlatformAdapter):
         self.relay_url = str(extra.get("relay_url") or os.environ.get("TINY_RELAY_URL", "")).strip()
         self.cli_path = str(extra.get("cli_path") or os.environ.get("TINY_CLI_PATH", "tinyagent"))
         self.rooms = [x.strip() for x in str(extra.get("rooms") or extra.get("channels") or os.environ.get("TINY_CHANNELS", "")).split(",") if x.strip()]
-        home = extra.get("home_channel") or os.environ.get("TINY_HOME_CHANNEL", "")
+        home = extra.get("home_channel") or getattr(getattr(config, "home_channel", None), "chat_id", None) \
+            or os.environ.get("TINY_HOME_CHANNEL", "")
+        if isinstance(home, dict):
+            home = home.get("chat_id", "")
         self.home_room = str(home).strip() or (self.rooms[0] if self.rooms else "")
         self.allowed = {x.strip().lower() for x in str(extra.get("allowed_users") or os.environ.get("TINY_ALLOWED_USERS", "")).split(",") if x.strip()}
         require_mention = extra.get("require_mention", os.environ.get("TINY_REQUIRE_MENTION", "true"))
@@ -87,6 +97,10 @@ class TinyAdapter(InteractionMixin, BasePlatformAdapter):
         self._reply_routes: dict[str, dict] = {}
         self._turn_routes: dict[str, dict] = {}
         self._turn_route = ContextVar("tinyagent_turn_route", default=None)
+        self._lock: IdentityLock | None = None
+        self._closed = False
+        self._reconnect_task: asyncio.Task | None = None
+        self._last_sweep = 0.0
 
     @property
     def name(self) -> str:
@@ -143,25 +157,87 @@ class TinyAdapter(InteractionMixin, BasePlatformAdapter):
         return tags, 12 if thread else 9
 
     async def connect(self, *, is_reconnect: bool = False) -> bool:
-        self.rpc = TinyRPC(self.relay_url, cli_path=self.cli_path)
-        identity = await self.rpc.call("identity")
-        self.pubkey = str(identity.get("pubkey", ""))
-        if not self.pubkey:
-            raise RuntimeError("Tiny identity did not return a public key")
-        self._tracker = EventTracker(self.relay_url, self.pubkey, self.rooms)
-        filter: dict[str, Any] = {"kinds": [9, 11, 12, 1111], **self._tracker.filter_since()}
-        if self.rooms:
-            filter["#h"] = self.rooms
-        await self.rpc.subscribe(self._subscription, filter, self._on_event)
-        self._mark_connected()
+        """Start the helper and subscribe. Hermes's watcher calls this on a fresh adapter
+        with is_reconnect=True; helper death inside a live adapter reuses _establish."""
+        self._closed = False
+        await self._establish()
         return True
 
+    async def _establish(self) -> None:
+        """Spawn a helper, prove the identity, take its lock and subscribe from the cursor."""
+        rpc = TinyRPC(self.relay_url, cli_path=self.cli_path, on_exit=self._on_helper_exit)
+        try:
+            identity = await rpc.call("identity")
+            pubkey = str((identity or {}).get("pubkey", ""))
+            if not pubkey:
+                raise RuntimeError("Tiny identity did not return a public key")
+            if self._lock is None or self.pubkey.lower() != pubkey.lower():
+                if self._lock is not None:
+                    self._lock.release()
+                lock = IdentityLock(self.relay_url, pubkey)
+                lock.acquire()
+                self._lock = lock
+            self.pubkey = pubkey
+            if self._tracker is None or self._tracker.identity != pubkey.lower():
+                self._tracker = EventTracker(self.relay_url, pubkey, self.rooms)
+            filter: dict[str, Any] = {"kinds": [9, 11, 12, 1111], **self._tracker.filter_since()}
+            if self.rooms:
+                filter["#h"] = self.rooms
+            await rpc.subscribe(self._subscription, filter, self._on_event)
+        except BaseException:
+            await rpc.close()
+            raise
+        previous, self.rpc = self.rpc, rpc
+        if previous is not None and previous is not rpc:
+            await previous.close()
+        self._mark_connected()
+
+    def _on_helper_exit(self, rpc) -> None:
+        """TinyRPC reports the helper died on its own; recover in the background."""
+        if self._closed or rpc is not self.rpc:
+            return
+        logger.warning("Tiny helper exited; reconnecting")
+        self._mark_disconnected()
+        if self._reconnect_task is None or self._reconnect_task.done():
+            self._reconnect_task = asyncio.create_task(self._reconnect_loop())
+
+    async def _reconnect_loop(self) -> None:
+        """Bounded exponential backoff until the helper is back or the adapter closes.
+
+        The adapter stays installed in Hermes throughout, so process-local waiters and
+        the identity lock survive; the gateway's reconnect watcher only builds a new
+        adapter for fatal errors, which this path never raises.
+        """
+        delay = self.RECONNECT_MIN
+        while not self._closed:
+            await asyncio.sleep(delay)
+            if self._closed:
+                return
+            try:
+                await self._establish()
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:
+                delay = min(delay * 2, self.RECONNECT_MAX)
+                logger.warning("Tiny helper reconnect failed: %s; retrying in %.0fs", exc, delay)
+                continue
+            logger.info("Tiny helper reconnected from cursor %s", self._tracker.cursor if self._tracker else "?")
+            return
+
     async def disconnect(self) -> None:
-        if self.rpc:
-            with_context = self.rpc.unsubscribe(self._subscription)
-            await asyncio.gather(with_context, return_exceptions=True)
-            await self.rpc.close()
-        self.rpc = None
+        self._closed = True
+        task, self._reconnect_task = self._reconnect_task, None
+        if task is not None and task is not asyncio.current_task():
+            task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
+        rpc, self.rpc = self.rpc, None
+        if rpc is not None:
+            if rpc.alive:
+                await asyncio.gather(rpc.unsubscribe(self._subscription), return_exceptions=True)
+            await rpc.close()
+        if self._lock is not None:
+            self._lock.release()
+            self._lock = None
         self._mark_disconnected()
 
     async def _on_event(self, event: dict) -> None:
@@ -169,6 +245,10 @@ class TinyAdapter(InteractionMixin, BasePlatformAdapter):
         if event_id in self._processing:
             return
         self._processing.add(event_id)
+        now = time.monotonic()
+        if now - self._last_sweep >= self.SWEEP_INTERVAL:
+            self._last_sweep = now
+            self._sweep_pending()
         try:
             await self._receive_event(event)
         finally:
@@ -220,9 +300,17 @@ class TinyAdapter(InteractionMixin, BasePlatformAdapter):
                                          "reply_to_message_id": event_id, "thread_id": thread_id, "user_id": author}
         if len(self._reply_routes) > 10000:
             self._reply_routes.pop(next(iter(self._reply_routes)))
+        # The event counts as delivered only once Hermes has accepted it. A failed
+        # hand-off leaves it eligible for redelivery until the attempt budget is spent.
+        try:
+            await self.handle_message(message)
+        except BaseException as exc:
+            if self._tracker and not isinstance(exc, asyncio.CancelledError):
+                if self._tracker.fail(event):
+                    logger.error("Tiny event %s retired after repeated failures", event_id, exc_info=exc)
+            raise
         if self._tracker:
             self._tracker.mark(event)
-        await self.handle_message(message)
 
     def _authorized(self, author: str) -> bool:
         return author.lower() in self.allowed
@@ -341,10 +429,14 @@ def _env_enablement() -> dict | None:
     if not relay or not key:
         return None
     result = {"relay_url": relay}
-    for env, key_name in (("TINY_HOME_CHANNEL", "home_channel"), ("TINY_ALLOWED_USERS", "allowed_users"),
-                           ("TINY_CLI_PATH", "cli_path"), ("TINY_REQUIRE_MENTION", "require_mention")):
+    for env, key_name in (("TINY_ALLOWED_USERS", "allowed_users"), ("TINY_CLI_PATH", "cli_path"),
+                          ("TINY_REQUIRE_MENTION", "require_mention")):
         if os.environ.get(env):
             result[key_name] = os.environ[env]
+    home = os.environ.get("TINY_HOME_CHANNEL", "").strip()
+    if home:
+        # Hermes lifts this dict into a HomeChannel for cron and standalone delivery.
+        result["home_channel"] = {"chat_id": home, "name": "Home"}
     return result
 
 

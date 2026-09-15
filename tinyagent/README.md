@@ -33,7 +33,11 @@ hermes gateway run
 
 By default, Hermes responds when an allowed user mentions the agent or replies to one of its messages. Set `TINY_REQUIRE_MENTION=false` to respond to all messages from allowed users in the selected rooms. This controls when Hermes responds; notifications still require an explicit mention by the agent.
 
-`TINY_PRIVATE_KEY` is read from the environment by the helper and is never a command-line argument. Give that key membership and an agent grant for the selected rooms on Tiny, including attachment access. Use a relay with the [native interaction extension](../docs/extensions/tinyagent.md) for interactive cards. Hermes loads the adapter through its normal plugin system. Attachments use authenticated Tinyrelay endpoints, with size and hash checks.
+`TINY_PRIVATE_KEY` is read from the environment by the helper and is never a command-line argument. The helper receives only `PATH`, `HOME`, `TMPDIR`, the key variable and the proxy variables from the gateway's environment. Give that key membership and an agent grant for the selected rooms on Tiny, including attachment access. Use a relay with the [native interaction extension](../docs/extensions/tinyagent.md) for interactive cards. Hermes loads the adapter through its normal plugin system. Attachments use authenticated Tinyrelay endpoints, with size and hash checks.
+
+One gateway runs one Tiny identity at a time. On connect, the adapter takes an exclusive lock for the relay and key under `$HERMES_HOME/state/tinyagent/` and releases it on disconnect. A second gateway using the same key fails to connect with `another Hermes gateway already runs this Tiny identity`. The same directory keeps the delivery cursor, so a restart resumes where the previous run stopped instead of replaying old messages.
+
+If the helper process exits, Hermes reports the Tiny platform as disconnected and the adapter restarts the helper on its own, waiting 1 second before the first attempt and doubling the wait up to 30 seconds between failures. Once the helper is back, the adapter resubscribes from the saved cursor and reports the platform as connected again. Pending questions and approvals stay valid across the restart because the adapter itself keeps running.
 
 The helper exposes a JSON-lines RPC mode for the adapter. Its public commands are:
 

@@ -9,6 +9,9 @@ from types import SimpleNamespace
 
 from gateway.platforms.base import SendResult
 
+# Open request cards kept per adapter; the oldest are dropped past this.
+MAX_PENDING = 500
+
 
 def tag(event, name):
     return next((row[1] for row in event.get("tags", []) if len(row) > 1 and row[0] == name), None)
@@ -88,8 +91,17 @@ class InteractionMixin:
         pending.request_kind = request_kind
         result = await self._publish(pending.room, content, [*reply_tags, *tags], kind=request_kind)
         if result.success and result.message_id:
+            self._sweep_pending()
             self._pending[result.message_id] = pending
+            while len(self._pending) > MAX_PENDING:
+                self._pending.pop(next(iter(self._pending)))
         return result
+
+    def _sweep_pending(self, now=None):
+        """Drop expired request cards; the adapter also calls this from its receive path."""
+        now = int(time.time()) if now is None else now
+        for event_id in [key for key, entry in self._pending.items() if now >= entry.expires]:
+            self._pending.pop(event_id, None)
 
     def _pending_request(self, room, session, callback, interaction, options, selection, metadata, ttl=300):
         now = int(time.time())
@@ -134,6 +146,7 @@ class InteractionMixin:
         return await self._request(pending, f"{title}\n\n{message}", title)
 
     async def _on_answer(self, event):
+        self._sweep_pending()
         event_id = tag(event, "e")
         pending = self._pending.get(event_id)
         if pending is None or not self._answer_matches(event, event_id, pending):
@@ -157,6 +170,9 @@ class InteractionMixin:
                     await self.send(pending.room, result, metadata=pending.metadata)
         # Waiters are process-local in Hermes. Never apply a late answer to another request.
         self._pending.pop(event_id, None)
+        if pending.interaction in ("approval", "confirmation"):
+            # Hermes pauses the typing indicator while it waits for an approval.
+            self.resume_typing_for_chat(pending.room)
 
     def _answer_matches(self, event, event_id, pending):
         now = int(time.time())
