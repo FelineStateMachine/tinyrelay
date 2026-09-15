@@ -4,10 +4,10 @@
 html[data-theme=dark]{--paper:#171614;--ink:#d9d6cf;--muted:#8d887c;--rail:#1e1d1a;--line:#2c2a26;--accent:#8fc27a;--soft:#22301f;--hover:#242320;--add:#223521;--del:#3a2a24;--alert:#e08a7a;--g0:#26251f;--g1:#2a3d24;--g2:#3b5a2f;--g3:#4f7d3d;--g4:#8fc27a;--bark:#d3a15c;--w1:#d3a15c;--w2:#9cc48a;--w3:#6ea55a;--w4:#d98a5c;--wait:#e0b465;--wait-soft:#2f2712;--surface:#1c1b18}
 @media(prefers-color-scheme:dark){html:not([data-theme=light]){--paper:#171614;--ink:#d9d6cf;--muted:#8d887c;--rail:#1e1d1a;--line:#2c2a26;--accent:#8fc27a;--soft:#22301f;--hover:#242320;--add:#223521;--del:#3a2a24;--alert:#e08a7a;--g0:#26251f;--g1:#2a3d24;--g2:#3b5a2f;--g3:#4f7d3d;--g4:#8fc27a;--bark:#d3a15c;--w1:#d3a15c;--w2:#9cc48a;--w3:#6ea55a;--w4:#d98a5c;--wait:#e0b465;--wait-soft:#2f2712;--surface:#1c1b18}}
 
-html{color-scheme:light}html[data-theme=dark]{color-scheme:dark}@media(prefers-color-scheme:dark){html:not([data-theme=light]){color-scheme:dark}}
+html{-webkit-tap-highlight-color:transparent;color-scheme:light}html[data-theme=dark]{color-scheme:dark}@media(prefers-color-scheme:dark){html:not([data-theme=light]){color-scheme:dark}}
 html,body{margin:0;padding:0;height:100%;overflow:hidden;overscroll-behavior:none}
 body{font:14px/1.45 var(--sans);color:var(--ink);background:var(--paper)}
-a{color:var(--accent);text-decoration:none}a:hover{text-decoration:underline}
+a{color:var(--accent);text-decoration:none}a:active{text-decoration:underline}@media(hover:hover){a:hover{text-decoration:underline}}
 code,kbd,samp,pre{font-family:var(--mono);font-size:13px}
 h1{font-size:24px;margin:0 0 12px}h2{font-size:17px;margin:22px 0 8px}h3{font-size:14px;margin:18px 0 6px}
 p{margin:0 0 10px}
@@ -15,10 +15,10 @@ small{color:var(--muted)}
 [role=alert]{color:var(--alert)}
 [role=status]{color:var(--muted)}
 input,select,textarea,button{font:inherit;color:inherit;background:var(--paper);border:1px solid var(--line);padding:4px 8px;box-sizing:border-box;max-width:100%}
-button{cursor:pointer;background:var(--rail)}button:hover{background:var(--hover)}button:disabled{cursor:default;color:var(--muted)}
+button{cursor:pointer;background:var(--rail)}button:active{background:var(--hover)}@media(hover:hover){button:hover{background:var(--hover)}}button:disabled{cursor:default;color:var(--muted)}
 /* Three button levels: the quiet default, one primary action per view, and destructive. */
-button[data-primary]{background:var(--accent);border-color:var(--accent);color:#fff;font-weight:500}button[data-primary]:hover{filter:brightness(.92);background:var(--accent)}
-button[data-danger]{color:var(--alert)}button[data-danger]:hover{background:var(--del)}
+button[data-primary]{background:var(--accent);border-color:var(--accent);color:#fff;font-weight:500}button[data-primary]:active{filter:brightness(.85);background:var(--accent)}@media(hover:hover){button[data-primary]:hover{filter:brightness(.92);background:var(--accent)}}
+button[data-danger]{color:var(--alert)}button[data-danger]:active{background:var(--del)}@media(hover:hover){button[data-danger]:hover{background:var(--del)}}
 button[data-primary]:disabled,button[data-danger]:disabled{filter:none;opacity:.55}
 /* status-badge: one vocabulary for states. kind sets the tone. */
 status-badge{display:inline-block;vertical-align:middle;padding:0 6px;border-radius:3px;font:11px/18px var(--mono);color:var(--muted);background:var(--hover);white-space:nowrap}
@@ -47,26 +47,26 @@ img{max-width:100%}
 #footer td:last-child{text-align:right}
 #prompt{color:var(--muted)}#prompt b{color:var(--ink);font-weight:500}
 #who{color:var(--muted)}#who b,#who nostr-key,#who nostr-name{color:var(--ink)}
-#who button{border:0;background:none;padding:0;color:var(--accent);font:inherit}#who button:hover{text-decoration:underline}
+#who button{border:0;background:none;padding:0;color:var(--accent);font:inherit}#who button:active{text-decoration:underline}@media(hover:hover){#who button:hover{text-decoration:underline}}
 #railbox{box-sizing:border-box;padding-bottom:44px}
 #rail nav+nav{margin-top:14px}
 #rail nav[data-label]{margin-top:6px}#rail nav[data-label]::before{content:attr(data-label);display:block;padding:8px 2ch 2px 2.5ch;font:11px var(--mono);color:var(--muted);text-transform:uppercase;letter-spacing:.04em}
 #rail nav a[data-count]::after{content:attr(data-count);float:right;min-width:18px;padding:0 5px;border-radius:9px;background:var(--wait-soft);color:var(--wait);font:11px/18px var(--mono);text-align:center;margin-top:8px}
-#rail-tools{position:absolute;left:0;right:0;bottom:0;margin:0;padding:10px 2ch 10px 2.5ch;font:12px var(--mono)}#rail-tools a{float:left;color:var(--muted)}#rail-tools a:hover{color:var(--ink)}#rail-tools button{float:right}
+#rail-tools{position:absolute;left:0;right:0;bottom:0;margin:0;padding:10px 2ch 10px 2.5ch;font:12px var(--mono)}#rail-tools a{float:left;color:var(--muted)}#rail-tools a:active{color:var(--ink)}@media(hover:hover){#rail-tools a:hover{color:var(--ink)}}#rail-tools button{float:right}
 /* The install hint sits on the footer's centre line so it never moves the prompt or the session. */
-#install{position:absolute;left:50%;top:0;transform:translateX(-50%);border:0;background:none;padding:0;color:var(--muted);font:12px var(--mono);line-height:27px;cursor:pointer}#install:hover{color:var(--ink);text-decoration:underline}#install[hidden]{display:none}
+#install{position:absolute;left:50%;top:0;transform:translateX(-50%);border:0;background:none;padding:0;color:var(--muted);font:12px var(--mono);line-height:27px;cursor:pointer}#install:active{color:var(--ink);text-decoration:underline}@media(hover:hover){#install:hover{color:var(--ink);text-decoration:underline}}#install[hidden]{display:none}
 share-link{display:inline-block}share-link:empty{display:none}
-#theme{border:0;background:none;padding:0;color:var(--muted);font:inherit}html[data-js=no] #theme{display:none}#theme:hover{color:var(--ink);text-decoration:underline}
+#theme{border:0;background:none;padding:0;color:var(--muted);font:inherit}html[data-js=no] #theme{display:none}#theme:active{color:var(--ink);text-decoration:underline}@media(hover:hover){#theme:hover{color:var(--ink);text-decoration:underline}}
 
 /* Rail */
 #rail header{height:60px;box-sizing:border-box;border-bottom:1px solid var(--line);font:13px var(--mono);display:table;width:100%}
 #rail header>span{display:table-cell;vertical-align:middle;line-height:1.3;padding:0 2ch 0 2.5ch;overflow-wrap:break-word}
 #rail header a{color:var(--muted)}#rail header b{font-weight:500}
 #mark{display:inline-block;font:800 26px/1 var(--sans);letter-spacing:-.04em;text-decoration:underline;text-decoration-color:var(--accent);text-decoration-thickness:4px;text-underline-offset:5px}
-#rail header a#mark{color:var(--ink)}#mark:hover{text-decoration-color:var(--ink)}
+#rail header a#mark{color:var(--ink)}@media(hover:hover){#mark:hover{text-decoration-color:var(--ink)}}
 #mark i{font-style:normal}#mark i:nth-child(1){color:var(--w1)}#mark i:nth-child(2){color:var(--w4)}#mark i:nth-child(3){color:var(--w3)}#mark i:nth-child(4){color:var(--w2)}
 #rail nav a{display:block;box-sizing:border-box;height:36px;padding:0 2ch 0 2.5ch;border-bottom:1px solid var(--line);font:13px/35px var(--mono);color:var(--ink)}
-#rail nav a:hover{background:var(--hover);text-decoration:none}
+#rail nav a:active{background:var(--hover);text-decoration:none}@media(hover:hover){#rail nav a:hover{background:var(--hover);text-decoration:none}}
 #rail nav a[aria-current=page]{background:var(--soft)}
 #rail p{padding:10px 2ch 10px 2.5ch;margin:0;font:12px var(--mono);color:var(--muted)}
 
@@ -87,11 +87,11 @@ share-link{display:inline-block}share-link:empty{display:none}
 #panel json-view{margin-top:4px}
 
 /* Rows: the list rhythm used by repositories, files, history, and activity. */
-#rows{width:100%;border-collapse:collapse}
+#rows{width:100%;border-collapse:collapse;table-layout:fixed}
 #rows td{height:36px;border-bottom:1px solid var(--line);padding:0 10px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;vertical-align:middle}
 #rows td:first-child{width:120px;font:13px var(--mono);color:var(--accent)}
 #rows td:last-child{width:170px;text-align:right;font:12px var(--mono);color:var(--muted)}
-#rows tr:hover td{background:var(--hover)}
+#rows tbody tr:active{background:var(--hover)}@media(hover:hover){#rows tbody tr:hover{background:var(--hover)}}
 #rows th{text-align:left;font:12px var(--mono);color:var(--muted);font-weight:normal;padding:0 10px;height:28px;border-bottom:1px solid var(--line)}
 #rows th:last-child{text-align:right}
 #rows td a{color:inherit}#rows td:first-child a{color:var(--accent)}
@@ -281,7 +281,7 @@ source-view tfoot td,diff-view tfoot td{white-space:normal;color:var(--muted);fo
 diff-view ins,diff-view del{text-decoration:none}diff-view tr:has(ins){background:var(--add)}diff-view tr:has(del){background:var(--del)}diff-view b{color:var(--muted);font-weight:600}
 diff-view caption{text-align:left;font:13px var(--mono);padding:8px 12px;border-bottom:1px solid var(--line);caption-side:top}
 /* Review comments: the link that starts one on a diff line, and the comments placed under that line. */
-diff-view td>small{margin-left:12px;font:11px var(--sans)}diff-view td>small a{color:var(--muted);text-decoration:none}diff-view tr:hover td>small a,diff-view td>small a:focus{color:var(--fg);text-decoration:underline}
+diff-view td>small{margin-left:12px;font:11px var(--sans)}diff-view td>small a{color:var(--muted);text-decoration:none}diff-view td>small a:active,diff-view td>small a:focus{color:var(--fg);text-decoration:underline}@media(hover:hover){diff-view tr:hover td>small a{color:var(--fg);text-decoration:underline}}
 diff-view td>nostr-event{white-space:normal;max-width:720px;border:0;padding:6px 0 4px}diff-view td>details{white-space:normal;font:12px var(--mono);margin:0 0 8px}diff-view td>details>summary{cursor:pointer;color:var(--muted)}diff-view td>details nostr-compose{border-bottom:0;padding:6px 0 0}
 #reply-anchor{font:13px var(--sans);color:var(--muted)}#events li>p{margin:-6px 0 8px;font:12px var(--mono);color:var(--muted)}
 
@@ -318,6 +318,7 @@ wiki-compose output{display:block;font:12px var(--mono);color:var(--muted);margi
 #room-list room-avatar img{display:block;width:100%;height:100%;border-radius:50%;object-fit:cover}
 #rooms #rows room-avatar,#chat #rows room-avatar{display:inline-block;vertical-align:middle;width:32px;height:32px;margin-right:8px}
 #rooms #rows room-avatar img,#chat #rows room-avatar img{display:block;width:100%;height:100%;border-radius:50%;object-fit:cover}
+#approvals #rows{table-layout:fixed}#approvals #rows td:first-child{width:150px}#approvals #rows td:last-child{width:230px}#approvals #rows td:last-child time{color:var(--muted);font:12px var(--mono)}
 #rooms #rows,#chat #rows{table-layout:fixed}#rooms #rows td:first-child,#chat #rows td:first-child{width:220px}#rooms #rows td:nth-child(3){text-align:right;width:80px;font:12px var(--mono)}
 #content>section#room,#content>section#thread{padding-bottom:0}
 #room h1 small,#thread h1 small{font:12px var(--mono);color:var(--muted)}
@@ -358,7 +359,7 @@ room-compose textarea::placeholder{color:var(--muted);opacity:1}
 room-compose-bar>button{position:absolute;bottom:4px;width:44px;height:44px;padding:11px;border:0;border-radius:12px;line-height:0}
 room-compose-bar>button[data-attach]{left:4px;background:transparent;color:var(--muted)}
 room-compose-bar>button[type=submit]{right:4px;background:var(--accent);color:var(--paper)}
-room-compose-bar>button:hover{filter:brightness(.9)}
+room-compose-bar>button:active{filter:brightness(.85)}@media(hover:hover){room-compose-bar>button:hover{filter:brightness(.9)}}
 room-compose-bar>button:disabled{opacity:.55;filter:none}
 room-compose button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 room-compose [hidden]{display:none}
@@ -397,7 +398,7 @@ signer-connection>button{position:absolute;right:8px;top:0;min-width:88px;height
 body:has(signer-connection:not([hidden])) #session-status{display:none}
 #mobile-back,#menu{display:block;box-sizing:border-box;width:44px;height:44px;padding:10px;border:0;border-radius:10px;background:transparent;color:var(--ink);line-height:0;cursor:pointer;text-align:center}
 #mobile-back{position:absolute;top:calc(10px + env(safe-area-inset-top,0px));left:calc(6px + env(safe-area-inset-left,0px))}
-#mobile-back:hover,#menu:hover,#context-toggle:hover{background:var(--hover);text-decoration:none}
+#mobile-back:active,#menu:active,#context-toggle:active{background:var(--hover);text-decoration:none}@media(hover:hover){#mobile-back:hover,#menu:hover,#context-toggle:hover{background:var(--hover);text-decoration:none}}
 #nav-menu{position:absolute;right:calc(8px + env(safe-area-inset-right,0px));top:calc(10px + env(safe-area-inset-top,0px));margin:0}
 #menu,#context-toggle{list-style:none}
 #menu::-webkit-details-marker,#context-toggle::-webkit-details-marker{display:none}
@@ -447,7 +448,7 @@ html[data-js=no] #mobile-actions page-link{display:none}
 #navigation-status:not(:empty),#session-status:not(:empty){position:fixed;bottom:env(safe-area-inset-bottom,0px);left:0;right:0;padding:6px 12px;background:var(--rail);border-top:1px solid var(--line);white-space:normal}
 #split,#split>tbody,#split>tbody>tr,#split>tbody>tr>td{display:block;width:auto}
 #tree{border-right:0;border-bottom:1px solid var(--line)}
-#rows{table-layout:fixed}#rows td{white-space:normal;overflow-wrap:anywhere;height:auto;padding:8px 6px;line-height:1.35}#rows td:first-child{width:90px}#rows td:last-child{width:80px}#rows:has(td[data-state]) td:nth-child(3),#rows:has(td[data-state]) th:nth-child(3){display:none}#rows:has(td[data-state]) td:last-child{width:80px}connect-list #rows td:nth-child(2),connect-list #rows th:nth-child(2){display:none}connect-list #rows td:nth-child(3),connect-list #rows td:last-child{width:auto}connect-list #rows td:last-child{white-space:normal}connect-list #rows td:last-child button{margin:2px 0}
+#approvals #rows td:first-child{width:90px}#approvals #rows td:last-child{width:96px}#approvals #rows td:nth-child(2) a{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden}#rows td{white-space:normal;overflow-wrap:anywhere;height:auto;padding:8px 6px;line-height:1.35}#rows td:first-child{width:90px}#rows td:last-child{width:80px}#rows:has(td[data-state]) td:nth-child(3),#rows:has(td[data-state]) th:nth-child(3){display:none}#rows:has(td[data-state]) td:last-child{width:80px}connect-list #rows td:nth-child(2),connect-list #rows th:nth-child(2){display:none}connect-list #rows td:nth-child(3),connect-list #rows td:last-child{width:auto}connect-list #rows td:last-child{white-space:normal}connect-list #rows td:last-child button{margin:2px 0}
 #grid,#gridhead,h2:has(+#gridhead){display:none}
 #signin #bunker label{display:block}
 #signin #bunker-url{display:block;width:100%;min-width:0;margin-top:2px}
@@ -566,7 +567,7 @@ direct-start input{display:block;width:100%;margin:6px 0 10px;min-height:42px;fo
 direct-start button,direct-compose button{min-height:40px;padding:8px 16px;border-radius:7px}direct-compose button{background:var(--accent);color:var(--paper);border:0}
 direct-chats{margin:8px 0 24px}
 direct-chats>a{display:block;position:relative;padding:14px 12px 14px 56px;border-bottom:1px solid var(--line);color:var(--ink);min-height:34px;overflow-wrap:anywhere}
-direct-chats>a:hover{background:var(--rail);text-decoration:none}
+direct-chats>a:active{background:var(--rail);text-decoration:none}@media(hover:hover){direct-chats>a:hover{background:var(--rail);text-decoration:none}}
 direct-chats>a [data-author]{font-weight:600}
 direct-chats>a nostr-avatar{position:absolute;left:10px;top:15px;width:32px;height:32px}
 direct-chats>a time{display:block;color:var(--muted);font:11px/1.5 var(--mono);margin-top:4px}
@@ -635,7 +636,7 @@ chat-decision{display:block;margin-top:10px}chat-decision button{margin-right:8p
 chat-decision fieldset{min-width:0;margin:0 0 12px;padding:8px;border:1px solid var(--line);border-radius:8px}
 chat-decision legend{padding:0 4px;color:var(--muted)}
 chat-decision fieldset label{display:block;position:relative;box-sizing:border-box;min-height:44px;padding:10px 8px 10px 32px;border-radius:5px;cursor:pointer;overflow-wrap:anywhere}
-chat-decision fieldset label:hover{background:var(--hover)}
+chat-decision fieldset label:active{background:var(--hover)}@media(hover:hover){chat-decision fieldset label:hover{background:var(--hover)}}
 chat-decision fieldset label:has(input:checked){background:var(--soft)}
 chat-decision fieldset input{position:absolute;left:8px;top:10px;margin:3px 0 0;accent-color:var(--accent)}
 chat-decision label:has(textarea){display:block}
