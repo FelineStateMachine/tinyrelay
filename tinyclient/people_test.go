@@ -96,7 +96,7 @@ func TestPeoplePageListsAccessRequestsWithDecisions(t *testing.T) {
 	recorder = httptest.NewRecorder()
 	app.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/manage/people", nil))
 	body = recorder.Body.String()
-	for _, want := range []string{`<h3>Access requests</h3>`, `<p>No pending requests.</p>`, `<ul id="decided">`, `<td>0 pending</td>`} {
+	for _, want := range []string{`<h3>Access requests</h3>`, `<p data-empty>No pending requests.</p>`, `<ul id="decided">`, `<td>0 pending</td>`} {
 		if !strings.Contains(body, want) {
 			t.Errorf("empty people page missing %q", want)
 		}

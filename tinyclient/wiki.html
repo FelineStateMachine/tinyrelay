@@ -9,7 +9,7 @@
 {{range .Feed}}{{$p := asMap .}}{{$v := asMap (index $p "version")}}{{$s := wikiProposal $v $.Actor $can}}<tr{{if $s.Shown}} data-state="{{$s.State}}"{{end}}><td><a href="{{wikiURL (str (index $p "d"))}}">{{str (index $p "title")}}</a>{{if $s.Shown}} <small>proposed | {{$s.State}}</small>{{end}}</td><td>{{template "nostrName" (str (index $v "author"))}}</td><td>{{str (index $p "versions")}}</td><td>{{str (index $p "open_merges")}} open</td><td>{{when (index $v "created_at")}}</td></tr>
 {{end}}</tbody>
 </table>
-{{else}}<p>No pages yet.</p>
+{{else}}<p data-empty>No pages yet.</p>
 {{end}}{{with (asMap .Event).next_cursor}}<p id="pages"><a href="{{browsePageURL "/wiki" $.Query "cursor" .}}">next page</a></p>
 {{end}}</section>
 {{end}}

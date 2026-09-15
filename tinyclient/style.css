@@ -12,10 +12,17 @@ code,kbd,samp,pre{font-family:var(--mono);font-size:13px}
 h1{font-size:24px;margin:0 0 12px}h2{font-size:17px;margin:22px 0 8px}h3{font-size:14px;margin:18px 0 6px}
 p{margin:0 0 10px}
 small{color:var(--muted)}
-[role=alert]{color:var(--alert)}
-[role=status]{color:var(--muted)}
-input,select,textarea,button{font:inherit;color:inherit;background:var(--paper);border:1px solid var(--line);padding:4px 8px;box-sizing:border-box;max-width:100%}
-button{cursor:pointer;background:var(--rail)}button:active{background:var(--hover)}@media(hover:hover){button:hover{background:var(--hover)}}button:disabled{cursor:default;color:var(--muted)}
+#content [role=alert]{margin:0 0 14px;padding:10px 14px;border:1px solid var(--del);border-radius:8px;background:var(--del);color:var(--alert)}[role=alert]{color:var(--alert)}
+[role=status]{color:var(--muted)}p[data-empty]{margin:8px 0 16px;padding:22px 16px;border:1px dashed var(--line);border-radius:8px;color:var(--muted);text-align:center}
+input,select,textarea,button{font:inherit;color:inherit;background:var(--paper);border:1px solid var(--line);border-radius:6px;padding:5px 10px;box-sizing:border-box;max-width:100%;accent-color:var(--accent)}
+input:not([type=checkbox]):not([type=radio]):not([type=file]):not([type=range]),select,button{min-height:32px}
+input[type=checkbox],input[type=radio]{width:15px;height:15px;padding:0;margin:0 6px 0 0;vertical-align:-2px}
+input[type=file]{padding:4px 0;border:0;background:transparent}
+:is(input,select,textarea):focus-visible{outline:2px solid var(--accent);outline-offset:0;border-color:var(--accent)}
+:is(button,a,summary,[tabindex]):focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+@media(hover:hover){:is(input,select,textarea):hover:not(:focus):not(:disabled){border-color:var(--muted)}}
+@media(prefers-reduced-motion:no-preference){button,input,select,textarea,#rail nav a,#rows tbody tr,summary{transition:background-color .12s,border-color .12s,color .12s,filter .12s}}
+button{cursor:pointer;background:var(--rail);padding:5px 12px;font-size:13px;font-weight:500;line-height:20px}button:active{background:var(--hover)}@media(hover:hover){button:hover{background:var(--hover)}}button:disabled{cursor:default;color:var(--muted)}
 /* Three button levels: the quiet default, one primary action per view, and destructive. */
 button[data-primary]{background:var(--accent);border-color:var(--accent);color:#fff;font-weight:500}button[data-primary]:active{filter:brightness(.85);background:var(--accent)}@media(hover:hover){button[data-primary]:hover{filter:brightness(.92);background:var(--accent)}}
 button[data-danger]{color:var(--alert)}button[data-danger]:active{background:var(--del)}@media(hover:hover){button[data-danger]:hover{background:var(--del)}}
@@ -27,7 +34,7 @@ status-badge[kind=wait],status-badge[kind=pending],status-badge[kind=paused],sta
 status-badge[kind=alert],status-badge[kind=denied],status-badge[kind=rejected],status-badge[kind=revoked]{color:var(--alert);background:var(--del)}
 status-badge[kind=agent]{color:var(--ink);background:transparent;border:1px solid var(--ink);line-height:16px}
 h1 status-badge,h2 status-badge{margin-left:8px;vertical-align:middle}
-textarea{width:100%;min-height:5em;font-family:var(--mono);font-size:13px}
+textarea{width:100%;min-height:5em;padding:8px 10px;border-radius:8px;font-family:var(--mono);font-size:13px;line-height:1.5}
 pre{white-space:pre-wrap;overflow-wrap:anywhere}
 img{max-width:100%}
 
@@ -145,11 +152,12 @@ dl{margin:.5rem 0}dt{font-weight:600}dd{margin:0 0 .35rem 1rem}
 [data-markdown-table] [data-align=left]{text-align:left}[data-markdown-table] [data-align=center]{text-align:center}[data-markdown-table] [data-align=right]{text-align:right}
 
 /* rpc-form, signed-form, publish-list: one signed call each. */
-rpc-form,signed-form,publish-list,nostr-compose,file-tools,file-upload,file-workspace-root:not([hidden]){display:block;border-bottom:1px solid var(--line);padding:10px 0}
+rpc-form,signed-form,publish-list,nostr-compose,file-tools,file-upload,file-workspace-root:not([hidden]){display:block;margin:0 0 12px;padding:14px 16px;border:1px solid var(--line);border-radius:8px;background:var(--surface)}
+rpc-form>button,signed-form>button,rpc-form>form>button,signed-form>form>button{vertical-align:bottom;margin-bottom:8px}
 nostr-compose,file-tools,file-upload,file-workspace-root{max-width:720px}
 file-tools h3,file-upload h3{margin:0 0 4px}file-tools p,file-upload p{margin:6px 0}
-rpc-form label,signed-form label,publish-list label,nostr-compose label,file-tools label,file-upload label,#collaboration-filter label,#file-search label,#wiki-search label{display:inline-block;margin:0 10px 6px 0;vertical-align:top;font:13px var(--sans);color:var(--muted)}
-rpc-form label input,rpc-form label select,signed-form label input,nostr-compose label input,nostr-compose label select,file-tools label input,file-tools label select,file-upload label input,#collaboration-filter label input,#collaboration-filter label select,#file-search label input,#wiki-search label input{display:block;margin-top:2px;font:13px var(--mono);min-width:200px}
+rpc-form label,signed-form label,publish-list label,nostr-compose label,file-tools label,file-upload label,#collaboration-filter label,#file-search label,#wiki-search label{display:inline-block;margin:0 12px 8px 0;vertical-align:top;font:12px/1.4 var(--sans);color:var(--muted)}
+rpc-form label input,rpc-form label select,signed-form label input,nostr-compose label input,nostr-compose label select,file-tools label input,file-tools label select,file-upload label input,#collaboration-filter label input,#collaboration-filter label select,#file-search label input,#wiki-search label input{display:block;margin-top:4px;font:13px var(--mono);min-width:220px;color:var(--ink)}
 file-upload label[data-share]{display:block}file-upload input[data-share-url]{width:100%}
 file-upload form>label,file-upload [data-share] label{display:block;max-width:100%;margin-right:0}
 file-upload select,file-upload progress{display:block;width:100%;max-width:100%;margin:6px 0 10px}
@@ -162,7 +170,8 @@ file-upload label:has([type=checkbox]),#panel file-upload label:has([type=checkb
 #panel file-upload [hidden],file-upload [hidden],file-tools [hidden],#panel push-toggle [hidden]{display:none}
 #panel push-toggle label{display:inline-block;margin:6px 12px 0 0}#panel push-toggle label input{display:inline-block;width:auto;min-width:0;margin:0 4px 0 0;vertical-align:middle}#panel push-toggle form{margin-top:4px}
 file-upload p[data-drop]{margin:6px 0;color:var(--muted);font-size:12px}file-upload p[data-drop]>button{display:block;margin-bottom:4px}file-upload[data-over]{outline:1px dashed var(--accent);outline-offset:4px}
-#panel file-upload,#panel file-mirror{border:0;padding:0;max-width:none}#panel details{margin-top:8px}#panel details>summary{cursor:pointer;color:var(--muted);font-size:12px}
+#panel file-upload,#panel file-mirror{border:0;background:none;border-radius:0;margin:0;padding:0;max-width:none}#panel details{margin-top:8px}#panel details>summary{cursor:pointer;color:var(--muted);font-size:12px}
+summary{cursor:pointer;list-style:none}summary::-webkit-details-marker{display:none}summary::before{content:"";display:inline-block;width:6px;height:6px;margin:0 8px 1px 1px;border:solid var(--muted);border-width:0 1.5px 1.5px 0;transform:rotate(-45deg);transition:transform .12s}details[open]>summary::before{transform:rotate(45deg)}#topbar summary::before,#menu::before,#context-toggle::before{display:none}
 rpc-form label:has(textarea),publish-list label:has(textarea),nostr-compose label:has(textarea){display:block}
 rpc-form output,signed-form output,publish-list output,nostr-compose output,file-tools output,file-upload output,file-workspace-root output,private-services output{display:block;font:12px var(--mono);color:var(--muted);margin-top:4px;overflow-wrap:anywhere}
 rpc-form output[data-error],file-tools output[data-error],file-upload output[data-error]{color:var(--alert)}
@@ -179,14 +188,14 @@ agent-card h3{margin:0 0 4px;border:0;font-size:15px}agent-card h3 small{font:12
 agent-card table{border-collapse:collapse;font:13px var(--mono);width:auto;margin:0}
 agent-card th{text-align:left;font-weight:normal;color:var(--muted);width:9em;padding:3px 0;border:0;vertical-align:top}agent-card td{padding:3px 0;border:0;overflow-wrap:anywhere}
 agent-card td code{color:var(--muted)}
-agent-card p{margin:8px 0 0}agent-card rpc-form{display:inline-block;border:0;padding:0;margin:0 8px 0 0;vertical-align:top}agent-card rpc-form output:empty{display:none}
+agent-card p{margin:8px 0 0}agent-card rpc-form{display:inline-block;border:0;background:none;padding:0;margin:0 8px 0 0;vertical-align:top}agent-card rpc-form output:empty{display:none}
 agent-card p>a{display:inline-block;font:12px var(--mono);line-height:29px;vertical-align:top;margin-right:10px}#rows td status-badge+small{margin-left:6px}
 /* #requests: access requests waiting for a decision, with their controls. #decided lists the last answered ones. */
 #requests{border-collapse:collapse;width:100%;max-width:720px;font:13px var(--mono)}
 #requests th{text-align:left;font:12px var(--mono);color:var(--muted);font-weight:normal;padding:0 6px;height:28px;border-bottom:1px solid var(--line)}
 #requests td{padding:8px 6px;border-bottom:1px solid var(--line);vertical-align:top;overflow-wrap:anywhere;line-height:1.35}
 #requests td:nth-child(2){font-family:var(--sans)}#requests td:nth-child(3){white-space:nowrap;color:var(--muted);font-size:12px}#requests td:last-child{white-space:nowrap;width:150px}
-#requests rpc-form{display:inline-block;border:0;padding:0;margin:0 6px 0 0;vertical-align:middle}#requests rpc-form output:empty{display:none}#requests button{font-size:12px;padding:1px 6px}
+#requests rpc-form{display:inline-block;border:0;background:none;padding:0;margin:0 6px 0 0;vertical-align:middle}#requests rpc-form output:empty{display:none}#requests button{font-size:12px;padding:2px 8px;min-height:26px;line-height:18px}
 #decided{list-style:none;margin:8px 0 0;padding:0;max-width:720px}#decided li{padding:3px 0;font:13px var(--mono)}#decided li small{color:var(--muted)}
 #decided li[data-state=approved] small{color:var(--accent)}#decided li[data-state=denied] small{color:var(--alert)}
 
@@ -195,25 +204,25 @@ agent-card p>a{display:inline-block;font:12px var(--mono);line-height:29px;verti
 #custom-views th{text-align:left;font:12px var(--mono);color:var(--muted);font-weight:normal;padding:0 6px;height:28px;border-bottom:1px solid var(--line)}
 #custom-views td{padding:8px 6px;border-bottom:1px solid var(--line);vertical-align:top;overflow-wrap:anywhere;line-height:1.35}
 #custom-views td:nth-child(7){white-space:nowrap;color:var(--muted);font-size:12px}#custom-views td:last-child{white-space:nowrap;width:210px}
-#custom-views rpc-form{display:inline-block;border:0;padding:0;margin:0 6px 0 0;vertical-align:middle}#custom-views rpc-form output:empty{display:none}#custom-views button{font-size:12px;padding:1px 6px}
+#custom-views rpc-form{display:inline-block;border:0;background:none;padding:0;margin:0 6px 0 0;vertical-align:middle}#custom-views rpc-form output:empty{display:none}#custom-views button{font-size:12px;padding:2px 8px;min-height:26px;line-height:18px}
 #custom-views-empty{color:var(--muted);font:13px var(--sans)}
 view-form{display:block;border-bottom:1px solid var(--line);padding:10px 0;max-width:720px}
 view-form label{display:inline-block;margin:0 10px 6px 0;vertical-align:top;font:13px var(--sans);color:var(--muted)}
-view-form label input,view-form label select{display:block;margin-top:2px;font:13px var(--mono);min-width:200px}
+view-form label input,view-form label select{display:block;margin-top:4px;font:13px var(--mono);min-width:220px;color:var(--ink)}
 view-form [role=alert]{color:var(--alert);font:13px var(--sans);margin:8px 0 4px}view-form label[data-secret] input{min-width:320px}
 /* figure[data-view]: a transparent artifact with a native source disclosure. */
 figure[data-view]{margin:12px 0}view-artifact{display:block}view-artifact img{display:block;max-width:100%;height:auto;background:transparent}view-artifact img[hidden]{display:none}view-artifact details{margin-top:6px}view-artifact details>summary{cursor:pointer;color:var(--muted);font:12px var(--mono)}view-artifact pre{margin:6px 0 0}
 /* agent-callback: one registered callback on an agent card, with its controls. */
 agent-callback{display:block;margin:0 0 4px}agent-callback code{color:inherit}
-agent-callback rpc-form{display:inline-block;border:0;padding:0;margin:0 0 0 6px;vertical-align:middle}agent-callback rpc-form output:empty{display:none}agent-callback button{font-size:12px;padding:1px 6px}
+agent-callback rpc-form{display:inline-block;border:0;background:none;padding:0;margin:0 0 0 6px;vertical-align:middle}agent-callback rpc-form output:empty{display:none}agent-callback button{font-size:12px;padding:2px 8px;min-height:26px;line-height:18px}
 #rows:has(td[data-state]){table-layout:fixed}#rows:has(td[data-state]) td:nth-child(3){width:110px}#rows:has(td[data-state]) td:last-child{width:150px}
 [data-state=active],#rows td[data-state=active]{color:var(--accent)}[data-state=paused],#rows td[data-state=paused]{color:var(--bark)}[data-state=revoked],#rows td[data-state=revoked]{color:var(--alert)}
 agent-grant,profile-form{display:block;border-bottom:1px solid var(--line);padding:10px 0;max-width:720px}
 agent-grant label,profile-form label{display:inline-block;margin:0 10px 6px 0;vertical-align:top;font:13px var(--sans);color:var(--muted)}
-agent-grant label input,agent-grant label select,profile-form label input{display:block;margin-top:2px;font:13px var(--mono);min-width:200px}profile-form label:has(textarea){display:block}profile-form textarea{display:block;width:100%;max-width:520px;min-height:3em;font:13px var(--mono)}profile-form output{white-space:pre-wrap}
+agent-grant label input,agent-grant label select,profile-form label input{display:block;margin-top:4px;font:13px var(--mono);min-width:220px;color:var(--ink)}profile-form label:has(textarea){display:block}profile-form textarea{display:block;width:100%;max-width:520px;min-height:3em;font:13px var(--mono)}profile-form output{white-space:pre-wrap}
 agent-grant label:has(textarea),agent-grant label[data-secret]{display:block}agent-grant label[data-secret] input{width:100%}agent-grant label[hidden]{display:none}
 agent-grant output,profile-form output{display:block;font:12px var(--mono);color:var(--muted);margin-top:4px;overflow-wrap:anywhere}agent-grant output[data-error],profile-form output[data-error]{color:var(--alert)}
-#panel rpc-form{border:0;padding:4px 0}#panel rpc-form output:empty{display:none}
+#panel rpc-form{border:0;background:none;border-radius:0;margin:0;padding:4px 0}#panel rpc-form output:empty{display:none}
 connect-card{display:block;border-bottom:1px solid var(--line);padding:10px 0;max-width:720px}connect-card h3{margin:0 0 4px;border:0;font-size:15px}connect-card h3 small{font:12px var(--mono);color:var(--muted)}connect-card p{margin:0 0 6px;color:var(--muted)}connect-card label{display:inline-block;font:13px var(--sans);color:var(--muted);margin:0 10px 6px 0}connect-card label input{display:block;font:13px var(--mono);min-width:200px}connect-card a,connect-card button{margin-right:10px;font-size:13px}connect-card output{display:block;font:12px var(--mono);color:var(--muted);overflow-wrap:anywhere}connect-card details img{display:block;margin:6px 0;background:#fff;padding:6px;border:1px solid var(--line)}
 
 /* json-view: structured rendering of any JSON payload. */
@@ -296,7 +305,7 @@ wiki-proposal[data-state=pending],collaboration-proposal[data-state=pending]{bor
 #events li>collaboration-proposal,diff-view td>collaboration-proposal{margin:6px 0 8px;max-width:none}#collaboration-list #rows tr[data-state] td:nth-child(2)>small:first-of-type{font:12px var(--mono)}#collaboration-list #rows tr[data-state=pending] td:nth-child(2)>small:first-of-type{color:var(--bark)}#collaboration-list #rows tr[data-state=approved] td:nth-child(2)>small:first-of-type{color:var(--accent)}#collaboration-list #rows tr[data-state=rejected] td:nth-child(2)>small:first-of-type{color:var(--alert)}
 #merge-status{font:12px var(--mono);color:var(--muted)}#wiki-compare h2{margin-top:18px}#wiki-redirects,#wiki-revision-note{font:12px var(--mono);color:var(--muted)}#wiki-revision-note{margin:0 0 10px}wiki-proposal>small{display:block;margin-top:4px;font:12px var(--mono);color:var(--muted)}#wiki-page #rows td small{font:12px var(--mono);color:var(--muted)}
 wiki-compose{display:block;max-width:720px;border-bottom:1px solid var(--line);padding:10px 0}
-wiki-compose label{display:inline-block;margin:0 10px 6px 0;vertical-align:top;font:13px var(--sans);color:var(--muted)}wiki-compose label input{display:block;margin-top:2px;font:13px var(--mono);min-width:200px}
+wiki-compose label{display:inline-block;margin:0 10px 6px 0;vertical-align:top;font:13px var(--sans);color:var(--muted)}wiki-compose label input{display:block;margin-top:4px;font:13px var(--mono);min-width:220px;color:var(--ink)}
 wiki-compose label:has(textarea){display:block}wiki-compose textarea{min-height:14em}wiki-compose button{margin-right:6px}
 wiki-compose output{display:block;font:12px var(--mono);color:var(--muted);margin-top:4px;overflow-wrap:anywhere}wiki-compose output[data-error]{color:var(--alert)}
 
@@ -377,9 +386,9 @@ room-files button{position:absolute;right:0;top:0;width:44px;height:44px;padding
 room-compose output,room-create output,room-action output{display:block;font:12px var(--mono);color:var(--muted);margin-top:4px;overflow-wrap:anywhere}
 room-compose output:empty{display:none}
 room-compose output[data-error],room-create output[data-error],room-action output[data-error]{color:var(--alert)}
-room-create{display:block;max-width:720px;border-bottom:1px solid var(--line);padding:10px 0}
-room-create label{display:inline-block;margin:0 10px 6px 0;vertical-align:top;font:13px var(--sans);color:var(--muted)}
-room-create label input,room-create label select{display:block;margin-top:2px;font:13px var(--mono);min-width:200px}room-create label:has(textarea){display:block}
+room-create{display:block;max-width:720px;margin:0 0 12px;padding:14px 16px;border:1px solid var(--line);border-radius:8px;background:var(--surface)}
+room-create label{display:inline-block;margin:0 12px 8px 0;vertical-align:top;font:12px/1.4 var(--sans);color:var(--muted)}
+room-create label input,room-create label select{display:block;margin-top:4px;font:13px var(--mono);min-width:220px;color:var(--ink)}room-create label:has(textarea){display:block}
 room-action{display:block}#panel room-action label{margin-top:6px}#panel room-action button{margin-top:8px}
 #members li[data-agent] small{color:var(--bark)}
 #panel #members li{font:12px var(--mono);line-height:22px}
@@ -561,7 +570,7 @@ social-compose input:not([type=file]),social-compose textarea{width:100%;box-siz
 #direct-chat>header{padding-bottom:14px;border-bottom:1px solid var(--line)}
 #direct-chat h1{font-size:23px;overflow-wrap:anywhere}
 direct-start,direct-chats,direct-thread,direct-compose,direct-settings{display:block;min-width:0}
-direct-start{margin:12px 0 18px;padding:14px;background:var(--rail);border:1px solid var(--line);border-radius:10px}
+direct-start{margin:12px 0 18px;padding:14px 16px;background:var(--surface);border:1px solid var(--line);border-radius:8px}
 direct-start label{display:block;color:var(--muted);font-size:12px}
 direct-start input{display:block;width:100%;margin:6px 0 10px;min-height:42px;font-size:16px}
 direct-start button,direct-compose button{min-height:40px;padding:8px 16px;border-radius:7px}direct-compose button{background:var(--accent);color:var(--paper);border:0}

@@ -27,7 +27,7 @@
 {{with index $repo "events"}}<ol id="events">
 {{range .}}<li>{{template "nostrEvent" .}}</li>
 {{end}}</ol>
-{{else}}<p>No repository activity.</p>
+{{else}}<p data-empty>No repository activity.</p>
 {{end}}</section>
 {{else if or (eq $view "issues") (eq $view "prs") (eq $view "issue") (eq $view "pr")}}{{template "collaboration" .}}
 {{end}}{{end}}{{end}}

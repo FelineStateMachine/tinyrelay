@@ -86,7 +86,7 @@
 {{if .Error}}{{template "alert" .Error}}
 {{else if .Feed}}<h2>Results</h2>
 {{template "eventList" .}}
-{{else if .Query.Get "q"}}<p>No matching events.</p>
+{{else if .Query.Get "q"}}<p data-empty>No matching events.</p>
 {{end}}</section>
 {{end}}
 

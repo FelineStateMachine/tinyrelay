@@ -21,7 +21,7 @@
 {{if .Review}}<h3>Access requests</h3>
 {{with pendingRequests .Requests}}<table id="requests"><thead><tr><th>person</th><th>reason</th><th>asked</th><th></th></tr></thead><tbody>
 {{range .}}{{$r := asMap .}}{{$pk := str (index $r "pubkey")}}<tr><td>{{template "nostrName" $pk}}</td><td>{{with str (index $r "reason")}}{{.}}{{else}}<small>no reason given</small>{{end}}</td><td><time datetime="{{datetime (index $r "requested_at")}}">{{short (index $r "requested_at")}}</time></td><td><rpc-form method="approvejoin" refresh><input type="hidden" name="param" value="&quot;{{$pk}}&quot;"><button>Approve</button></rpc-form><rpc-form method="denyjoin" refresh><input type="hidden" name="param" value="&quot;{{$pk}}&quot;"><button>Deny</button></rpc-form></td></tr>
-{{end}}</tbody></table>{{else}}<p>No pending requests.</p>{{end}}
+{{end}}</tbody></table>{{else}}<p data-empty>No pending requests.</p>{{end}}
 {{with decidedRequests .Requests}}<ul id="decided">{{range .}}{{$r := asMap .}}{{$status := str (index $r "status")}}<li data-state="{{$status}}">{{template "nostrName" (str (index $r "pubkey"))}} <small>{{$status}}{{with index $r "decided_at"}}{{if short .}} <time datetime="{{datetime .}}">{{short .}}</time>{{end}}{{end}}{{with str (index $r "decided_by")}} by {{template "nostrName" .}}{{end}}</small></li>{{end}}</ul>{{end}}
 {{end}}<h3>Invites</h3>
 <rpc-form method="createinvite">
@@ -71,7 +71,7 @@
 {{$events := index . "events"}}{{if $events}}<ol id="events">
 {{range $events}}<li>{{template "nostrEvent" .}}</li>
 {{end}}</ol>
-{{else}}<p>No events from this agent yet.</p>
+{{else}}<p data-empty>No events from this agent yet.</p>
 {{end}}{{end}}
 {{$edit := agentByKey .Feed (.Query.Get "edit")}}{{$es := asMap (index (asMap $edit) "scope")}}<h3 id="grant">{{if $edit}}Replace the grant for {{agentLabel $edit}}{{else}}New agent{{end}}</h3>
 {{if $edit}}<p>Signing publishes a replacement grant for the same key.</p>

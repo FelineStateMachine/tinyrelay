@@ -213,5 +213,5 @@ then feature modules are loaded for the current page. */}}
 {{define "eventList"}}{{if .Feed}}<ol id="events">
 {{range .Feed}}<li>{{template "nostrEvent" .}}</li>
 {{end}}</ol>
-{{else}}<p>No events.</p>
+{{else}}<p data-empty>No events.</p>
 {{end}}{{end}}
