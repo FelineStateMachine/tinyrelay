@@ -638,9 +638,6 @@ chat-activity header small,chat-activity summary small{font:11px var(--mono);col
 chat-activity p{margin:6px 0;font:13px/1.5 var(--sans)}
 chat-activity details>div{font:13px/1.5 var(--sans)}
 chat-activity details>div pre{white-space:pre-wrap;overflow-wrap:anywhere;padding:8px;background:var(--paper)}
-chat-activity [data-status=processing],chat-activity [data-status=partial]{color:var(--bark)}
-chat-activity [data-status=success]{color:var(--accent)}
-chat-activity [data-status=error]{color:var(--alert)}
 chat-activity [data-status=accepted],chat-activity [data-status=running]{color:var(--bark)}
 chat-activity [data-status=done]{color:var(--accent)}
 chat-activity [data-status=failed],chat-activity [data-status=cancelled]{color:var(--alert)}
