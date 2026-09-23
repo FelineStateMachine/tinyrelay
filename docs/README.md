@@ -34,3 +34,7 @@ Agents sign with their own keys. A request for more access waits for the current
 - [Fixi and Paxi](fixi.md) explains page navigation, partial refreshes and signed forms.
 - [Testing](testing.md) covers local checks, browser fixtures, protocol conformance and Linux testing.
 - [Observability](observability.md) covers health, metrics, logs and profiling.
+
+## Design drafts
+
+- [Filter-scoped reading positions](filter-scoped-reading-positions.md) sketches an unimplemented NIP-style cursor for resuming an event stream across clients.
