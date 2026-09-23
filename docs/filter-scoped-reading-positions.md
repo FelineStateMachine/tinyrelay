@@ -8,7 +8,7 @@ Status: Draft. This is an imagined NIP for design review. Tinyrelay does not pub
 
 ## Abstract
 
-A reader can save a position in an ordered Nostr event stream and resume from the same event in another client. The stream is identified by a stable [NIP-01](https://github.com/nostr-protocol/nips/blob/master/01.md) filter. The position is an event ID and its `created_at` timestamp. An addressable event signed by the reader stores one position per context.
+A reader can save a position in an ordered Nostr event stream and resume from the same event in another client. The stream is identified by a canonical feed filter. This version supports a subset of [NIP-01](https://github.com/nostr-protocol/nips/blob/master/01.md) filters. The position is an event ID and its `created_at` timestamp. An addressable event signed by the reader stores one position per context.
 
 This draft defines a resume point. It does not define an unread count, a read receipt for other people or a claim that every earlier event was seen.
 
@@ -18,7 +18,7 @@ Clients already page through event streams with cursors, but a page cursor is ti
 
 ## Context
 
-A context is one NIP-01 filter object containing a nonempty `kinds` array of integers from 0 through 65535 and any of these optional selectors:
+In this version, a context is one NIP-01 filter object containing a nonempty `kinds` array of integers from 0 through 65535 and any of these optional selectors:
 
 - `authors`, containing full, lowercase public keys.
 - `ids`, containing full, lowercase event IDs.
@@ -83,7 +83,7 @@ Saving another position publishes a replacement for the same context, even if th
 
 ## Scope and compatibility
 
-This draft covers streams whose visible membership is fully described by the filter, with `scope` distinguishing an owning object when needed. A client that removes replies, classifies photos from media metadata, expands a thread recursively or applies another local rule has defined a different stream. It needs a stable, interoperable selector for that rule before it can share a position under this draft. In particular, a raw kind 1 filter does not precisely name tinyrelay's root-only Notes view.
+The feed filter is the full rule for deciding which events belong in the stream. A relay query may implement only part of that rule; a client can apply the remaining predicates after receiving events. In this version, the canonical filter contains only the NIP-01 fields listed above. Root-only posts, photos selected from media metadata and text search are also filter predicates, but this version does not define their canonical fields or matching rules. Clients cannot share an exact position for those views under this version. For example, `{"kinds":[1]}` includes replies, so it does not identify tinyrelay's root-only Notes feed.
 
 Clients that do not recognize the position kind ignore it. Relays need only ordinary event storage, addressable replacement and querying by author and `#d`; they do not interpret the cursor. A relay may reject the kind or not retain it, so a client must still work without a saved position.
 
@@ -95,4 +95,4 @@ A position is personal state, not authority over the referenced event or proof t
 
 ## Open design limit
 
-NIP-01 filters alone cannot name every application feed. Before tinyrelay applies this draft to Social categories or conversation views, those derived streams need a stable selector that clients can share. The position format can then identify that selector along with the filter in a later revision.
+The next revision should define canonical filter fields and matching rules for root posts, media categories and text search. Those fields belong in the same filter and its context key, so clients saving and retrieving a position identify the same feed. A client-specific route or category name does not define event membership.
